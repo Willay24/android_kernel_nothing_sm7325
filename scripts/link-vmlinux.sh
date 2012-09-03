@@ -83,7 +83,7 @@ modpost_link()
 		info LD ${1}
 	fi
 
-	${LDFINAL} ${KBUILD_LDFLAGS} -r -o ${1} $(lto_lds) ${objects}
+	${LDFINAL} ${KBUILD_LDFLAGS} -r ${KBUILD_MODPOST_LDFLAGS} -o ${1} $(lto_lds) ${objects}
 }
 
 # If CONFIG_LTO_CLANG is selected, we postpone running recordmcount until
@@ -109,7 +109,7 @@ vmlinux_link()
 	local objects
 	local strip_debug
 
-	info LD ${output}
+	info LDFINAL ${output}
 
 	# skip output file argument
 	shift
@@ -435,6 +435,7 @@ if [ -n "${CONFIG_QCOM_RTIC}" ]; then
 	fi
 fi
 
+info LDFINAL vmlinux
 vmlinux_link vmlinux "${kallsymso}" ${btf_vmlinux_bin_o}
 
 # fill in BTF IDs
