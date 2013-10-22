@@ -30,7 +30,7 @@
 #define _stringify_1(x)	#x
 #define _stringify(x)	_stringify_1(x)
 
-#define KSYM_NAME_LEN		192
+#define KSYM_NAME_LEN		256
 
 /* A substantially bigger size than the current maximum. */
 #define KSYM_NAME_LEN_BUFFER	499
