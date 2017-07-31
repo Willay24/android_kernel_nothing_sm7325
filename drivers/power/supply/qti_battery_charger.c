@@ -26,6 +26,13 @@
 #include "qti_typec_class.h"
 #include <linux/of_gpio.h>
 
+#ifdef CONFIG_FORCE_FAST_CHARGE
+#include <linux/moduleparam.h>
+#include <linux/fastchg.h>
+static int ffc_val = 900;
+module_param(ffc_val, int, 0644);
+#endif
+
 #define MSG_OWNER_BC			32778
 #define MSG_TYPE_REQ_RESP		1
 #define MSG_TYPE_NOTIFY			2
@@ -1124,6 +1131,19 @@ static int usb_psy_set_icl(struct battery_chg_dev *bcdev, u32 prop_id, int val)
 	 * port type. Also, clients like EUD driver can pass 0 or -22 to
 	 * suspend or unsuspend the input for its use case.
 	 */
+
+#ifdef CONFIG_FORCE_FAST_CHARGE
+	/*
+	 * Force fast charge: on SDP (plain USB 2.0 data port) the USB stack
+	 * only requests 500 mA, but the port may safely deliver more. When
+	 * force_fast_charge is enabled, override the requested ICL with
+	 * ffc_val (mA, converted to uA). Negative values (EUD suspend) and
+	 * non-SDP adapters are left untouched.
+	 */
+	if (force_fast_charge > 0 && val >= 0 &&
+	    pst->prop[USB_ADAP_TYPE] == POWER_SUPPLY_USB_TYPE_SDP)
+		val = ffc_val * 1000;
+#endif
 
 	temp = val;
 	if (val < 0)
