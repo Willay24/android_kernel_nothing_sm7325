@@ -71,3 +71,4 @@ obj-$(CONFIG_NT_HWID)		+= hardware_id.o
 obj-$(CONFIG_NT_SECURE_STATE)	+= secure_state.o
 obj-$(CONFIG_NT_SLOT_STATE)	+= slot_status.o
 obj-$(CONFIG_MMHARDWARE_DETECTION)	+= mmhardware_sysfs.o
+obj-$(CONFIG_FORCE_FAST_CHARGE) += fastchg.o
