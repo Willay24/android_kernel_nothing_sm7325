@@ -29,6 +29,11 @@
 #include "drm_internal.h"
 #include "drm_crtc_internal.h"
 
+/* HBM support, provided by the DSI display driver (techpack) */
+extern ssize_t dsi_display_set_hbm(struct drm_connector *connector,
+		int hbm_status);
+extern ssize_t dsi_display_get_hbm_status(struct drm_connector *connector);
+
 #define to_drm_minor(d) dev_get_drvdata(d)
 #define to_drm_connector(d) dev_get_drvdata(d)
 
@@ -238,16 +243,66 @@ static ssize_t modes_show(struct device *device,
 	return written;
 }
 
+static ssize_t hbm_show(struct device *device,
+				struct device_attribute *attr,
+				char *buf)
+{
+	ssize_t hbm_status;
+	struct drm_connector *connector = to_drm_connector(device);
+
+	hbm_status = dsi_display_get_hbm_status(connector);
+	if (hbm_status < 0)
+		return hbm_status;
+
+	return sprintf(buf, "%d\n", (int)hbm_status);
+}
+
+static ssize_t hbm_store(struct device *device,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	int hbm_status;
+	ssize_t ret;
+	struct drm_connector *connector = to_drm_connector(device);
+
+	ret = kstrtoint(buf, 0, &hbm_status);
+	if (ret)
+		return ret;
+
+	ret = dsi_display_set_hbm(connector, hbm_status);
+
+	return ret ? ret : count;
+}
+
+/* "hbm_mode" alias, kept for compatibility with stock userspace scripts */
+static ssize_t hbm_mode_show(struct device *device,
+				struct device_attribute *attr,
+				char *buf)
+{
+	return hbm_show(device, attr, buf);
+}
+
+static ssize_t hbm_mode_store(struct device *device,
+				struct device_attribute *attr,
+				const char *buf, size_t count)
+{
+	return hbm_store(device, attr, buf, count);
+}
+
 static DEVICE_ATTR_RW(status);
 static DEVICE_ATTR_RO(enabled);
 static DEVICE_ATTR_RO(dpms);
 static DEVICE_ATTR_RO(modes);
+static DEVICE_ATTR_RW(hbm);
+static DEVICE_ATTR_RW(hbm_mode);
 
 static struct attribute *connector_dev_attrs[] = {
 	&dev_attr_status.attr,
 	&dev_attr_enabled.attr,
 	&dev_attr_dpms.attr,
 	&dev_attr_modes.attr,
+	&dev_attr_hbm.attr,
+	&dev_attr_hbm_mode.attr,
 	NULL
 };
 

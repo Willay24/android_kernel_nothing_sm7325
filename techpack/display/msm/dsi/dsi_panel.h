@@ -59,6 +59,11 @@ enum bl_update_flag {
 	BL_UPDATE_NONE,
 };
 
+enum hbm_level {
+	DSI_PANEL_HBM_OFF = 0,
+	DSI_PANEL_HBM_ON,
+};
+
 enum {
 	MODE_GPIO_NOT_VALID = 0,
 	MODE_SEL_DUAL_PORT,
@@ -129,6 +134,8 @@ struct dsi_backlight_config {
 	u32 bl_scale_sv;
 	bool bl_inverted_dbv;
 	u32 real_bl_level;
+	u32 bl_last_level;
+	u32 hbm_status;
 
 	int en_gpio;
 	/*keep te pin for send hbm cmd when TE low*/
@@ -374,6 +381,7 @@ int dsi_panel_unprepare(struct dsi_panel *panel);
 int dsi_panel_post_unprepare(struct dsi_panel *panel);
 
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl);
+int dsi_panel_set_hbm(struct dsi_panel *panel, int hbm_status);
 
 int dsi_panel_update_pps(struct dsi_panel *panel);
 

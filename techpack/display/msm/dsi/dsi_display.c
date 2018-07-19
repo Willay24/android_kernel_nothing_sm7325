@@ -33,6 +33,7 @@ extern int nothing_thermal_register_panel(struct drm_panel *panel);
 #endif
 #endif
 
+#define to_dsi_bridge(x) container_of((x), struct dsi_bridge, base)
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
 
@@ -216,6 +217,72 @@ void dsi_rect_intersect(const struct dsi_rect *r1,
 		result->w = r - l;
 		result->h = b - t;
 	}
+}
+
+ssize_t dsi_display_set_hbm(struct drm_connector *connector, int hbm_status)
+{
+	int rc = 0;
+	struct dsi_display *display = NULL;
+	struct dsi_bridge *c_bridge = NULL;
+
+	if (!connector || !connector->encoder || !connector->encoder->bridge) {
+		pr_err("Invalid connector/encoder/bridge ptr\n");
+		return -EINVAL;
+	}
+
+	c_bridge = to_dsi_bridge(connector->encoder->bridge);
+	display = c_bridge->display;
+
+	if (!display || !display->panel) {
+		pr_err("Invalid display/panel ptr\n");
+		return -EINVAL;
+	}
+
+	mutex_lock(&display->display_lock);
+	if (!dsi_panel_initialized(display->panel)) {
+		/* panel is off, cache the request; applied on next enable */
+		display->panel->bl_config.hbm_status =
+				hbm_status ? DSI_PANEL_HBM_ON : DSI_PANEL_HBM_OFF;
+		goto done;
+	}
+
+	rc = dsi_display_clk_ctrl(display->dsi_clk_handle,
+			DSI_CORE_CLK, DSI_CLK_ON);
+	if (rc) {
+		DSI_ERR("[%s] failed to enable DSI core clocks, rc=%d\n",
+		       display->name, rc);
+		goto done;
+	}
+
+	rc = dsi_panel_set_hbm(display->panel, hbm_status);
+
+	dsi_display_clk_ctrl(display->dsi_clk_handle,
+			DSI_CORE_CLK, DSI_CLK_OFF);
+
+done:
+	mutex_unlock(&display->display_lock);
+	return rc;
+}
+
+ssize_t dsi_display_get_hbm_status(struct drm_connector *connector)
+{
+	struct dsi_display *display = NULL;
+	struct dsi_bridge *c_bridge = NULL;
+
+	if (!connector || !connector->encoder || !connector->encoder->bridge) {
+		pr_err("Invalid connector/encoder/bridge ptr\n");
+		return -EINVAL;
+	}
+
+	c_bridge = to_dsi_bridge(connector->encoder->bridge);
+	display = c_bridge->display;
+
+	if (!display || !display->panel) {
+		pr_err("Invalid display/panel ptr\n");
+		return -EINVAL;
+	}
+
+	return display->panel->bl_config.hbm_status;
 }
 
 int dsi_display_set_backlight(struct drm_connector *connector,
@@ -5704,10 +5771,75 @@ static DEVICE_ATTR(dimlayer_exposure, 0644,
 			sysfs_dimlayer_exposure_write);
 #endif
 
+static ssize_t sysfs_hbm_read(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct dsi_display *display;
+
+	display = dev_get_drvdata(dev);
+	if (!display || !display->panel) {
+		pr_err("Invalid display/panel\n");
+		return -EINVAL;
+	}
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n",
+			display->panel->bl_config.hbm_status);
+}
+
+static ssize_t sysfs_hbm_write(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct dsi_display *display;
+	int rc = 0;
+	int hbm;
+
+	display = dev_get_drvdata(dev);
+	if (!display || !display->panel) {
+		pr_err("Invalid display/panel\n");
+		return -EINVAL;
+	}
+
+	rc = kstrtoint(buf, 10, &hbm);
+	if (rc) {
+		pr_err("%s: kstrtoint failed. rc=%d\n", __func__, rc);
+		return rc;
+	}
+
+	mutex_lock(&display->display_lock);
+	if (!dsi_panel_initialized(display->panel)) {
+		/* panel is off, cache the request; applied on next enable */
+		display->panel->bl_config.hbm_status =
+				hbm ? DSI_PANEL_HBM_ON : DSI_PANEL_HBM_OFF;
+		goto done;
+	}
+
+	rc = dsi_display_clk_ctrl(display->dsi_clk_handle,
+			DSI_CORE_CLK, DSI_CLK_ON);
+	if (rc) {
+		DSI_ERR("[%s] failed to enable DSI core clocks, rc=%d\n",
+		       display->name, rc);
+		goto done;
+	}
+
+	rc = dsi_panel_set_hbm(display->panel, hbm);
+	if (rc)
+		pr_err("unable to set hbm mode\n");
+
+	dsi_display_clk_ctrl(display->dsi_clk_handle,
+			DSI_CORE_CLK, DSI_CLK_OFF);
+
+done:
+	mutex_unlock(&display->display_lock);
+	return rc == 0 ? count : rc;
+}
+
+static DEVICE_ATTR(hbm, 0644, sysfs_hbm_read, sysfs_hbm_write);
+
 static struct attribute *display_fs_attrs[] = {
 #ifdef CONFIG_DRM_SDE_EXPO
 	&dev_attr_dimlayer_exposure.attr,
 #endif
+	&dev_attr_hbm.attr,
 	NULL,
 };
 
