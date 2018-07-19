@@ -672,6 +672,23 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		void *display, u32 bl_lvl);
 
 /**
+ * dsi_display_set_hbm() - enable/disable high brightness mode
+ * @connector:          Pointer to drm connector structure
+ * @hbm_status:         0 = HBM off, non-zero = HBM on
+ *
+ * Return: Zero on Success
+ */
+ssize_t dsi_display_set_hbm(struct drm_connector *connector, int hbm_status);
+
+/**
+ * dsi_display_get_hbm_status() - get current high brightness mode state
+ * @connector:          Pointer to drm connector structure
+ *
+ * Return: current hbm status (0/1) or negative error code
+ */
+ssize_t dsi_display_get_hbm_status(struct drm_connector *connector);
+
+/**
  * dsi_display_check_status() - check if panel is dead or alive
  * @connector:          Pointer to drm connector structure
  * @display:            Handle to display.
