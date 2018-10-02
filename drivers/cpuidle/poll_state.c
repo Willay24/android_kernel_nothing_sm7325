@@ -19,6 +19,7 @@ static int __cpuidle poll_idle(struct cpuidle_device *dev,
 
 	local_irq_enable();
 	if (!current_set_polling_and_test()) {
+		u64 limit = (u64)drv->states[1].target_residency * NSEC_PER_USEC;
 		unsigned int loop_count = 0;
 		u64 limit;
 
