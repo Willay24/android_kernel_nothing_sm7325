@@ -44,7 +44,7 @@ static int hwid_open(struct inode *inode, struct file *file)
 static const struct proc_ops hwid_ops = {
 	.proc_open	= hwid_open,
 	.proc_read	= seq_read,
-	.proc_release = single_release,
+	.proc_release	= single_release,
 };
 
 static int create_hwid_proc_file(void)

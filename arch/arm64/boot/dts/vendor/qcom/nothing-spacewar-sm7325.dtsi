@@ -89,4 +89,19 @@
 		qcom,display-panels = <&dsi_rm692e5_visionox_amoled_120hz_cmd
 					&dsi_r66451_amoled_144hz_video_cphy>;
 	};
+
+	shell-temp-front {
+		compatible = "nothing,simulated-ntc";
+		status = "okay";
+	};
+
+	shell-temp-frame {
+		compatible = "nothing,simulated-ntc";
+		status = "okay";
+	};
+
+	shell-temp-back {
+		compatible = "nothing,simulated-ntc";
+		status = "okay";
+	};
 };
