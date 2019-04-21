@@ -1,0 +1,11 @@
+#
+# Generic thermal sysfs drivers configuration
+#
+
+config SIMULATED_NTC_THERMAL
+	bool "Nothing simulated NTC shell temperature sensors"
+	depends on THERMAL
+	help
+	  Support for Nothing's simulated NTC shell thermal zones
+	  (front/frame/back), driven via /proc/shell-temp writes from
+	  the vendor thermal-engine HAL.
