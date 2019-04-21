@@ -741,10 +741,6 @@ static int snd_soc_dapm_set_bias_level(struct snd_soc_dapm_context *dapm,
 out:
 	trace_snd_soc_bias_level_done(card, level);
 
-	/* success */
-	if (ret == 0)
-		snd_soc_dapm_init_bias_level(dapm, level);
-
 	return ret;
 }
 
@@ -760,7 +756,7 @@ static int dapm_connect_mux(struct snd_soc_dapm_context *dapm,
 
 	if (e->reg != SND_SOC_NOPM) {
 		soc_dapm_read(dapm, e->reg, &val);
-		val = shr_bound(val, e->shift_l) & e->mask;
+		val = (val >> e->shift_l) & e->mask;
 		item = snd_soc_enum_val_to_item(e, val);
 	} else {
 		/* since a virtual mux has no backing registers to
@@ -814,7 +810,7 @@ static void dapm_set_mixer_path_status(struct snd_soc_dapm_path *p, int i,
 				soc_dapm_read(p->sink->dapm, mc->rreg, &val);
 			val = (val >> mc->rshift) & mask;
 		} else {
-			val = shr_bound(val, shift) & mask;
+			val = (val >> shift) & mask;
 		}
 		if (invert)
 			val = max - val;
