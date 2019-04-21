@@ -31,13 +31,11 @@
 #include <linux/of.h>
 #include <asm/current.h>
 #include <linux/timer.h>
-
 #define ENABLE_MODEM_RESTART
 #ifdef ENABLE_MODEM_RESTART
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #endif
-
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_ssr_event.h>
 
