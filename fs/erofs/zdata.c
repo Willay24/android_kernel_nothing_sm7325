@@ -1120,7 +1120,7 @@ repeat:
 	mapping = READ_ONCE(page->mapping);
 
 	/*
-	 * file-backed online pages in plcuster are all locked steady,
+	 * unmanaged (file) pages are all locked solidly,
 	 * therefore it is impossible for `mapping' to be NULL.
 	 */
 	if (mapping && mapping != mc)
@@ -1179,10 +1179,10 @@ out_allocpage:
 		cond_resched();
 		goto repeat;
 	}
-out_tocache:
-	if (!tocache || add_to_page_cache_lru(page, mc, index + nr, gfp)) {
-		/* turn into temporary page if fails (1 ref) */
-		set_page_private(page, Z_EROFS_SHORTLIVED_PAGE);
+	if (!tocache)
+		goto out;
+	if (add_to_page_cache_lru(page, mc, index + nr, gfp)) {
+		page->mapping = Z_EROFS_MAPPING_STAGING;
 		goto out;
 	}
 	attach_page_private(page, pcl);
@@ -1262,6 +1262,23 @@ static void z_erofs_submit_queue(struct super_block *sb,
 				 struct list_head *pagepool,
 				 struct z_erofs_decompressqueue *fgq,
 				 bool *force_fg)
+{
+	/*
+	 * although background is preferred, no one is pending for submission.
+	 * don't issue workqueue for decompression but drop it directly instead.
+	 */
+	if (force_fg || nr_bios)
+		return false;
+
+	kvfree(container_of(q[JQ_SUBMIT], struct z_erofs_unzip_io_sb, io));
+	return true;
+}
+
+static bool z_erofs_vle_submit_all(struct super_block *sb,
+				   z_erofs_next_pcluster_t owned_head,
+				   struct list_head *pagepool,
+				   struct z_erofs_unzip_io *fgq,
+				   bool force_fg)
 {
 	struct erofs_sb_info *const sbi = EROFS_SB(sb);
 	z_erofs_next_pcluster_t qtail[NR_JOBQUEUES];
