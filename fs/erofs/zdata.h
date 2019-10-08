@@ -84,6 +84,8 @@ struct z_erofs_pcluster {
 
 #define Z_EROFS_PCLUSTER_NIL            (NULL)
 
+#define Z_EROFS_WORKGROUP_SIZE  sizeof(struct z_erofs_pcluster)
+
 struct z_erofs_decompressqueue {
 	struct super_block *sb;
 	atomic_t pending_bios;
