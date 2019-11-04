@@ -10,8 +10,6 @@
 #include <linux/parser.h>
 #include <linux/seq_file.h>
 #include <linux/crc32c.h>
-#include <linux/fs_context.h>
-#include <linux/fs_parser.h>
 #include "xattr.h"
 
 #define CREATE_TRACE_POINTS
@@ -279,13 +277,12 @@ static int erofs_read_superblock(struct super_block *sb)
 	}
 
 	sbi->feature_compat = le32_to_cpu(dsb->feature_compat);
-	if (erofs_sb_has_sb_chksum(sbi)) {
+	if (sbi->feature_compat & EROFS_FEATURE_COMPAT_SB_CHKSUM) {
 		ret = erofs_superblock_csum_verify(sb, data);
 		if (ret)
 			goto out;
 	}
 
-	ret = -EINVAL;
 	blkszbits = dsb->blkszbits;
 	/* 9(512 bytes) + LOG_SECTORS_PER_BLOCK == LOG_BLOCK_SIZE */
 	if (blkszbits != LOG_BLOCK_SIZE) {
