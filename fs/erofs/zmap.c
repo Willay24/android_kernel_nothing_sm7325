@@ -21,6 +21,7 @@ int z_erofs_fill_inode(struct inode *inode)
 		vi->z_logical_clusterbits = LOG_BLOCK_SIZE;
 		set_bit(EROFS_I_Z_INITED_BIT, &vi->flags);
 	}
+
 	inode->i_mapping->a_ops = &z_erofs_aops;
 	return 0;
 }
@@ -532,7 +533,7 @@ int z_erofs_map_blocks_iter(struct inode *inode,
 	initial_lcn = ofs >> lclusterbits;
 	endoff = ofs & ((1 << lclusterbits) - 1);
 
-	err = z_erofs_load_cluster_from_disk(&m, initial_lcn);
+	err = z_erofs_load_cluster_from_disk(&m, m.lcn);
 	if (err)
 		goto unmap_out;
 
@@ -562,7 +563,7 @@ int z_erofs_map_blocks_iter(struct inode *inode,
 		m.delta[0] = 1;
 		fallthrough;
 	case Z_EROFS_VLE_CLUSTER_TYPE_NONHEAD:
-		/* get the corresponding first chunk */
+		/* get the correspoinding first chunk */
 		err = z_erofs_extent_lookback(&m, m.delta[0]);
 		if (err)
 			goto unmap_out;
