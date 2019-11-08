@@ -11,7 +11,6 @@
 #include <crypto/internal/chacha.h>
 #include <crypto/internal/simd.h>
 #include <crypto/internal/skcipher.h>
-#include <linux/jump_label.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
 
@@ -30,11 +29,9 @@ asmlinkage void hchacha_block_neon(const u32 *state, u32 *out, int nrounds);
 asmlinkage void chacha_doarm(u8 *dst, const u8 *src, unsigned int bytes,
 			     const u32 *state, int nrounds);
 
-static __ro_after_init DEFINE_STATIC_KEY_FALSE(use_neon);
-
 static inline bool neon_usable(void)
 {
-	return static_branch_likely(&use_neon) && crypto_simd_usable();
+	return crypto_simd_usable();
 }
 
 static void chacha_doneon(u32 *state, u8 *dst, const u8 *src,
@@ -63,48 +60,6 @@ static void chacha_doneon(u32 *state, u8 *dst, const u8 *src,
 	}
 }
 
-void hchacha_block_arch(const u32 *state, u32 *stream, int nrounds)
-{
-	if (!IS_ENABLED(CONFIG_KERNEL_MODE_NEON) || !neon_usable()) {
-		hchacha_block_arm(state, stream, nrounds);
-	} else {
-		kernel_neon_begin();
-		hchacha_block_neon(state, stream, nrounds);
-		kernel_neon_end();
-	}
-}
-EXPORT_SYMBOL(hchacha_block_arch);
-
-void chacha_init_arch(u32 *state, const u32 *key, const u8 *iv)
-{
-	chacha_init_generic(state, key, iv);
-}
-EXPORT_SYMBOL(chacha_init_arch);
-
-void chacha_crypt_arch(u32 *state, u8 *dst, const u8 *src, unsigned int bytes,
-		       int nrounds)
-{
-	if (!IS_ENABLED(CONFIG_KERNEL_MODE_NEON) || !neon_usable() ||
-	    bytes <= CHACHA_BLOCK_SIZE) {
-		chacha_doarm(dst, src, bytes, state, nrounds);
-		state[12] += DIV_ROUND_UP(bytes, CHACHA_BLOCK_SIZE);
-		return;
-	}
-
-	do {
-		unsigned int todo = min_t(unsigned int, bytes, SZ_4K);
-
-		kernel_neon_begin();
-		chacha_doneon(state, dst, src, todo, nrounds);
-		kernel_neon_end();
-
-		bytes -= todo;
-		src += todo;
-		dst += todo;
-	} while (bytes);
-}
-EXPORT_SYMBOL(chacha_crypt_arch);
-
 static int chacha_stream_xor(struct skcipher_request *req,
 			     const struct chacha_ctx *ctx, const u8 *iv,
 			     bool neon)
@@ -123,7 +78,7 @@ static int chacha_stream_xor(struct skcipher_request *req,
 		if (nbytes < walk.total)
 			nbytes = round_down(nbytes, walk.stride);
 
-		if (!IS_ENABLED(CONFIG_KERNEL_MODE_NEON) || !neon) {
+		if (!neon) {
 			chacha_doarm(walk.dst.virt.addr, walk.src.virt.addr,
 				     nbytes, state, ctx->nrounds);
 			state[12] += DIV_ROUND_UP(nbytes, CHACHA_BLOCK_SIZE);
@@ -167,7 +122,7 @@ static int do_xchacha(struct skcipher_request *req, bool neon)
 
 	chacha_init_generic(state, ctx->key, req->iv);
 
-	if (!IS_ENABLED(CONFIG_KERNEL_MODE_NEON) || !neon) {
+	if (!neon) {
 		hchacha_block_arm(state, subctx.key, ctx->nrounds);
 	} else {
 		kernel_neon_begin();
@@ -294,13 +249,11 @@ static struct skcipher_alg neon_algs[] = {
 
 static int __init chacha_simd_mod_init(void)
 {
-	int err = 0;
+	int err;
 
-	if (IS_REACHABLE(CONFIG_CRYPTO_BLKCIPHER)) {
-		err = crypto_register_skciphers(arm_algs, ARRAY_SIZE(arm_algs));
-		if (err)
-			return err;
-	}
+	err = crypto_register_skciphers(arm_algs, ARRAY_SIZE(arm_algs));
+	if (err)
+		return err;
 
 	if (IS_ENABLED(CONFIG_KERNEL_MODE_NEON) && (elf_hwcap & HWCAP_NEON)) {
 		int i;
@@ -316,26 +269,20 @@ static int __init chacha_simd_mod_init(void)
 			for (i = 0; i < ARRAY_SIZE(neon_algs); i++)
 				neon_algs[i].base.cra_priority = 0;
 			break;
-		default:
-			static_branch_enable(&use_neon);
 		}
 
-		if (IS_REACHABLE(CONFIG_CRYPTO_BLKCIPHER)) {
-			err = crypto_register_skciphers(neon_algs, ARRAY_SIZE(neon_algs));
-			if (err)
-				crypto_unregister_skciphers(arm_algs, ARRAY_SIZE(arm_algs));
-		}
+		err = crypto_register_skciphers(neon_algs, ARRAY_SIZE(neon_algs));
+		if (err)
+			crypto_unregister_skciphers(arm_algs, ARRAY_SIZE(arm_algs));
 	}
 	return err;
 }
 
 static void __exit chacha_simd_mod_fini(void)
 {
-	if (IS_REACHABLE(CONFIG_CRYPTO_BLKCIPHER)) {
-		crypto_unregister_skciphers(arm_algs, ARRAY_SIZE(arm_algs));
-		if (IS_ENABLED(CONFIG_KERNEL_MODE_NEON) && (elf_hwcap & HWCAP_NEON))
-			crypto_unregister_skciphers(neon_algs, ARRAY_SIZE(neon_algs));
-	}
+	crypto_unregister_skciphers(arm_algs, ARRAY_SIZE(arm_algs));
+	if (IS_ENABLED(CONFIG_KERNEL_MODE_NEON) && (elf_hwcap & HWCAP_NEON))
+		crypto_unregister_skciphers(neon_algs, ARRAY_SIZE(neon_algs));
 }
 
 module_init(chacha_simd_mod_init);
