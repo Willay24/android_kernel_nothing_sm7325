@@ -28,8 +28,26 @@ static void poly1305_simd_init(void *ctx, const u8 key[POLY1305_BLOCK_SIZE])
 	poly1305_init_x86_64(ctx, key);
 }
 
-static void poly1305_simd_blocks(void *ctx, const u8 *inp, size_t len,
-				 const u32 padbit)
+static unsigned int poly1305_scalar_blocks(struct poly1305_desc_ctx *dctx,
+					   const u8 *src, unsigned int srclen)
+{
+	unsigned int datalen;
+
+	if (unlikely(!dctx->sset)) {
+		datalen = crypto_poly1305_setdesckey(dctx, src, srclen);
+		src += srclen - datalen;
+		srclen = datalen;
+	}
+	if (srclen >= POLY1305_BLOCK_SIZE) {
+		poly1305_core_blocks(&dctx->h, dctx->r, src,
+				     srclen / POLY1305_BLOCK_SIZE, 1);
+		srclen %= POLY1305_BLOCK_SIZE;
+	}
+	return srclen;
+}
+
+static unsigned int poly1305_simd_blocks(struct poly1305_desc_ctx *dctx,
+					 const u8 *src, unsigned int srclen)
 {
 	unsigned int blocks, datalen;
 
@@ -82,7 +100,8 @@ static void poly1305_simd_blocks(void *ctx, const u8 *inp, size_t len,
 void poly1305_update_arch(struct poly1305_desc_ctx *dctx, const u8 *src,
 			  unsigned int srclen)
 {
-	unsigned int bytes, used;
+	struct poly1305_desc_ctx *dctx = shash_desc_ctx(desc);
+	unsigned int bytes;
 
 	if (unlikely(dctx->buflen)) {
 		bytes = min(srclen, POLY1305_BLOCK_SIZE - dctx->buflen);
@@ -92,19 +111,29 @@ void poly1305_update_arch(struct poly1305_desc_ctx *dctx, const u8 *src,
 		dctx->buflen += bytes;
 
 		if (dctx->buflen == POLY1305_BLOCK_SIZE) {
-			if (likely(!crypto_poly1305_setdctxkey(dctx, dctx->buf, POLY1305_BLOCK_SIZE)))
-				poly1305_simd_blocks(&dctx->h, dctx->buf, POLY1305_BLOCK_SIZE, 1);
+			if (likely(crypto_simd_usable())) {
+				kernel_fpu_begin();
+				poly1305_simd_blocks(dctx, dctx->buf,
+						     POLY1305_BLOCK_SIZE);
+				kernel_fpu_end();
+			} else {
+				poly1305_scalar_blocks(dctx, dctx->buf,
+						       POLY1305_BLOCK_SIZE);
+			}
 			dctx->buflen = 0;
 		}
 	}
 
 	if (likely(srclen >= POLY1305_BLOCK_SIZE)) {
-		bytes = round_down(srclen, POLY1305_BLOCK_SIZE);
-		srclen -= bytes;
-		used = crypto_poly1305_setdctxkey(dctx, src, bytes);
-		if (likely(bytes - used))
-			poly1305_simd_blocks(&dctx->h, src + used, bytes - used, 1);
-		src += bytes;
+		if (likely(crypto_simd_usable())) {
+			kernel_fpu_begin();
+			bytes = poly1305_simd_blocks(dctx, src, srclen);
+			kernel_fpu_end();
+		} else {
+			bytes = poly1305_scalar_blocks(dctx, src, srclen);
+		}
+		src += srclen - bytes;
+		srclen = bytes;
 	}
 
 	if (unlikely(srclen)) {
@@ -112,36 +141,16 @@ void poly1305_update_arch(struct poly1305_desc_ctx *dctx, const u8 *src,
 		memcpy(dctx->buf, src, srclen);
 	}
 }
-EXPORT_SYMBOL(poly1305_update_arch);
-
-void poly1305_final_arch(struct poly1305_desc_ctx *dctx, u8 *dst)
-{
-	if (unlikely(dctx->buflen)) {
-		dctx->buf[dctx->buflen++] = 1;
-		memset(dctx->buf + dctx->buflen, 0,
-		       POLY1305_BLOCK_SIZE - dctx->buflen);
-		poly1305_simd_blocks(&dctx->h, dctx->buf, POLY1305_BLOCK_SIZE, 0);
-	}
-
-	poly1305_simd_emit(&dctx->h, dst, dctx->s);
-	*dctx = (struct poly1305_desc_ctx){};
-}
-EXPORT_SYMBOL(poly1305_final_arch);
 
 static int crypto_poly1305_init(struct shash_desc *desc)
 {
 	struct poly1305_desc_ctx *dctx = shash_desc_ctx(desc);
 
-	*dctx = (struct poly1305_desc_ctx){};
-	return 0;
-}
+	poly1305_core_init(&dctx->h);
+	dctx->buflen = 0;
+	dctx->rset = 0;
+	dctx->sset = false;
 
-static int crypto_poly1305_update(struct shash_desc *desc,
-				  const u8 *src, unsigned int srclen)
-{
-	struct poly1305_desc_ctx *dctx = shash_desc_ctx(desc);
-
-	poly1305_update_arch(dctx, src, srclen);
 	return 0;
 }
 
@@ -152,7 +161,7 @@ static int crypto_poly1305_final(struct shash_desc *desc, u8 *dst)
 	if (unlikely(!dctx->sset))
 		return -ENOKEY;
 
-	poly1305_final_arch(dctx, dst);
+	poly1305_final_generic(dctx, dst);
 	return 0;
 }
 
