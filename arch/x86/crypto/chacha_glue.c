@@ -123,51 +123,6 @@ static void chacha_dosimd(u32 *state, u8 *dst, const u8 *src,
 	}
 }
 
-void hchacha_block_arch(const u32 *state, u32 *stream, int nrounds)
-{
-	state = PTR_ALIGN(state, CHACHA_STATE_ALIGN);
-
-	if (!static_branch_likely(&chacha_use_simd) || !crypto_simd_usable()) {
-		hchacha_block_generic(state, stream, nrounds);
-	} else {
-		kernel_fpu_begin();
-		hchacha_block_ssse3(state, stream, nrounds);
-		kernel_fpu_end();
-	}
-}
-EXPORT_SYMBOL(hchacha_block_arch);
-
-void chacha_init_arch(u32 *state, const u32 *key, const u8 *iv)
-{
-	state = PTR_ALIGN(state, CHACHA_STATE_ALIGN);
-
-	chacha_init_generic(state, key, iv);
-}
-EXPORT_SYMBOL(chacha_init_arch);
-
-void chacha_crypt_arch(u32 *state, u8 *dst, const u8 *src, unsigned int bytes,
-		       int nrounds)
-{
-	state = PTR_ALIGN(state, CHACHA_STATE_ALIGN);
-
-	if (!static_branch_likely(&chacha_use_simd) || !crypto_simd_usable() ||
-	    bytes <= CHACHA_BLOCK_SIZE)
-		return chacha_crypt_generic(state, dst, src, bytes, nrounds);
-
-	do {
-		unsigned int todo = min_t(unsigned int, bytes, SZ_4K);
-
-		kernel_fpu_begin();
-		chacha_dosimd(state, dst, src, todo, nrounds);
-		kernel_fpu_end();
-
-		bytes -= todo;
-		src += todo;
-		dst += todo;
-	} while (bytes);
-}
-EXPORT_SYMBOL(chacha_crypt_arch);
-
 static int chacha_simd_stream_xor(struct skcipher_request *req,
 				  const struct chacha_ctx *ctx, const u8 *iv)
 {
@@ -188,8 +143,7 @@ static int chacha_simd_stream_xor(struct skcipher_request *req,
 		if (nbytes < walk.total)
 			nbytes = round_down(nbytes, walk.stride);
 
-		if (!static_branch_likely(&chacha_use_simd) ||
-		    !crypto_simd_usable()) {
+		if (!crypto_simd_usable()) {
 			chacha_crypt_generic(state, walk.dst.virt.addr,
 					     walk.src.virt.addr, nbytes,
 					     ctx->nrounds);
