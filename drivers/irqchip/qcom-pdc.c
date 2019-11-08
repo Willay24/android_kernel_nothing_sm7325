@@ -520,6 +520,7 @@ fail:
 	return ret;
 }
 
+IRQCHIP_DECLARE(qcom_pdc, "qcom,pdc", qcom_pdc_init);
 IRQCHIP_DECLARE(pdc_lahaina, "qcom,lahaina-pdc", qcom_pdc_init);
 IRQCHIP_DECLARE(pdc_direwolf, "qcom,direwolf-pdc", qcom_pdc_init);
 IRQCHIP_DECLARE(pdc_shima, "qcom,shima-pdc", qcom_pdc_init);
