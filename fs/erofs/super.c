@@ -735,6 +735,7 @@ static int erofs_show_options(struct seq_file *seq, struct dentry *root)
 		seq_puts(seq, ",cache_strategy=readahead");
 	else if (ctx->cache_strategy == EROFS_ZIP_CACHE_READAROUND)
 		seq_puts(seq, ",cache_strategy=readaround");
+	}
 #endif
 	return 0;
 }
