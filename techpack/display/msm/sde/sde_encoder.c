@@ -4270,6 +4270,7 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error,
 	static bool first_run = true;
 	struct sde_encoder_virt *sde_enc;
 	struct sde_encoder_phys *phys;
+	static bool first_run = true;
 	unsigned int i;
 
 	if (!drm_enc) {
@@ -4323,9 +4324,23 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error,
 					     &event, (u8 *)&conn->panel_dead);
 	}
 
+	/* Trigger a panel reset after the first non-60 Hz kickoff. */
+	if (cmpxchg(&first_run, true, false) &&
+		    sde_enc->crtc->mode.vrefresh != 60) {
+		struct sde_connector *conn = container_of(phys->connector,
+				struct sde_connector, base);
+		struct drm_event event = {
+			.type = DRM_EVENT_PANEL_DEAD,
+			.length = sizeof(bool),
+		};
+
+		conn->panel_dead = true;
+		msm_mode_object_event_notify(&conn->base.base, conn->base.dev,
+					     &event, (u8 *)&conn->panel_dead);
+	}
+
 	SDE_ATRACE_END("encoder_kickoff");
 }
-
 void sde_encoder_helper_get_pp_line_count(struct drm_encoder *drm_enc,
 			struct sde_hw_pp_vsync_info *info, int rw)
 {
