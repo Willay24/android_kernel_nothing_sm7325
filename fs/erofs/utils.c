@@ -53,6 +53,8 @@ repeat:
 	rcu_read_lock();
 	grp = xa_load(&sbi->managed_pslots, index);
 	if (grp) {
+		grp = xa_untag_pointer(grp);
+
 		if (erofs_workgroup_get(grp)) {
 			/* prefer to relax rcu read side */
 			rcu_read_unlock();
