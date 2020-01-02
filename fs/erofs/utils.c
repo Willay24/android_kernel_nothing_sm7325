@@ -53,8 +53,6 @@ repeat:
 	rcu_read_lock();
 	grp = xa_load(&sbi->managed_pslots, index);
 	if (grp) {
-		grp = xa_untag_pointer(grp);
-
 		if (erofs_workgroup_get(grp)) {
 			/* prefer to relax rcu read side */
 			rcu_read_unlock();
@@ -85,8 +83,6 @@ int erofs_register_workgroup(struct super_block *sb,
 
 	sbi = EROFS_SB(sb);
 	xa_lock(&sbi->workstn_tree);
-
-	grp = xa_tag_pointer(grp, 0);
 
 	/*
 	 * Bump up a reference count before making this visible
@@ -159,7 +155,7 @@ static bool erofs_try_to_release_workgroup(struct erofs_sb_info *sbi,
 	 * however in order to avoid some race conditions, add a
 	 * DBG_BUGON to observe this in advance.
 	 */
-	DBG_BUGON(__xa_erase(&sbi->managed_pslots, grp->index) != grp);
+	DBG_BUGON(radix_tree_delete(&sbi->workstn_tree, grp->index) != grp);
 
 	/* last refcount should be connected with its managed pslot.  */
 	erofs_workgroup_unfreeze(grp, 0);
@@ -174,8 +170,18 @@ static unsigned long erofs_shrink_workstation(struct erofs_sb_info *sbi,
 	unsigned int freed = 0;
 	unsigned long index;
 
-	xa_lock(&sbi->managed_pslots);
-	xa_for_each(&sbi->managed_pslots, index, grp) {
+	int i, found;
+repeat:
+	xa_lock(&sbi->workstn_tree);
+
+	found = radix_tree_gang_lookup(&sbi->workstn_tree,
+				       batch, first_index, PAGEVEC_SIZE);
+
+	for (i = 0; i < found; ++i) {
+		struct erofs_workgroup *grp = batch[i];
+
+		first_index = grp->index + 1;
+
 		/* try to shrink each valid workgroup */
 		if (!erofs_try_to_release_workgroup(sbi, grp))
 			continue;
