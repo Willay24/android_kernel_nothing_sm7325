@@ -67,11 +67,26 @@ repeat:
 	return grp;
 }
 
-struct erofs_workgroup *erofs_insert_workgroup(struct super_block *sb,
-					       struct erofs_workgroup *grp)
+int erofs_register_workgroup(struct super_block *sb,
+			     struct erofs_workgroup *grp)
 {
-	struct erofs_sb_info *const sbi = EROFS_SB(sb);
-	struct erofs_workgroup *pre;
+	struct erofs_sb_info *sbi;
+	int err;
+
+	/* grp shouldn't be broken or used before */
+	if (atomic_read(&grp->refcount) != 1) {
+		DBG_BUGON(1);
+		return -EINVAL;
+	}
+
+	err = radix_tree_preload(GFP_NOFS);
+	if (err)
+		return err;
+
+	sbi = EROFS_SB(sb);
+	xa_lock(&sbi->workstn_tree);
+
+	grp = xa_tag_pointer(grp, 0);
 
 	/*
 	 * Bump up a reference count before making this visible
