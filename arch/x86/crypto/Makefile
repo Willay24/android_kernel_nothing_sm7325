@@ -86,6 +86,11 @@ ifneq ($(CONFIG_CRYPTO_POLY1305_X86_64),)
 targets += poly1305-x86_64-cryptogams.S
 endif
 
+poly1305-x86_64-y := poly1305-x86_64-cryptogams.o poly1305_glue.o
+ifneq ($(CONFIG_CRYPTO_POLY1305_X86_64),)
+targets += poly1305-x86_64-cryptogams.S
+endif
+
 ifeq ($(avx_supported),yes)
 	camellia-aesni-avx-x86_64-y := camellia-aesni-avx-asm_64.o \
 					camellia_aesni_avx_glue.o
