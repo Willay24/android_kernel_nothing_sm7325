@@ -477,3 +477,4 @@
 # 545 reserved for clone3
 546	common	close_range			sys_close_range
 547	common	epoll_pwait2			sys_epoll_pwait2
+548	common	pidfd_getfd			sys_pidfd_getfd
