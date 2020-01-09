@@ -65,6 +65,10 @@ BPF_PROG_TYPE(BPF_PROG_TYPE_LIRC_MODE2, lirc_mode2,
 BPF_PROG_TYPE(BPF_PROG_TYPE_SK_REUSEPORT, sk_reuseport,
 	      struct sk_reuseport_md, struct sk_reuseport_kern)
 #endif
+#if defined(CONFIG_BPF_JIT)
+BPF_PROG_TYPE(BPF_PROG_TYPE_STRUCT_OPS, bpf_struct_ops,
+	      void *, void *)
+#endif
 #ifdef CONFIG_FUSE_BPF
 BPF_PROG_TYPE(BPF_PROG_TYPE_FUSE, fuse, struct fuse_bpf_args, struct fuse_bpf_args)
 #endif
