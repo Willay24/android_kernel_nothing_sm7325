@@ -7,3 +7,4 @@
 mandatory-y += kmap_size.h
 mandatory-y += simd.h
 mandatory-y += msi.h
+mandatory-y += dma-contiguous.h
