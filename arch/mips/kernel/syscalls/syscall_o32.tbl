@@ -424,6 +424,9 @@
 434	o32	pidfd_open			sys_pidfd_open
 435	o32	clone3				__sys_clone3
 436	o32	close_range			sys_close_range
+437	o32	openat2				sys_openat2
+# 438 reserved for pidfd_getfd
+# 439 reserved for faccessat2
 441	o32	epoll_pwait2			sys_epoll_pwait2		compat_sys_epoll_pwait2
 # 447 reserved for memfd_secret
 448	o32	process_mrelease		sys_process_mrelease
