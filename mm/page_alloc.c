@@ -8568,7 +8568,7 @@ struct page *has_unmovable_pages(struct zone *zone, struct page *page, int count
 		if (is_migrate_cma(migratetype))
 			return NULL;
 
-		goto unmovable;
+		return page;
 	}
 
 	for (found = 0; iter < pageblock_nr_pages; iter++) {
@@ -8580,7 +8580,7 @@ struct page *has_unmovable_pages(struct zone *zone, struct page *page, int count
 		page = pfn_to_page(check);
 
 		if (PageReserved(page))
-			goto unmovable;
+			return page;
 
 		/*
 		 * If the zone is movable and we have ruled out all reserved
@@ -8600,7 +8600,7 @@ struct page *has_unmovable_pages(struct zone *zone, struct page *page, int count
 			unsigned int skip_pages;
 
 			if (!hugepage_migration_supported(page_hstate(head)))
-				goto unmovable;
+				return page;
 
 			skip_pages = compound_nr(head) - (page - head);
 			iter += skip_pages - 1;
@@ -8645,12 +8645,9 @@ struct page *has_unmovable_pages(struct zone *zone, struct page *page, int count
 		 * page at boot.
 		 */
 		if (found > count)
-			goto unmovable;
+			return page;
 	}
 	return NULL;
-unmovable:
-	WARN_ON_ONCE(zone_idx(zone) == ZONE_MOVABLE);
-	return pfn_to_page(pfn + iter);
 }
 
 #ifdef CONFIG_CONTIG_ALLOC
