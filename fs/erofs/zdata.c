@@ -145,6 +145,19 @@ static inline int z_erofs_init_workqueue(void)
 	return z_erofs_workqueue ? 0 : -ENOMEM;
 }
 
+static void z_erofs_pcluster_init_once(void *ptr)
+{
+	struct z_erofs_pcluster *pcl = ptr;
+	struct z_erofs_collection *cl = z_erofs_primarycollection(pcl);
+	unsigned int i;
+
+	mutex_init(&cl->lock);
+	cl->nr_pages = 0;
+	cl->vcnt = 0;
+	for (i = 0; i < Z_EROFS_CLUSTER_MAX_PAGES; ++i)
+		pcl->compressed_pages[i] = NULL;
+}
+
 int __init z_erofs_init_zip_subsystem(void)
 {
 	int err = z_erofs_create_pcluster_pool();
@@ -431,21 +444,15 @@ static int z_erofs_lookup_collection(struct z_erofs_collector *clt,
 	struct z_erofs_collection *cl;
 	unsigned int length;
 
-	grp = erofs_find_workgroup(inode->i_sb, map->m_pa >> PAGE_SHIFT);
-	if (!grp)
-		return -ENOENT;
-
-	pcl = container_of(grp, struct z_erofs_pcluster, obj);
+	/* to avoid unexpected loop formed by corrupted images */
 	if (clt->owned_head == &pcl->next || pcl == clt->tailpcl) {
 		DBG_BUGON(1);
-		erofs_workgroup_put(grp);
 		return -EFSCORRUPTED;
 	}
 
 	cl = z_erofs_primarycollection(pcl);
 	if (cl->pageofs != (map->m_la & ~PAGE_MASK)) {
 		DBG_BUGON(1);
-		erofs_workgroup_put(grp);
 		return -EFSCORRUPTED;
 	}
 
@@ -453,7 +460,6 @@ static int z_erofs_lookup_collection(struct z_erofs_collector *clt,
 	if (length & Z_EROFS_PCLUSTER_FULL_LENGTH) {
 		if ((map->m_llen << Z_EROFS_PCLUSTER_LENGTH_BIT) > length) {
 			DBG_BUGON(1);
-			erofs_workgroup_put(grp);
 			return -EFSCORRUPTED;
 		}
 	} else {
@@ -511,20 +517,29 @@ static int z_erofs_register_collection(struct z_erofs_collector *clt,
 	clt->mode = COLLECT_PRIMARY_FOLLOWED;
 
 	cl = z_erofs_primarycollection(pcl);
+
+	/* must be cleaned before freeing to slab */
+	DBG_BUGON(cl->nr_pages);
+	DBG_BUGON(cl->vcnt);
+
 	cl->pageofs = map->m_la & ~PAGE_MASK;
 
 	/*
 	 * lock all primary followed works before visible to others
 	 * and mutex_trylock *never* fails for a new pcluster.
 	 */
-	mutex_init(&cl->lock);
 	DBG_BUGON(!mutex_trylock(&cl->lock));
 
-	err = erofs_register_workgroup(inode->i_sb, &pcl->obj);
-	if (err) {
-		mutex_unlock(&cl->lock);
-		kmem_cache_free(pcluster_cachep, pcl);
-		return -EAGAIN;
+	grp = erofs_insert_workgroup(inode->i_sb, &pcl->obj);
+	if (IS_ERR(grp)) {
+		err = PTR_ERR(grp);
+		goto err_out;
+	}
+
+	if (grp != &pcl->obj) {
+		clt->pcl = container_of(grp, struct z_erofs_pcluster, obj);
+		err = -EEXIST;
+		goto err_out;
 	}
 	/* used to check tail merging loop due to corrupted images */
 	if (clt->owned_head == Z_EROFS_PCLUSTER_TAIL)
@@ -533,12 +548,18 @@ static int z_erofs_register_collection(struct z_erofs_collector *clt,
 	clt->pcl = pcl;
 	clt->cl = cl;
 	return 0;
+
+err_out:
+	mutex_unlock(&cl->lock);
+	kmem_cache_free(pcluster_cachep, pcl);
+	return err;
 }
 
 static int z_erofs_collector_begin(struct z_erofs_collector *clt,
 				   struct inode *inode,
 				   struct erofs_map_blocks *map)
 {
+	struct erofs_workgroup *grp;
 	int ret;
 
 	DBG_BUGON(clt->cl);
@@ -552,20 +573,23 @@ static int z_erofs_collector_begin(struct z_erofs_collector *clt,
 		return -EINVAL;
 	}
 
-repeat:
-	ret = z_erofs_lookup_collection(clt, inode, map);
-	if (ret == -ENOENT) {
+	grp = erofs_find_workgroup(inode->i_sb, map->m_pa >> PAGE_SHIFT);
+	if (grp) {
+		clt->pcl = container_of(grp, struct z_erofs_pcluster, obj);
+	} else {
 		ret = z_erofs_register_collection(clt, inode, map);
 
-		/* someone registered at the same time, give another try */
-		if (ret == -EAGAIN) {
-			cond_resched();
-			goto repeat;
-		}
+		if (!ret)
+			goto out;
+		if (ret != -EEXIST)
+			return ret;
 	}
 
-	if (ret)
+	ret = z_erofs_lookup_collection(clt, inode, map);
+	if (ret) {
+		erofs_workgroup_put(&clt->pcl->obj);
 		return ret;
+	}
 
 out:
 	z_erofs_pagevec_ctor_init(&clt->vector, Z_EROFS_NR_INLINE_PAGEVECS,
