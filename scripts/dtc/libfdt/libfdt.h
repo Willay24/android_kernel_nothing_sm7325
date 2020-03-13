@@ -289,6 +289,11 @@ size_t fdt_header_size(const void *fdt);
  *
  * Return: size of DTB header in bytes
  */
+size_t fdt_header_size(const void *fdt);
+
+/**
+ * fdt_header_size_ - internal function which takes a version number
+ */
 size_t fdt_header_size_(uint32_t version);
 
 /**
