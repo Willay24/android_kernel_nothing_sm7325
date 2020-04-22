@@ -275,6 +275,7 @@ struct sde_crtc_misr_info {
  * @misr_reconfigure : boolean entry indicates misr reconfigure status
  * @misr_frame_count  : misr frame count provided by client
  * @misr_data     : store misr data before turning off the clocks.
+ * @early_wakeup_work: work to trigger early wakeup
  * @power_event   : registered power event handle
  * @cur_perf      : current performance committed to clock/bandwidth driver
  * @plane_mask_old: keeps track of the planes used in the previous commit
@@ -357,6 +358,7 @@ struct sde_crtc {
 	bool misr_enable_debugfs;
 	bool misr_reconfigure;
 	u32 misr_frame_count;
+	struct kthread_work early_wakeup_work;
 
 	struct sde_power_event *power_event;
 
