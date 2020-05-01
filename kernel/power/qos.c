@@ -488,7 +488,6 @@ static ssize_t cpu_latency_qos_read(struct file *filp, char __user *buf,
 				    size_t count, loff_t *f_pos)
 {
 	struct pm_qos_request *req = filp->private_data;
-	unsigned long flags;
 	s32 value;
 
 	if (!req || !cpu_latency_qos_request_active(req))
