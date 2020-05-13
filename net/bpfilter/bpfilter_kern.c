@@ -40,7 +40,7 @@ static int bpfilter_send_req(struct mbox_request *req)
 	if (!bpfilter_ops.info.tgid)
 		return -EFAULT;
 	pos = 0;
-	n = kernel_write(bpfilter_ops.info.pipe_to_umh, req, sizeof(*req),
+	n = kernel_write(bpfilter_ops.info.pipe_to_umh, &req, sizeof(req),
 			   &pos);
 	if (n != sizeof(*req)) {
 		pr_err("write fail %zd\n", n);
