@@ -478,7 +478,7 @@
 546	common	close_range			sys_close_range
 547	common	for openat2			sys_openat2
 # 548 reserved for pidfd_getfd
-# 549 reserved for faccessat2
+549	common	faccessat2			sys_faccessat2
 550	common	process_madvise			sys_process_madvise
 547	common	epoll_pwait2			sys_epoll_pwait2
 # 557 reserved for memfd_secret
