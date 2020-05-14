@@ -477,3 +477,7 @@
 # 545 reserved for clone3
 546	common	close_range			sys_close_range
 547	common	epoll_pwait2			sys_epoll_pwait2
+# 548 reserved for openat2
+# 549 reserved for pidfd_getfd
+# 550 reserved for faccessat2
+551	common	faccessat2			sys_faccessat2
