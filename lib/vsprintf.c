@@ -2188,6 +2188,10 @@ early_param("no_hash_pointers", no_hash_pointers_enable);
  *                  c major compatible string
  *                  C full compatible string
  * - 'x' For printing the address. Equivalent to "%lx".
+ * - '[ku]s' For a BPF/tracing related format specifier, e.g. used out of
+ *           bpf_trace_printk() where [ku] prefix specifies either kernel (k)
+ *           or user (u) memory to probe, and:
+ *              s a string, equivalent to "%s" on direct vsnprintf() use
  *
  * ** When making changes please also update:
  *	Documentation/core-api/printk-formats.rst
@@ -2268,6 +2272,14 @@ char *pointer(const char *fmt, char *buf, char *end, void *ptr,
 		return kobject_string(buf, end, ptr, spec, fmt);
 	case 'x':
 		return pointer_string(buf, end, ptr, spec);
+	case 'u':
+	case 'k':
+		switch (fmt[1]) {
+		case 's':
+			return string(buf, end, ptr, spec);
+		default:
+			return error_string(buf, end, "(einval)", spec);
+		}
 	}
 
 	if (IS_ENABLED(CONFIG_DEBUG_CONSOLE_UNHASHED_POINTERS))
