@@ -509,6 +509,9 @@ static int erofs_fc_fill_super(struct super_block *sb, struct fs_context *fc)
 	sb->s_op = &erofs_sops;
 	sb->s_xattr = erofs_xattr_handlers;
 
+	/* set erofs default mount options */
+	erofs_default_options(sbi);
+
 	if (test_opt(ctx, POSIX_ACL))
 		sb->s_flags |= SB_POSIXACL;
 	else
