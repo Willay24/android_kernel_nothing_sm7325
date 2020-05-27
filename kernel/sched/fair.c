@@ -7641,7 +7641,7 @@ compute_energy(struct energy_env *eenv, struct perf_domain *pd,
 
 	trace_android_vh_em_pd_energy(pd->em_pd, max_util, busy_time, &energy);
 	if (!energy)
-		energy = em_pd_energy(pd->em_pd, max_util, busy_time, eenv->cpu_cap);
+		energy = em_cpu_energy(pd->em_pd, max_util, busy_time, eenv->cpu_cap);
 
 	return energy;
 }
