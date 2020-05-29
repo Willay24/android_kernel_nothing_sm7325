@@ -10,6 +10,8 @@
 #include <linux/parser.h>
 #include <linux/seq_file.h>
 #include <linux/crc32c.h>
+#include <linux/fs_context.h>
+#include <linux/fs_parser.h>
 #include "xattr.h"
 
 #define CREATE_TRACE_POINTS
@@ -339,7 +341,6 @@ static void erofs_default_options(struct erofs_fs_context *ctx)
 #ifdef CONFIG_EROFS_FS_ZIP
 	ctx->cache_strategy = EROFS_ZIP_CACHE_READAROUND;
 	ctx->max_sync_decompress_pages = 3;
-	ctx->readahead_sync_decompress = false;
 #endif
 #ifdef CONFIG_EROFS_FS_XATTR
 	set_opt(ctx, XATTR_USER);
@@ -356,23 +357,19 @@ enum {
 	Opt_err
 };
 
-static const struct fs_parameter_enum erofs_param_cache_strategy[] ={
-	{Opt_cache_strategy, "disabled",	EROFS_ZIP_CACHE_DISABLED},
-	{Opt_cache_strategy, "readahead",	EROFS_ZIP_CACHE_READAHEAD},
-	{Opt_cache_strategy, "readaround",	EROFS_ZIP_CACHE_READAROUND},
+static const struct constant_table erofs_param_cache_strategy[] = {
+	{"disabled",	EROFS_ZIP_CACHE_DISABLED},
+	{"readahead",	EROFS_ZIP_CACHE_READAHEAD},
+	{"readaround",	EROFS_ZIP_CACHE_READAROUND},
 	{}
 };
 
-static const struct fs_parameter_spec erofs_fs_param_specs[] = {
+static const struct fs_parameter_spec erofs_fs_parameters[] = {
 	fsparam_flag_no("user_xattr",	Opt_user_xattr),
 	fsparam_flag_no("acl",		Opt_acl),
-	fsparam_enum("cache_strategy",	Opt_cache_strategy),
+	fsparam_enum("cache_strategy",	Opt_cache_strategy,
+		     erofs_param_cache_strategy),
 	{}
-};
-const struct fs_parameter_description erofs_fs_parameters = {
-	.name = "erofs",
-	.specs = erofs_fs_param_specs,
-	.enums = erofs_param_cache_strategy,
 };
 
 static int erofs_fc_parse_param(struct fs_context *fc,
@@ -382,7 +379,7 @@ static int erofs_fc_parse_param(struct fs_context *fc,
 	struct fs_parse_result result;
 	int opt;
 
-	opt = fs_parse(fc, &erofs_fs_parameters, param, &result);
+	opt = fs_parse(fc, erofs_fs_parameters, param, &result);
 	if (opt < 0)
 		return opt;
 
@@ -508,9 +505,6 @@ static int erofs_fc_fill_super(struct super_block *sb, struct fs_context *fc)
 
 	sb->s_op = &erofs_sops;
 	sb->s_xattr = erofs_xattr_handlers;
-
-	/* set erofs default mount options */
-	erofs_default_options(sbi);
 
 	if (test_opt(ctx, POSIX_ACL))
 		sb->s_flags |= SB_POSIXACL;
@@ -738,7 +732,6 @@ static int erofs_show_options(struct seq_file *seq, struct dentry *root)
 		seq_puts(seq, ",cache_strategy=readahead");
 	else if (ctx->cache_strategy == EROFS_ZIP_CACHE_READAROUND)
 		seq_puts(seq, ",cache_strategy=readaround");
-	}
 #endif
 	return 0;
 }
