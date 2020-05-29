@@ -50,21 +50,11 @@ struct erofs_fs_context {
 #ifdef CONFIG_EROFS_FS_ZIP
 	/* current strategy of how to use managed cache */
 	unsigned char cache_strategy;
-	/* strategy of sync decompression (false - auto, true - force on) */
-	bool readahead_sync_decompress;
 
 	/* threshold for decompression synchronously */
 	unsigned int max_sync_decompress_pages;
 #endif
 	unsigned int mount_opt;
-};
-
-/* all filesystem-wide lz4 configurations */
-struct erofs_sb_lz4_info {
-	/* # of pages needed for EROFS lz4 rolling decompression */
-	u16 max_distance_pages;
-	/* maximum possible blocks for pclusters in the filesystem */
-	u16 max_pclusterblks;
 };
 
 struct erofs_sb_info {
@@ -76,11 +66,7 @@ struct erofs_sb_info {
 	/* managed XArray arranged in physical block number */
 	struct xarray managed_pslots;
 
-	/* threshold for decompression synchronously */
-	unsigned int max_sync_decompress_pages;
-
 	unsigned int shrinker_run_no;
-	u16 available_compr_algs;
 
 	/* pseudo inode to manage cached pages */
 	struct inode *managed_cache;
