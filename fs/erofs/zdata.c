@@ -719,7 +719,7 @@ restart_now:
 
 	/* preload all compressed pages (maybe downgrade role if necessary) */
 	if (should_alloc_managed_pages(fe, sbi->ctx.cache_strategy, map->m_la))
-		cache_strategy = TRYALLOC;
+		cache_strategy = DELAYEDALLOC;
 	else
 		cache_strategy = DONTALLOC;
 
@@ -1433,7 +1433,7 @@ static int z_erofs_readpage(struct file *file, struct page *page)
 static bool should_decompress_synchronously(struct erofs_sb_info *sbi,
 					    unsigned int nr)
 {
-	return nr <= 3;
+	return nr <= sbi->ctx.max_sync_decompress_pages;
 }
 
 static int z_erofs_readpages(struct file *filp, struct address_space *mapping,
