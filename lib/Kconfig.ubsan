@@ -60,10 +60,10 @@ config UBSAN_SANITIZE_ALL
 	  Enabling this option will get kernel image size increased
 	  significantly.
 
-
-	depends on !X86 || !COMPILE_TEST
-	help
-	  This option enables the check of unaligned memory accesses.
+config UBSAN_ALIGNMENT
+	bool "Enable checks for pointers alignment"
+	default !HAVE_EFFICIENT_UNALIGNED_ACCESS
+	depends on !UBSAN_TRAP
 	  Enabling this option on architectures that support unaligned
 	  accesses may produce a lot of false positives.
 
