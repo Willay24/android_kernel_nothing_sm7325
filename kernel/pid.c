@@ -43,6 +43,7 @@
 #include <linux/sched/task.h>
 #include <linux/file.h>
 #include <linux/idr.h>
+#include <net/sock.h>
 
 struct pid init_struct_pid = {
 	.count		= REFCOUNT_INIT(1),
@@ -651,10 +652,12 @@ static int pidfd_getfd(struct pid *pid, int fd)
 	}
 
 	ret = get_unused_fd_flags(O_CLOEXEC);
-	if (ret < 0)
+	if (ret < 0) {
 		fput(file);
-	else
+	} else {
+		__receive_sock(file);
 		fd_install(ret, file);
+	}
 
 	return ret;
 }
