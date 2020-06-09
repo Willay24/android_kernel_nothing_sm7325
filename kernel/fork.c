@@ -99,7 +99,6 @@
 #include <linux/scs.h>
 #include <linux/simple_lmk.h>
 
-#include <asm/pgtable.h>
 #include <asm/pgalloc.h>
 #include <linux/uaccess.h>
 #include <asm/mmu_context.h>

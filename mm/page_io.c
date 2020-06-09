@@ -25,7 +25,6 @@
 #include <linux/psi.h>
 #include <linux/uio.h>
 #include <linux/sched/task.h>
-#include <asm/pgtable.h>
 
 static void __end_swap_bio_write(struct bio *bio)
 {
