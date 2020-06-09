@@ -13,10 +13,10 @@
 
 #include <linux/vmalloc.h>
 #include <linux/io.h>
+#include <linux/pgtable.h>
 #include <asm/pgalloc.h>
 #include <asm/fixmap.h>
 #include <asm/bug.h>
-#include <linux/pgtable.h>
 #include <linux/sched.h>
 #include <asm/tlbflush.h>
 
