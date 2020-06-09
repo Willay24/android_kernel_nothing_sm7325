@@ -11,7 +11,6 @@
 #include <linux/uaccess.h>
 #include <linux/highmem.h>
 #include <asm/cacheflush.h>
-#include <asm/pgtable.h>
 #include <asm/tlbflush.h>
 
 void __iomem *iomap_atomic_pfn_prot(unsigned long pfn, pgprot_t prot);
