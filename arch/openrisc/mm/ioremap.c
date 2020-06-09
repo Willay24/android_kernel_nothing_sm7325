@@ -16,7 +16,7 @@
 #include <asm/pgalloc.h>
 #include <asm/fixmap.h>
 #include <asm/bug.h>
-#include <asm/pgtable.h>
+#include <linux/pgtable.h>
 #include <linux/sched.h>
 #include <asm/tlbflush.h>
 
