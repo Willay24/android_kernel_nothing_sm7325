@@ -31,6 +31,7 @@
 #include <linux/sizes.h>
 #include <linux/android_kabi.h>
 #include <linux/android_vendor.h>
+#include <linux/pgtable.h>
 
 struct mempolicy;
 struct anon_vma;
@@ -102,7 +103,6 @@ extern int mmap_rnd_compat_bits __read_mostly;
 #endif
 
 #include <asm/page.h>
-#include <linux/pgtable.h>
 #include <asm/processor.h>
 
 /*
