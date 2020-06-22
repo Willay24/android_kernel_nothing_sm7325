@@ -1292,7 +1292,7 @@ static int try_to_force_load(struct module *mod, const char *reason)
 #endif
 }
 
-#ifdef CONFIG_MODVERSIONS
+#if 0
 
 static u32 resolve_rel_crc(const s32 *crc)
 {
@@ -1343,9 +1343,9 @@ static int check_version(const struct load_info *info,
 	return 1;
 
 bad_version:
-	pr_warn("%s: disagrees about version of symbol %s, but ignore ... \n",
+	pr_warn("%s: disagrees about version of symbol %s\n",
 	       info->name, symname);
-	return 1;
+	return 0;
 }
 
 static inline int check_modstruct_version(const struct load_info *info,
