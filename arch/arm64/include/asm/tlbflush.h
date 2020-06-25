@@ -104,6 +104,11 @@
 		__tlbi(op, arg);					\
 	} while(0)
 
+#define __tlbi_user_level(op, arg, level) do {				\
+	if (arm64_kernel_unmapped_at_el0())				\
+		__tlbi_level(op, (arg | USER_ASID_FLAG), level);	\
+} while (0)
+
 /*
  *	TLB Invalidation
  *	================
@@ -207,8 +212,9 @@ static inline void __flush_tlb_page_nosync(struct mm_struct *mm,
 
 	dsb(ishst);
 	addr = __TLBI_VADDR(uaddr, ASID(mm));
-	__tlbi(vale1is, addr);
-	__tlbi_user(vale1is, addr);
+	/* This function is only called on a small page */
+	__tlbi_level(vale1is, addr, 3);
+	__tlbi_user_level(vale1is, addr, 3);
 }
 
 static inline void flush_tlb_page_nosync(struct vm_area_struct *vma,
@@ -286,11 +292,11 @@ static inline void __flush_tlb_range(struct vm_area_struct *vma,
 
 	for (addr = start; addr < end; addr += stride) {
 		if (last_level) {
-			__tlbi(vale1is, addr);
-			__tlbi_user(vale1is, addr);
+			__tlbi_level(vale1is, addr, 0);
+			__tlbi_user_level(vale1is, addr, 0);
 		} else {
-			__tlbi(vae1is, addr);
-			__tlbi_user(vae1is, addr);
+			__tlbi_level(vae1is, addr, 0);
+			__tlbi_user_level(vae1is, addr, 0);
 		}
 	}
 	dsb(ish);
