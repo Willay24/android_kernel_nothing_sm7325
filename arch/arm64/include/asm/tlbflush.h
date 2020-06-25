@@ -264,7 +264,8 @@ static inline void arch_tlbbatch_flush(struct arch_tlbflush_unmap_batch *batch)
 
 static inline void __flush_tlb_range(struct vm_area_struct *vma,
 				     unsigned long start, unsigned long end,
-				     unsigned long stride, bool last_level)
+				     unsigned long stride, bool last_level,
+				     int tlb_level)
 {
 	unsigned long asid, addr;
 
@@ -286,11 +287,11 @@ static inline void __flush_tlb_range(struct vm_area_struct *vma,
 
 	for (addr = start; addr < end; addr += stride) {
 		if (last_level) {
-			__tlbi(vale1is, addr);
-			__tlbi_user(vale1is, addr);
+			__tlbi(vale1is, addr, tlb_level);
+			__tlbi_user(vale1is, addr, tlb_level);
 		} else {
-			__tlbi(vae1is, addr);
-			__tlbi_user(vae1is, addr);
+			__tlbi(vae1is,  addr, tlb_level);
+			__tlbi_user(vae1is, addr, tlb_level);
 		}
 	}
 	dsb(ish);
@@ -302,8 +303,9 @@ static inline void flush_tlb_range(struct vm_area_struct *vma,
 	/*
 	 * We cannot use leaf-only invalidation here, since we may be invalidating
 	 * table entries as part of collapsing hugepages or moving page tables.
+	 * Set the tlb_level to 0 because we can not get enough information here.
 	 */
-	__flush_tlb_range(vma, start, end, PAGE_SIZE, false);
+	__flush_tlb_range(vma, start, end, PAGE_SIZE, false, 0);
 }
 
 static inline void flush_tlb_kernel_range(unsigned long start, unsigned long end)
