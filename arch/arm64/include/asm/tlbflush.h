@@ -211,9 +211,8 @@ static inline void __flush_tlb_page_nosync(struct mm_struct *mm,
 
 	dsb(ishst);
 	addr = __TLBI_VADDR(uaddr, ASID(mm));
-	/* This function is only called on a small page */
-	__tlbi_level(vale1is, addr, 3);
-	__tlbi_user_level(vale1is, addr, 3);
+	__tlbi(vale1is, addr);
+	__tlbi_user(vale1is, addr);
 }
 
 static inline void flush_tlb_page_nosync(struct vm_area_struct *vma,
