@@ -1871,5 +1871,5 @@ error:
 	mutex_destroy(&poweroff_lock);
 	return result;
 }
-fs_initcall(thermal_init);
+postcore_initcall(thermal_init);
 #endif
