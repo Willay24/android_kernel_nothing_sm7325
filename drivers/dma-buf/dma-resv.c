@@ -96,8 +96,8 @@ static void dma_resv_list_free(struct dma_resv_list *list)
 void dma_resv_init(struct dma_resv *obj)
 {
 	ww_mutex_init(&obj->lock, &reservation_ww_class);
+	seqcount_ww_mutex_init(&obj->seq, &obj->lock);
 
-	seqlock_init(&obj->seq);
 	RCU_INIT_POINTER(obj->fence, NULL);
 	RCU_INIT_POINTER(obj->fence_excl, NULL);
 }
