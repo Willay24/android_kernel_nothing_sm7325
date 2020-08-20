@@ -24,6 +24,7 @@
 #include <linux/tick.h>
 #include <linux/fie.h>
 #include <trace/events/power.h>
+#include <trace/hooks/cpuidle.h>
 
 #include "cpuidle.h"
 
@@ -226,6 +227,7 @@ int __nocfi cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_drive
 	/* Take note of the planned idle state. */
 	sched_idle_set_state(target_state);
 
+	trace_android_vh_cpu_idle(0, index, dev->cpu);
 	trace_cpu_idle(index, dev->cpu);
 	fie_idle_enter();
 	time_start = ns_to_ktime(local_clock());
@@ -239,6 +241,7 @@ int __nocfi cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_drive
 	sched_clock_idle_wakeup_event();
 	time_end = ns_to_ktime(local_clock());
 	trace_cpu_idle(PWR_EVENT_EXIT, dev->cpu);
+	trace_android_vh_cpu_idle(PWR_EVENT_EXIT, entered_state, dev->cpu);
 	fie_idle_exit();
 
 	/* The cpu is no longer idle or about to enter idle. */
