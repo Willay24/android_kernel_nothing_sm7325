@@ -761,14 +761,6 @@ else ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS += -Os
 endif
 
-ifdef CONFIG_CC_IS_CLANG
-KBUILD_CFLAGS += -mcpu=cortex-a55
-KBUILD_AFLAGS += -mcpu=cortex-a55
-else
-KBUILD_CFLAGS += -mcpu=cortex-a76.cortex-a55
-KBUILD_AFLAGS += -mcpu=cortex-a76.cortex-a55
-endif
-
 # Tell gcc to never replace conditional load with a non-conditional one
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
 KBUILD_CFLAGS	+= $(call cc-option,-fno-allow-store-data-races)
@@ -807,7 +799,7 @@ KBUILD_CFLAGS += -Wno-tautological-compare
 # See modpost pattern 2
 KBUILD_CFLAGS += -mno-global-merge
 KBUILD_CFLAGS += $(call cc-disable-warning, undefined-optimized)
-KBUILD_CFLAGS += -fno-builtin
+
 
 # Clang may emit a warning when a const variable, such as the dummy variables
 # in typecheck(), or const member of an aggregate type are not initialized,
@@ -822,11 +814,10 @@ KBUILD_CFLAGS += -fno-builtin
 KBUILD_CFLAGS += $(call cc-disable-warning, default-const-init-unsafe)
 else
 
-# Harmless warns but too noisy due to GCC's notorious aggressiveness
-KBUILD_CFLAGS += $(call cc-disable-warning, address)
-KBUILD_CFLAGS += $(call cc-disable-warning, array-compare)
-KBUILD_CFLAGS += $(call cc-disable-warning, format)
-KBUILD_CFLAGS += $(call cc-disable-warning, implicit-fallthrough)
+# Warn about unmarked fall-throughs in switch statement.
+# Disabled for clang while comment to attribute conversion happens and
+# https://github.com/ClangBuiltLinux/linux/issues/636 is discussed.
+KBUILD_CFLAGS += $(call cc-option,-Wimplicit-fallthrough,)
 endif
 
 # These warnings generated too much noise in a regular build.
@@ -1009,6 +1000,9 @@ KBUILD_CFLAGS += $(call cc-disable-warning, stringop-overflow)
 
 # Another good warning that we'll want to enable eventually
 KBUILD_CFLAGS += $(call cc-disable-warning, restrict)
+
+# Enabled with W=2, disabled by default as noisy
+KBUILD_CFLAGS += $(call cc-disable-warning, maybe-uninitialized)
 
 # disable invalid "can't wrap" optimizations for signed / pointers
 KBUILD_CFLAGS	+= $(call cc-option,-fno-strict-overflow)
