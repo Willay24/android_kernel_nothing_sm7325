@@ -87,6 +87,23 @@ Read path::
 	} while (read_seqcount_retry(&foo_seqcount, seq));
 
 
+.. _seqcount_latch_t:
+
+Latch sequence counters (``seqcount_latch_t``)
+----------------------------------------------
+
+Latch sequence counters are a multiversion concurrency control mechanism
+where the embedded seqcount_t counter even/odd value is used to switch
+between two copies of protected data. This allows the sequence counter
+read path to safely interrupt its own write side critical section.
+
+Use seqcount_latch_t when the write side sections cannot be protected
+from interruption by readers. This is typically the case when the read
+side can be invoked from NMI handlers.
+
+Check `raw_write_seqcount_latch()` for more information.
+
+
 .. _seqlock_t:
 
 Sequential locks (``seqlock_t``)
