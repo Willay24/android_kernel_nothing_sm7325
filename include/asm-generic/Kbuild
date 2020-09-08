@@ -6,5 +6,6 @@
 
 mandatory-y += kmap_size.h
 mandatory-y += dma-contiguous.h
+mandatory-y += module.lds.h
 mandatory-y += msi.h
 mandatory-y += simd.h
