@@ -399,6 +399,7 @@ static inline unsigned long sugov_apply_dvfs_headroom(unsigned long util, int cp
 
 	return util;
 }
+EXPORT_SYMBOL_GPL(schedutil_cpu_util);
 
 unsigned long sugov_effective_cpu_perf(int cpu, unsigned long actual,
 				 unsigned long min,
