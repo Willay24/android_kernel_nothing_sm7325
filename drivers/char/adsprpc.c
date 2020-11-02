@@ -29,8 +29,6 @@
 #include <linux/ipc_logging.h>
 #include <soc/qcom/subsystem_notif.h>
 #include <soc/qcom/subsystem_restart.h>
-#include <soc/qcom/service-notifier.h>
-#include <soc/qcom/service-locator.h>
 #include <linux/scatterlist.h>
 #include <linux/uaccess.h>
 #include <linux/device.h>
@@ -52,6 +50,8 @@
 #include <linux/stat.h>
 #include <linux/preempt.h>
 #include <linux/of_reserved_mem.h>
+#include <linux/soc/qcom/pdr.h>
+#include <linux/soc/qcom/qmi.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/fastrpc.h>
@@ -61,7 +61,6 @@
 #define TZ_PIL_AUTH_QDSP6_PROC 1
 
 #define FASTRPC_DMAHANDLE_NOMAP (16)
-#define FASTRPC_MAP_DMA_HANDLE  0x20000
 
 #define FASTRPC_ENOSUCH 39
 #define DEBUGFS_SIZE 3072
@@ -271,13 +270,8 @@ enum fastrpc_msg_type {
 /* User PD Dump Name Max length */
 #define RAMDUMP_NAME_MAX_LENGTH 20
 
-static int fastrpc_pdr_notifier_cb(struct notifier_block *nb,
-					unsigned long code,
-					void *data);
-#ifdef CONFIG_DEBUG_FS
 static struct dentry *debugfs_root;
 static struct dentry *debugfs_global_file;
-#endif
 
 static inline uint64_t buf_page_start(uint64_t buf)
 {
@@ -471,8 +465,6 @@ struct fastrpc_session_ctx {
 struct fastrpc_static_pd {
 	char *servloc_name;
 	char *spdname;
-	struct notifier_block pdrnb;
-	struct notifier_block get_service_nb;
 	void *pdrhandle;
 	uint64_t pdrcount;
 	uint64_t prevpdrcount;
@@ -669,16 +661,12 @@ static struct fastrpc_channel_ctx gcinfo[NUM_CHANNELS] = {
 				.servloc_name =
 					AUDIO_PDR_SERVICE_LOCATION_CLIENT_NAME,
 				.spdname = ADSP_AUDIOPD_NAME,
-				.pdrnb.notifier_call =
-						fastrpc_pdr_notifier_cb,
 				.cid = ADSP_DOMAIN_ID,
 			},
 			{
 				.servloc_name =
 				SENSORS_PDR_ADSP_SERVICE_LOCATION_CLIENT_NAME,
 				.spdname = ADSP_SENSORPD_NAME,
-				.pdrnb.notifier_call =
-						fastrpc_pdr_notifier_cb,
 				.cid = ADSP_DOMAIN_ID,
 			}
 		},
@@ -704,8 +692,6 @@ static struct fastrpc_channel_ctx gcinfo[NUM_CHANNELS] = {
 				.servloc_name =
 				SENSORS_PDR_SLPI_SERVICE_LOCATION_CLIENT_NAME,
 				.spdname = SLPI_SENSORPD_NAME,
-				.pdrnb.notifier_call =
-						fastrpc_pdr_notifier_cb,
 				.cid = SDSP_DOMAIN_ID,
 			}
 		},
@@ -1124,7 +1110,7 @@ static void fastrpc_mmap_add(struct fastrpc_mmap *map)
 }
 
 static int fastrpc_mmap_find(struct fastrpc_file *fl, int fd,
-		uintptr_t va, size_t len, int mflags, bool refs,
+		uintptr_t va, size_t len, int mflags, int refs,
 		struct fastrpc_mmap **ppmap)
 {
 	struct fastrpc_mmap *match = NULL, *map = NULL;
@@ -1132,22 +1118,17 @@ static int fastrpc_mmap_find(struct fastrpc_file *fl, int fd,
 
 	if ((va + len) < va)
 		return -EFAULT;
-	if (mflags == ADSP_MMAP_HEAP_ADDR ||
-				 mflags == ADSP_MMAP_REMOTE_HEAP_ADDR) {
-		return -EFAULT;
-	} else {
-		hlist_for_each_entry_safe(map, n, &fl->maps, hn) {
-			if (va >= map->va &&
-				va + len <= map->va + map->len &&
-				map->fd == fd) {
-				if (refs) {
-					if (map->refs + 1 == INT_MAX)
-						return -ETOOMANYREFS;
-					map->refs++;
-				}
-				match = map;
-				break;
+	hlist_for_each_entry_safe(map, n, &fl->maps, hn) {
+		if (va >= map->va &&
+			va + len <= map->va + map->len &&
+			map->fd == fd) {
+			if (refs) {
+				if (map->refs + 1 == INT_MAX)
+					return -ETOOMANYREFS;
+				map->refs++;
 			}
+			match = map;
+			break;
 		}
 	}
 	if (match) {
@@ -1307,7 +1288,7 @@ static void fastrpc_mmap_free(struct fastrpc_mmap *map, uint32_t flags)
 			dma_free_attrs(me->dev, map->size, (void *)map->va,
 			(dma_addr_t)map->phys, (unsigned long)map->attr);
 		}
-	} else if (map->flags & FASTRPC_DMAHANDLE_NOMAP) {
+	} else if (map->flags == FASTRPC_DMAHANDLE_NOMAP) {
 		trace_fastrpc_dma_unmap(cid, map->phys, map->size);
 		if (!IS_ERR_OR_NULL(map->table))
 			dma_buf_unmap_attachment(map->attach, map->table,
@@ -1392,7 +1373,6 @@ static int fastrpc_mmap_create(struct fastrpc_file *fl, int fd,
 	unsigned long flags;
 	int err = 0, vmid, sgl_index = 0;
 	struct scatterlist *sgl = NULL;
-	bool take_ref = true;
 
 	if (!fl) {
 		err = -EBADF;
@@ -1406,9 +1386,7 @@ static int fastrpc_mmap_create(struct fastrpc_file *fl, int fd,
 	}
 	chan = &apps->channel[cid];
 
-	if (mflags & FASTRPC_MAP_DMA_HANDLE)
-		take_ref = false;
-	if (!fastrpc_mmap_find(fl, fd, va, len, mflags, take_ref, ppmap))
+	if (!fastrpc_mmap_find(fl, fd, va, len, mflags, 1, ppmap))
 		return 0;
 	map = kzalloc(sizeof(*map), GFP_KERNEL);
 	VERIFY(err, !IS_ERR_OR_NULL(map));
@@ -1446,7 +1424,7 @@ static int fastrpc_mmap_create(struct fastrpc_file *fl, int fd,
 			if (err)
 				goto bail;
 		}
-	} else if (mflags & FASTRPC_DMAHANDLE_NOMAP) {
+	} else if (mflags == FASTRPC_DMAHANDLE_NOMAP) {
 		if (map->attr & FASTRPC_ATTR_KEEP_MAP) {
 			ADSPRPC_ERR("Invalid attribute 0x%x for fd %d\n",
 				map->attr, fd);
@@ -2530,10 +2508,10 @@ static int get_args(uint32_t kernel, struct smq_invoke_ctx *ctx)
 	handles = REMOTE_SCALARS_INHANDLES(sc) + REMOTE_SCALARS_OUTHANDLES(sc);
 	mutex_lock(&ctx->fl->map_mutex);
 	for (i = bufs; i < bufs + handles; i++) {
-		int dmaflags = FASTRPC_MAP_DMA_HANDLE;
+		int dmaflags = 0;
 
 		if (ctx->attrs && (ctx->attrs[i] & FASTRPC_ATTR_NOMAP))
-			dmaflags |= FASTRPC_DMAHANDLE_NOMAP;
+			dmaflags = FASTRPC_DMAHANDLE_NOMAP;
 		if (ctx->fds && (ctx->fds[i] != -1))
 			err = fastrpc_mmap_create(ctx->fl, ctx->fds[i],
 					FASTRPC_ATTR_NOVA, 0, 0, dmaflags,
@@ -2710,7 +2688,7 @@ static int get_args(uint32_t kernel, struct smq_invoke_ctx *ctx)
 		if (ctx->maps[i]) {
 			/* check if map still exist */
 			if (!fastrpc_mmap_find(ctx->fl, ctx->fds[i], 0, 0,
-				0, false, &mmap)) {
+				0, 0, &mmap)) {
 				if (mmap) {
 					pages[i].addr = mmap->phys;
 					pages[i].size = mmap->size;
@@ -2925,7 +2903,7 @@ static int put_args(uint32_t kernel, struct smq_invoke_ctx *ctx,
 		if (!fdlist[i])
 			break;
 		if (!fastrpc_mmap_find(ctx->fl, (int)fdlist[i], 0, 0,
-					0, false, &mmap)) {
+					0, 0, &mmap)) {
 			if (mmap && mmap->dma_handle_refs) {
 				mmap->dma_handle_refs = 0;
 				fastrpc_mmap_free(mmap, 0);
@@ -5020,7 +4998,7 @@ static int fastrpc_internal_munmap_fd(struct fastrpc_file *fl,
 	}
 	mutex_lock(&fl->internal_map_mutex);
 	mutex_lock(&fl->map_mutex);
-	err = fastrpc_mmap_find(fl, ud->fd, ud->va, ud->len, 0, false, &map);
+	err = fastrpc_mmap_find(fl, ud->fd, ud->va, ud->len, 0, 0, &map);
 	if (err) {
 		ADSPRPC_ERR(
 			"mapping not found to unmap fd 0x%x, va 0x%llx, len 0x%x, err %d\n",
@@ -5530,16 +5508,13 @@ static int fastrpc_device_release(struct inode *inode, struct file *file)
 	if (!fl)
 		return 0;
 
-#ifdef CONFIG_DEBUG_FS
 	debugfs_remove(fl->debugfs_file);
-#endif
 	fastrpc_file_free(fl);
 	file->private_data = NULL;
 
 	return 0;
 }
 
-#ifdef CONFIG_DEBUG_FS
 static ssize_t fastrpc_debugfs_read(struct file *filp, char __user *buffer,
 					 size_t count, loff_t *position)
 {
@@ -5771,7 +5746,6 @@ static const struct file_operations debugfs_fops = {
 	.open = simple_open,
 	.read = fastrpc_debugfs_read,
 };
-#endif
 
 static int fastrpc_channel_open(struct fastrpc_file *fl)
 {
@@ -5925,7 +5899,6 @@ bail:
 	return err;
 }
 
-#ifdef CONFIG_DEBUG_FS
 static int fastrpc_set_process_info(struct fastrpc_file *fl)
 {
 	int err = 0, buf_size = 0;
@@ -5975,22 +5948,6 @@ static int fastrpc_set_process_info(struct fastrpc_file *fl)
 	}
 	return err;
 }
-#else
-static int fastrpc_set_process_info(struct fastrpc_file *fl)
-{
-	fl->tgid = current->tgid;
-
-	/*
-	 * Third-party apps don't have permission to open the fastrpc device, so
-	 * it is opened on their behalf by DSP HAL. This is detected by
-	 * comparing current PID with the one stored during device open.
-	 */
-	if (current->tgid != fl->tgid_open)
-		fl->untrusted_process = true;
-
-	return 0;
-}
-#endif
 
 static int fastrpc_get_info(struct fastrpc_file *fl, uint32_t *info)
 {
@@ -6562,18 +6519,23 @@ static int fastrpc_restart_notifier_cb(struct notifier_block *nb,
 	return NOTIFY_DONE;
 }
 
-static int fastrpc_pdr_notifier_cb(struct notifier_block *pdrnb,
-					unsigned long code,
-					void *data)
+
+static void fastrpc_pdr_cb(int state, char *service_path, void *priv)
 {
 	struct fastrpc_apps *me = &gfa;
 	struct fastrpc_static_pd *spd;
-	struct notif_data *notifdata = (struct notif_data *)data;
+	int err = 0;
 
-	spd = container_of(pdrnb, struct fastrpc_static_pd, pdrnb);
-	if (code == SERVREG_NOTIF_SERVICE_STATE_DOWN_V01) {
+	spd = priv;
+	VERIFY(err, spd);
+	if (err)
+		goto bail;
+
+	switch (state) {
+	case SERVREG_SERVICE_STATE_DOWN:
 		pr_info("adsprpc: %s: %s (%s) is down for PDR on %s\n",
-			__func__, spd->spdname, spd->servloc_name,
+			__func__, spd->spdname,
+			spd->servloc_name,
 			gcinfo[spd->cid].subsys);
 		mutex_lock(&me->channel[spd->cid].smd_mutex);
 		spd->pdrcount++;
@@ -6583,100 +6545,22 @@ static int fastrpc_pdr_notifier_cb(struct notifier_block *pdrnb,
 				AUDIO_PDR_SERVICE_LOCATION_CLIENT_NAME))
 			me->staticpd_flags = 0;
 		fastrpc_notify_pdr_drivers(me, spd->servloc_name);
-	} else if (code == SUBSYS_RAMDUMP_NOTIFICATION) {
-		if (spd->cid == RH_CID) {
-			if (spd->cid == RH_CID && me->ramdump_handle)
-				me->channel[RH_CID].ramdumpenabled = 1;
-		}
-		pr_info("adsprpc: %s: received %s RAMDUMP notification for %s (%s)\n",
-			__func__, gcinfo[spd->cid].subsys,
-			spd->spdname, spd->servloc_name);
-	} else if (code == SUBSYS_BEFORE_POWERUP) {
-		if (spd->cid == RH_CID && notifdata->enable_ramdump) {
-			if (me->ramdump_handle && me->channel[RH_CID]
-					.ramdumpenabled)
-				me->enable_ramdump = true;
-			me->channel[RH_CID].ramdumpenabled = 0;
-			}
-	} else if (code == SERVREG_NOTIF_SERVICE_STATE_UP_V01) {
-		pr_info("adsprpc: %s: %s (%s) is up on %s\n",
-			__func__, spd->spdname, spd->servloc_name,
+	break;
+	case SERVREG_SERVICE_STATE_UP:
+		pr_info("adsprpc: %s: %s (%s) is up for PDR on %s\n",
+			__func__, spd->spdname,
+			spd->servloc_name,
 			gcinfo[spd->cid].subsys);
 		spd->ispdup = 1;
+		break;
+	default:
+		break;
 	}
-
-	return NOTIFY_DONE;
-}
-
-/*
- * The service locator callback function where the PDR notification
- * callback functions are registered.
- * (like audioPD on ADSP, sensorPD on SLPI/ADSP)
- */
-static int fastrpc_get_service_location_notify(struct notifier_block *nb,
-				unsigned long opcode, void *data)
-{
-	struct fastrpc_static_pd *spd;
-	struct pd_qmi_client_data *pdr = data;
-	int curr_state = 0, i = 0;
-	char *cb_pdname = NULL, *subsys = NULL;
-	uint32_t instance_id = 0;
-
-	spd = container_of(nb, struct fastrpc_static_pd, get_service_nb);
-	subsys = gcinfo[spd->cid].subsys;
-	if (opcode == LOCATOR_DOWN) {
-		pr_warn("adsprpc: %s: PDR notifier locator for %s is down for %s\n",
-				__func__, subsys, spd->servloc_name);
-		return NOTIFY_DONE;
+bail:
+	if (err) {
+		pr_err("adsprpc: %s: failed for path %s, state %d, spd %pK\n",
+			__func__, service_path, state, spd);
 	}
-	for (i = 0; i < pdr->total_domains; i++) {
-		cb_pdname = pdr->domain_list[i].name;
-		instance_id = pdr->domain_list[i].instance_id;
-
-		/* Check the client and staticPD in the callback */
-		if (COMPARE_SERVICE_LOCATOR_NAMES(spd->servloc_name,
-				AUDIO_PDR_SERVICE_LOCATION_CLIENT_NAME,
-				cb_pdname, ADSP_AUDIOPD_NAME) ||
-
-			COMPARE_SERVICE_LOCATOR_NAMES(spd->servloc_name,
-				SENSORS_PDR_ADSP_SERVICE_LOCATION_CLIENT_NAME,
-				cb_pdname, ADSP_SENSORPD_NAME) ||
-
-			COMPARE_SERVICE_LOCATOR_NAMES(spd->servloc_name,
-				SENSORS_PDR_SLPI_SERVICE_LOCATION_CLIENT_NAME,
-				cb_pdname, SLPI_SENSORPD_NAME)) {
-
-			goto pdr_register;
-		}
-	}
-	return NOTIFY_DONE;
-
-pdr_register:
-	if (!spd->pdrhandle) {
-		/* Register the PDR notifier callback function */
-		spd->pdrhandle = service_notif_register_notifier(cb_pdname,
-			instance_id, &spd->pdrnb, &curr_state);
-		if (IS_ERR_OR_NULL(spd->pdrhandle))
-			pr_warn("adsprpc: %s: PDR notifier for %s register failed for %s (%s) with err %ld\n",
-				__func__, subsys, cb_pdname, spd->servloc_name,
-				PTR_ERR(spd->pdrhandle));
-		else
-			pr_info("adsprpc: %s: PDR notifier for %s registered for %s (%s)\n",
-			__func__, subsys, cb_pdname, spd->servloc_name);
-	} else {
-		pr_warn("adsprpc: %s: %s (%s) notifier is already registered for %s\n",
-			__func__, cb_pdname, spd->servloc_name, subsys);
-	}
-
-	if (curr_state == SERVREG_NOTIF_SERVICE_STATE_UP_V01) {
-		pr_info("adsprpc: %s: %s (%s) PDR service for %s is up\n",
-			__func__, spd->servloc_name, cb_pdname, subsys);
-		spd->ispdup = 1;
-	} else if (curr_state == SERVREG_NOTIF_SERVICE_STATE_UNINIT_V01) {
-		pr_info("adsprpc: %s: %s (%s) PDR service for %s is uninitialized\n",
-			__func__, spd->servloc_name, cb_pdname, subsys);
-	}
-	return NOTIFY_DONE;
 }
 
 static const struct file_operations fops = {
@@ -6783,7 +6667,6 @@ static int fastrpc_cb_probe(struct device *dev)
 	}
 
 	chan->sesscount++;
-#ifdef CONFIG_DEBUG_FS
 	if (debugfs_root && !debugfs_global_file) {
 		debugfs_global_file = debugfs_create_file("global", 0644,
 			debugfs_root, NULL, &debugfs_fops);
@@ -6793,7 +6676,6 @@ static int fastrpc_cb_probe(struct device *dev)
 			debugfs_global_file = NULL;
 		}
 	}
-#endif
 bail:
 	return err;
 }
@@ -6900,28 +6782,40 @@ static void configure_secure_channels(uint32_t secure_domains)
  * PDR property has been enabled in the fastrpc node on the DTSI.
  */
 static int fastrpc_setup_service_locator(struct device *dev,
-	const char *propname, char *client_name, char *service_name)
+					 const char *propname,
+					 char *client_name, char *service_name,
+					 char *service_path)
 {
 	int err = 0, session = -1, cid = -1;
 	struct fastrpc_apps *me = &gfa;
+	struct pdr_handle *handle = NULL;
+	struct pdr_service *service = NULL;
 
 	if (of_property_read_bool(dev->of_node, propname)) {
 		err = fastrpc_get_spd_session(client_name, &session, &cid);
 		if (err)
 			goto bail;
 		/* Register the service locator's callback function */
-		me->channel[cid].spd[session].get_service_nb.notifier_call =
-					fastrpc_get_service_location_notify;
-		err = get_service_location(client_name, service_name,
-				&me->channel[cid].spd[session].get_service_nb);
-		if (err)
-			pr_warn("adsprpc: %s: get service location failed with %d for %s (%s)\n",
-				__func__, err, service_name, client_name);
-		else
-			pr_info("adsprpc: %s: service location enabled for %s (%s)\n",
-				__func__, service_name, client_name);
+		handle = pdr_handle_alloc(fastrpc_pdr_cb, &me->channel[cid].spd[session]);
+		if (!handle) {
+			err = -ENOMEM;
+			goto bail;
+		}
+		me->channel[cid].spd[session].pdrhandle = handle;
+		service = pdr_add_lookup(handle, service_name, service_path);
+		if (!service) {
+			err = -EPERM;
+			goto bail;
+		}
+		pr_info("adsprpc: %s: pdr_add_lookup enabled for %s (%s, %s), DTSI (%s)\n",
+			__func__, service_name, client_name, service_path, propname);
 	}
+
 bail:
+	if (err) {
+		pr_warn("adsprpc: %s: failed for %s (%s, %s), DTSI (%s) with err %d\n",
+				__func__, service_name, client_name, service_path, propname, err);
+	}
 	return err;
 }
 
@@ -7027,13 +6921,13 @@ static int fastrpc_probe(struct platform_device *pdev)
 
 	fastrpc_setup_service_locator(dev, AUDIO_PDR_ADSP_DTSI_PROPERTY_NAME,
 		AUDIO_PDR_SERVICE_LOCATION_CLIENT_NAME,
-		AUDIO_PDR_ADSP_SERVICE_NAME);
+		AUDIO_PDR_ADSP_SERVICE_NAME, ADSP_AUDIOPD_NAME);
 	fastrpc_setup_service_locator(dev, SENSORS_PDR_ADSP_DTSI_PROPERTY_NAME,
 		SENSORS_PDR_ADSP_SERVICE_LOCATION_CLIENT_NAME,
-		SENSORS_PDR_ADSP_SERVICE_NAME);
+		SENSORS_PDR_ADSP_SERVICE_NAME, ADSP_SENSORPD_NAME);
 	fastrpc_setup_service_locator(dev, SENSORS_PDR_SLPI_DTSI_PROPERTY_NAME,
 		SENSORS_PDR_SLPI_SERVICE_LOCATION_CLIENT_NAME,
-		SENSORS_PDR_SLPI_SERVICE_NAME);
+		SENSORS_PDR_SLPI_SERVICE_NAME, SLPI_SENSORPD_NAME);
 
 	err = of_platform_populate(pdev->dev.of_node,
 					  fastrpc_match_table,
@@ -7099,7 +6993,6 @@ static int __init fastrpc_device_init(void)
 	struct fastrpc_apps *me = &gfa;
 	int err = 0, i;
 
-#ifdef CONFIG_DEBUG_FS
 	debugfs_root = debugfs_create_dir("adsprpc", NULL);
 	if (IS_ERR_OR_NULL(debugfs_root)) {
 		pr_warn("Error: %s: %s: failed to create debugfs root dir\n",
@@ -7107,7 +7000,6 @@ static int __init fastrpc_device_init(void)
 		debugfs_remove_recursive(debugfs_root);
 		debugfs_root = NULL;
 	}
-#endif
 	memset(me, 0, sizeof(*me));
 	fastrpc_init(me);
 	fastrpc_get_dsp_status(me);
@@ -7243,9 +7135,7 @@ static void __exit fastrpc_device_exit(void)
 	if (me->rpmsg_register == 1)
 		unregister_rpmsg_driver(&fastrpc_rpmsg_client);
 	kfree(me->gidlist.gids);
-#ifdef CONFIG_DEBUG_FS
 	debugfs_remove_recursive(debugfs_root);
-#endif
 }
 
 module_init(fastrpc_device_init);
