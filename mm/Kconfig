@@ -795,6 +795,9 @@ config ARCH_HAS_PTE_SPECIAL
 config ARCH_HAS_HUGEPD
 	bool
 
+config KMAP_LOCAL
+	bool
+
 endmenu
 
 config PROCESS_RECLAIM
