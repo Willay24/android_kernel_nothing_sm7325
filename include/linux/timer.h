@@ -195,7 +195,6 @@ extern int del_timer_sync(struct timer_list *timer);
 extern bool timer_curr_running(struct timer_list *timer);
 
 extern void init_timers(void);
-extern void run_local_timers(void);
 struct hrtimer;
 extern enum hrtimer_restart it_real_fn(struct hrtimer *);
 
