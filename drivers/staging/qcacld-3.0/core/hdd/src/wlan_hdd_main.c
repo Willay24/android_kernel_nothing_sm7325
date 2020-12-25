@@ -17943,7 +17943,7 @@ static int hdd_module_init(void)
 	return 0;
 }
 #else
-static int hdd_module_init(void)
+static int __init hdd_module_init(void)
 {
 	if (hdd_driver_load())
 		return -EINVAL;
