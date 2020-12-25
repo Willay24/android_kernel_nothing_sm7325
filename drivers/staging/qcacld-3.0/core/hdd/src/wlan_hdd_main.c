@@ -17944,7 +17944,7 @@ static int hdd_module_init(void)
 	return 0;
 }
 #else
-static int hdd_module_init(void)
+static int __init hdd_module_init(void)
 {
 	int ret;
 
