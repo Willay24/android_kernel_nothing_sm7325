@@ -776,7 +776,6 @@ static void __device_link_del(struct kref *kref)
 
 	dev_dbg(link->consumer, "Dropping the link to %s\n",
 		dev_name(link->supplier));
-
 	pm_runtime_drop_link(link);
 
 	list_del_rcu(&link->s_node);
