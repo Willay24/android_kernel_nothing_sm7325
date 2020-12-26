@@ -927,8 +927,7 @@ static void a6xx_rgmu_touch_wakeup(struct adreno_device *adreno_dev)
 
 	device->pwrctrl.last_stat_updated = ktime_get();
 
-	kgsl_pwrctrl_set_state(device, KGSL_STATE_ACTIVE);
-
+	trace_kgsl_pwr_set_state(device, KGSL_STATE_ACTIVE);
 }
 
 static int a6xx_first_boot(struct adreno_device *adreno_dev)
