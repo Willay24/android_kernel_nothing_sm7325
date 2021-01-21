@@ -9341,9 +9341,6 @@ static int ufshcd_set_dma_mask(struct ufs_hba *hba)
  */
 static void ufshcd_devres_release(void *host)
 {
-	struct ufs_hba *hba = shost_priv(host);
-
-	ufshcd_crypto_destroy_keyslot_manager(hba);
 	scsi_host_put(host);
 }
 
