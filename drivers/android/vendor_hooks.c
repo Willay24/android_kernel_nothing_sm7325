@@ -22,6 +22,7 @@
 #include <trace/hooks/cgroup.h>
 #include <trace/hooks/sys.h>
 #include <trace/hooks/signal.h>
+#include <trace/hooks/timer.h>
 
 /*
  * Export tracepoints that act as a bare tracehook (ie: have no trace event
@@ -70,3 +71,4 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_map_util_freq);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_em_pd_energy);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_cgroup_set_task);
 EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_syscall_prctl_finished);
+EXPORT_TRACEPOINT_SYMBOL_GPL(android_vh_timer_calc_index);
