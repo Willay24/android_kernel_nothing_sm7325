@@ -461,7 +461,7 @@ const void *fdt_getprop_namelen(const void *fdt, int nodeoffset,
 
 	/* Handle realignment */
 	if (!can_assume(LATEST) && fdt_version(fdt) < 0x10 &&
-	    (poffset + sizeof(*prop)) % 8 && fdt32_ld(&prop->len) >= 8)
+	    (poffset + sizeof(*prop)) % 8 && fdt32_ld_(&prop->len) >= 8)
 		return prop->data + 4;
 	return prop->data;
 }
@@ -479,7 +479,7 @@ const void *fdt_getprop_by_offset(const void *fdt, int offset,
 		int namelen;
 
 		if (!can_assume(VALID_INPUT)) {
-			name = fdt_get_string(fdt, fdt32_ld(&prop->nameoff),
+			name = fdt_get_string(fdt, fdt32_ld_(&prop->nameoff),
 					      &namelen);
 			if (!name) {
 				if (lenp)
@@ -488,13 +488,13 @@ const void *fdt_getprop_by_offset(const void *fdt, int offset,
 			}
 			*namep = name;
 		} else {
-			*namep = fdt_string(fdt, fdt32_ld(&prop->nameoff));
+			*namep = fdt_string(fdt, fdt32_ld_(&prop->nameoff));
 		}
 	}
 
 	/* Handle realignment */
 	if (!can_assume(LATEST) && fdt_version(fdt) < 0x10 &&
-	    (offset + sizeof(*prop)) % 8 && fdt32_ld(&prop->len) >= 8)
+	    (offset + sizeof(*prop)) % 8 && fdt32_ld_(&prop->len) >= 8)
 		return prop->data + 4;
 	return prop->data;
 }

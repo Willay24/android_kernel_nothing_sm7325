@@ -131,13 +131,6 @@ uint32_t fdt_next_tag(const void *fdt, int offset, int *nextoffset);
  * to work even with unaligned pointers on platforms (such as ARMv5) that don't
  * like unaligned loads and stores.
  */
-static inline uint16_t fdt16_ld(const fdt16_t *p)
-{
-	const uint8_t *bp = (const uint8_t *)p;
-
-	return ((uint16_t)bp[0] << 8) | bp[1];
-}
-
 static inline uint32_t fdt32_ld(const fdt32_t *p)
 {
 	const uint8_t *bp = (const uint8_t *)p;
@@ -288,11 +281,6 @@ size_t fdt_header_size(const void *fdt);
  * @version: devicetree version number
  *
  * Return: size of DTB header in bytes
- */
-size_t fdt_header_size(const void *fdt);
-
-/**
- * fdt_header_size_ - internal function which takes a version number
  */
 size_t fdt_header_size_(uint32_t version);
 
