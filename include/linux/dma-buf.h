@@ -536,6 +536,7 @@ static inline void get_dma_buf(struct dma_buf *dmabuf)
 	dma_buf_ref_mod(to_msm_dma_buf(dmabuf), 1);
 }
 
+int is_dma_buf_file(struct file *file);
 struct dma_buf_attachment *dma_buf_attach(struct dma_buf *dmabuf,
 							struct device *dev);
 void dma_buf_detach(struct dma_buf *dmabuf,
