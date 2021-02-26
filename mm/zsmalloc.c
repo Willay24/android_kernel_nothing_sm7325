@@ -79,7 +79,7 @@
 
 /*
  * Object location (<PFN>, <obj_idx>) is encoded as
- * a single (unsigned long) handle value.
+ * as single (unsigned long) handle value.
  *
  * Note that object index <obj_idx> starts from 0.
  *
@@ -726,10 +726,13 @@ static void insert_zspage(struct size_class *class,
 	 * We want to see more ZS_FULL pages and less almost empty/full.
 	 * Put pages with higher ->inuse first.
 	 */
-	if (head && get_zspage_inuse(zspage) < get_zspage_inuse(head))
-		list_add(&zspage->list, &head->list);
-	else
-		list_add(&zspage->list, &class->fullness_list[fullness]);
+	if (head) {
+		if (get_zspage_inuse(zspage) < get_zspage_inuse(head)) {
+			list_add(&zspage->list, &head->list);
+			return;
+		}
+	}
+	list_add(&zspage->list, &class->fullness_list[fullness]);
 }
 
 /*
@@ -884,12 +887,12 @@ static inline int trypin_tag(unsigned long handle)
 	return bit_spin_trylock(HANDLE_PIN_BIT, (unsigned long *)handle);
 }
 
-static void pin_tag(unsigned long handle) __acquires(bitlock)
+static void pin_tag(unsigned long handle)
 {
 	bit_spin_lock(HANDLE_PIN_BIT, (unsigned long *)handle);
 }
 
-static void unpin_tag(unsigned long handle) __releases(bitlock)
+static void unpin_tag(unsigned long handle)
 {
 	bit_spin_unlock(HANDLE_PIN_BIT, (unsigned long *)handle);
 }
@@ -1815,12 +1818,12 @@ static void migrate_lock_init(struct zspage *zspage)
 	rwlock_init(&zspage->lock);
 }
 
-static void migrate_read_lock(struct zspage *zspage) __acquires(&zspage->lock)
+static void migrate_read_lock(struct zspage *zspage)
 {
 	read_lock(&zspage->lock);
 }
 
-static void migrate_read_unlock(struct zspage *zspage) __releases(&zspage->lock)
+static void migrate_read_unlock(struct zspage *zspage)
 {
 	read_unlock(&zspage->lock);
 }
