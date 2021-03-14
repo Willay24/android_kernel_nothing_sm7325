@@ -6551,6 +6551,7 @@ static void init_gro_hash(struct napi_struct *napi)
 	}
 	napi->gro_bitmask = 0;
 }
+EXPORT_SYMBOL(dev_set_threaded);
 
 void netif_napi_add(struct net_device *dev, struct napi_struct *napi,
 		    int (*poll)(struct napi_struct *, int), int weight)
