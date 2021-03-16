@@ -127,11 +127,6 @@
 /* ESD status check interval in miliseconds */
 #define STATUS_CHECK_INTERVAL_MS 5000
 
-/* A hardware display blank change occurred */
-#define DRM_PANEL_EVENT_BLANK          0x01
-/* A hardware display blank early change occurred */
-#define DRM_PANEL_EARLY_EVENT_BLANK    0x02
-
 /**
  * enum sde_kms_smmu_state:	smmu state
  * @ATTACHED:	 all the context banks are attached.
@@ -188,19 +183,6 @@ enum frame_trigger_mode_type {
 	FRAME_DONE_WAIT_DEFAULT,
 	FRAME_DONE_WAIT_SERIALIZE,
 	FRAME_DONE_WAIT_POSTED_START,
-};
-
-/*
- * @DRM_PANEL_BLANK_UNBLANK: power on
- * @DRM_PANEL_BLANK_POWERDOWN: power off
- * @DRM_PANEL_BLANK_LP: low power mode
- * @DRM_PANEL_BLANK_FPS_CHANGE: fps change
- */
-enum {
-	DRM_PANEL_BLANK_UNBLANK,
-	DRM_PANEL_BLANK_POWERDOWN,
-	DRM_PANEL_BLANK_LP,
-	DRM_PANEL_BLANK_FPS_CHANGE,
 };
 
 /**
@@ -758,4 +740,13 @@ int sde_kms_vm_trusted_prepare_commit(struct sde_kms *sde_kms,
  */
 int sde_kms_vm_primary_prepare_commit(struct sde_kms *sde_kms,
 					   struct drm_atomic_state *state);
+
+/**
+ * sde_kms_trigger_early_wakeup - trigger early wake up
+ * @sde_kms: pointer to sde_kms structure
+ * @crtc: pointer to drm_crtc structure
+ */
+void sde_kms_trigger_early_wakeup(struct sde_kms *sde_kms,
+		struct drm_crtc *crtc);
+
 #endif /* __sde_kms_H__ */
