@@ -10,22 +10,12 @@
 #include <linux/devfreq.h>
 #include <linux/notifier.h>
 
-#define ADRENO_DEVFREQ_NOTIFY_SUBMIT	1
-#define ADRENO_DEVFREQ_NOTIFY_RETIRE	2
-#define ADRENO_DEVFREQ_NOTIFY_IDLE	3
-
 /* Flags used to send bus modifier hint from busmon governer to driver */
 #define BUSMON_FLAG_FAST_HINT		BIT(0)
 #define BUSMON_FLAG_SUPER_FAST_HINT	BIT(1)
 #define BUSMON_FLAG_SLOW_HINT		BIT(2)
 
 struct device;
-
-int kgsl_devfreq_add_notifier(struct device *device,
-	struct notifier_block *block);
-
-int kgsl_devfreq_del_notifier(struct device *device,
-	struct notifier_block *block);
 
 /* same as KGSL_MAX_PWRLEVELS */
 #define MSM_ADRENO_MAX_PWRLEVELS 16
@@ -70,12 +60,6 @@ struct devfreq_msm_adreno_tz_data {
 
 struct msm_adreno_extended_profile {
 	struct devfreq_msm_adreno_tz_data *private_data;
-	struct devfreq *bus_devfreq;
-	struct workqueue_struct *partner_wq;
-	struct work_struct partner_start_event_ws;
-	struct work_struct partner_stop_event_ws;
-	struct work_struct partner_suspend_event_ws;
-	struct work_struct partner_resume_event_ws;
 	struct devfreq_dev_profile profile;
 };
 
