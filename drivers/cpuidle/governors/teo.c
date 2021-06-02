@@ -232,10 +232,15 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 {
 	struct teo_cpu *cpu_data = per_cpu_ptr(&teo_cpus, dev->cpu);
 	int latency_req = cpuidle_governor_latency_req(dev->cpu);
-	int max_early_idx, prev_max_early_idx, constraint_idx, idx0, idx, i;
-	unsigned int hits, misses, early_hits;
+	int constraint_idx = drv->state_count;
+	unsigned int hits = 0, misses = 0;
+	unsigned int early_hits = 0;
+	int prev_max_early_idx = -1;
+	int max_early_idx = -1;
+	int idx0 = -1, idx = -1;
 	ktime_t delta_tick;
 	s64 duration_us;
+	int i;
 
 	if (dev->last_state_idx >= 0) {
 		teo_update(drv, dev);
@@ -246,15 +251,6 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 
 	cpu_data->sleep_length_ns = tick_nohz_get_sleep_length(&delta_tick);
 	duration_us = ktime_to_us(cpu_data->sleep_length_ns);
-
-	hits = 0;
-	misses = 0;
-	early_hits = 0;
-	max_early_idx = -1;
-	prev_max_early_idx = -1;
-	constraint_idx = drv->state_count;
-	idx = -1;
-	idx0 = idx;
 
 	for (i = 0; i < drv->state_count; i++) {
 		struct cpuidle_state *s = &drv->states[i];
