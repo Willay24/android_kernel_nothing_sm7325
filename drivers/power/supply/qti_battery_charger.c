@@ -57,6 +57,7 @@
 #define WLS_FW_UPDATE_TIME_MS		1000
 #define WLS_FW_BUF_SIZE			128
 #define DEFAULT_RESTRICT_FCC_UA		1000000
+#define FAST_CHG_CURRENT_MAX_UA		6000000
 #define ADSP_INIT_TRY			20
 #define ADSP_INIT_WAIT_MS		50
 #define CONFIG_NT_CHG
@@ -1114,6 +1115,24 @@ static int usb_psy_get_prop(struct power_supply *psy,
 	pval->intval = pst->prop[prop_id];
 	if (prop == POWER_SUPPLY_PROP_TEMP)
 		pval->intval = DIV_ROUND_CLOSEST((int)pval->intval, 10);
+
+	if (prop == POWER_SUPPLY_PROP_CURRENT_MAX) {
+		rc = read_property_id(bcdev, pst, USB_ADAP_TYPE);
+		if (rc < 0)
+			return 0;
+
+		switch (pst->prop[USB_ADAP_TYPE]) {
+		case POWER_SUPPLY_USB_TYPE_PD_PPS:
+		case QTI_POWER_SUPPLY_USB_TYPE_HVDCP:
+		case QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3:
+		case QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3P5:
+			pval->intval = max_t(int, pval->intval,
+					     FAST_CHG_CURRENT_MAX_UA);
+			break;
+		default:
+			break;
+		}
+	}
 
 	return 0;
 }
