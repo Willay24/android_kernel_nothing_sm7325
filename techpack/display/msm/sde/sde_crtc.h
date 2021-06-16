@@ -398,6 +398,9 @@ struct sde_crtc {
 enum sde_crtc_dirty_flags {
 	SDE_CRTC_DIRTY_DEST_SCALER,
 	SDE_CRTC_DIRTY_DIM_LAYERS,
+#ifdef CONFIG_DRM_SDE_EXPO
+	SDE_CRTC_DIRTY_DIM_LAYER_EXPO,
+#endif
 	SDE_CRTC_DIRTY_MAX,
 };
 
@@ -463,6 +466,9 @@ struct sde_crtc_state {
 	struct sde_core_perf_params new_perf;
 	u8 fod_dim_alpha;
 	bool color_invert_on;
+#ifdef CONFIG_DRM_SDE_EXPO
+	struct sde_hw_dim_layer *exposure_dim_layer;
+#endif
 };
 
 enum sde_crtc_irq_state {
