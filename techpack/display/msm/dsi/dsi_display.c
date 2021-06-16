@@ -22,6 +22,9 @@
 #include "sde_dbg.h"
 #include "dsi_parser.h"
 #include <video/mipi_display.h>
+#ifdef CONFIG_DRM_SDE_EXPO
+#include "sde_expo_dim_layer.h"
+#endif
 #ifdef CONFIG_DRM_PANEL
 extern int lpm_levels_register_panel(struct drm_panel *panel);
 static bool lpm_panel_registered;
@@ -253,6 +256,12 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		       dsi_display->name, rc);
 		goto error;
 	}
+
+#ifdef CONFIG_DRM_SDE_EXPO
+	if (bl_lvl && panel->power_mode != SDE_MODE_DPMS_LP1 &&
+			panel->power_mode != SDE_MODE_DPMS_LP2)
+		bl_temp = expo_map_dim_level((u32)bl_temp, dsi_display);
+#endif
 
 	rc = dsi_panel_set_backlight(panel, (u32)bl_temp);
 	if (rc)
