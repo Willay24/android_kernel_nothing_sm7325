@@ -122,6 +122,8 @@ static void dma_buf_release(struct dentry *dentry)
 
 	WARN_ON(!list_empty(&dmabuf->attachments));
 	dma_buf_stats_teardown(dmabuf);
+
+	WARN_ON(!list_empty(&dmabuf->attachments));
 	module_put(dmabuf->owner);
 	kfree(dmabuf->name);
 	kfree(msm_dma_buf);
