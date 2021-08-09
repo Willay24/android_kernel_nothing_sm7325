@@ -710,6 +710,7 @@ static int geni_se_rmv_ab_ib(struct geni_se_device *geni_se_dev,
 	bool bus_bw_update = false;
 	bool bus_bw_update_noc = false;
 	int ret = 0;
+	int index;
 
 	if (geni_se_dev->vectors == NULL)
 		return 0;
@@ -751,7 +752,7 @@ static int geni_se_rmv_ab_ib(struct geni_se_device *geni_se_dev,
 		geni_se_dev->cur_ib, rsc->ab, rsc->ib, bus_bw_update);
 
 
-	if (geni_se_dev->num_paths == 2) {
+	if (geni_se_dev->num_paths >= 2) {
 		if (unlikely(list_empty(&rsc->ab_list_noc) ||
 					list_empty(&rsc->ib_list_noc))) {
 			mutex_unlock(&geni_se_dev->geni_dev_lock);
@@ -770,13 +771,16 @@ static int geni_se_rmv_ab_ib(struct geni_se_device *geni_se_dev,
 			geni_se_dev->cur_ib_noc = 0;
 
 		bus_bw_update_noc = geni_se_check_bus_bw_noc(geni_se_dev);
-		geni_se_dev->vectors[1].ab = geni_se_dev->cur_ab_noc;
-		geni_se_dev->vectors[1].ib = geni_se_dev->cur_ib_noc;
-
+		/* qup-ddr path is specified as the last entry in dt, so the
+		 * index is set to num_paths-1.
+		 */
+		index = geni_se_dev->num_paths - 1;
+		geni_se_dev->vectors[index].ab = geni_se_dev->cur_ab_noc;
+		geni_se_dev->vectors[index].ib = geni_se_dev->cur_ib_noc;
 		if (bus_bw_update_noc)
 			ret = icc_set_bw(geni_se_dev->bus_bw_noc,
-						geni_se_dev->vectors[1].ab,
-						geni_se_dev->vectors[1].ib);
+						geni_se_dev->vectors[index].ab,
+						geni_se_dev->vectors[index].ib);
 
 		GENI_SE_DBG(geni_se_dev->log_ctx, false, NULL,
 			"%s: %s: cur_ab_ib_noc(%lu:%lu) req_ab_ib_noc(%lu:%lu) %d\n",
@@ -860,6 +864,7 @@ static int geni_se_add_ab_ib(struct geni_se_device *geni_se_dev,
 	bool bus_bw_update = false;
 	bool bus_bw_update_noc = false;
 	int ret = 0;
+	int index;
 
 	if (geni_se_dev->vectors == NULL)
 		return 0;
@@ -902,7 +907,7 @@ static int geni_se_add_ab_ib(struct geni_se_device *geni_se_dev,
 		rsc->ab, rsc->ib, bus_bw_update);
 
 
-	if (geni_se_dev->num_paths == 2) {
+	if (geni_se_dev->num_paths >= 2) {
 
 		list_add(&rsc->ab_list_noc, &geni_se_dev->ab_list_head_noc);
 		geni_se_dev->cur_ab_noc += rsc->ab_noc;
@@ -920,13 +925,17 @@ static int geni_se_add_ab_ib(struct geni_se_device *geni_se_dev,
 			geni_se_dev->cur_ib_noc = rsc->ib_noc;
 
 		bus_bw_update_noc = geni_se_check_bus_bw_noc(geni_se_dev);
-		geni_se_dev->vectors[1].ab = geni_se_dev->cur_ab_noc;
-		geni_se_dev->vectors[1].ib = geni_se_dev->cur_ib_noc;
+		/* qup-ddr path is specified as the last entry in dt, so the
+		 * index is set to num_paths-1.
+		 */
+		index = geni_se_dev->num_paths - 1;
+		geni_se_dev->vectors[index].ab = geni_se_dev->cur_ab_noc;
+		geni_se_dev->vectors[index].ib = geni_se_dev->cur_ib_noc;
 
 		if (bus_bw_update_noc)
 			ret = icc_set_bw(geni_se_dev->bus_bw_noc,
-						geni_se_dev->vectors[1].ab,
-						geni_se_dev->vectors[1].ib);
+						geni_se_dev->vectors[index].ab,
+						geni_se_dev->vectors[index].ib);
 
 		GENI_SE_DBG(geni_se_dev->log_ctx, false, NULL,
 			"%s: %s: cur_ab_ib_noc(%lu:%lu) req_ab_ib_noc(%lu:%lu) %d\n",
@@ -1064,7 +1073,7 @@ int geni_se_resources_init(struct se_geni_rsc *rsc,
 	rsc->ab = ab;
 	rsc->ib = ib;
 
-	if (geni_se_dev->num_paths == 2) {
+	if (geni_se_dev->num_paths >= 2) {
 		if (IS_ERR_OR_NULL(geni_se_dev->bus_bw_noc)) {
 			geni_se_dev->bus_bw_noc = icc_get(geni_se_dev->dev,
 						geni_se_dev->vectors[1].src,
@@ -1718,7 +1727,7 @@ static int geni_se_probe(struct platform_device *pdev)
 	geni_se_dev->bus_bw_set = default_bus_bw_set;
 	geni_se_dev->bus_bw_set_size =
 				ARRAY_SIZE(default_bus_bw_set);
-	if (geni_se_dev->num_paths == 2) {
+	if (geni_se_dev->num_paths >= 2) {
 		geni_se_dev->bus_bw_set_noc = default_bus_bw_set;
 		geni_se_dev->bus_bw_set_size_noc =
 				ARRAY_SIZE(default_bus_bw_set);
@@ -1726,7 +1735,7 @@ static int geni_se_probe(struct platform_device *pdev)
 	mutex_init(&geni_se_dev->iommu_lock);
 	INIT_LIST_HEAD(&geni_se_dev->ab_list_head);
 	INIT_LIST_HEAD(&geni_se_dev->ib_list_head);
-	if (geni_se_dev->num_paths == 2) {
+	if (geni_se_dev->num_paths >= 2) {
 		INIT_LIST_HEAD(&geni_se_dev->ab_list_head_noc);
 		INIT_LIST_HEAD(&geni_se_dev->ib_list_head_noc);
 	}
