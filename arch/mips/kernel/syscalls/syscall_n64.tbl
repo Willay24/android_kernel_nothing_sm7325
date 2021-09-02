@@ -353,3 +353,5 @@
 436	n64	close_range			sys_close_range
 440	common	process_madvise		sys_process_madvise
 441	n64	epoll_pwait2			sys_epoll_pwait2
+# 447 reserved for memfd_secret
+448	n64	process_mrelease		sys_process_mrelease
