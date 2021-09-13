@@ -153,3 +153,13 @@ arch/arm/boot/dts/vendor
 #Ignoring Android.bp link file
 #
 Android.bp
+
+# build scripts
+/build-scripts
+
+# build directories
+/out
+/work
+
+# build log
+log.txt
