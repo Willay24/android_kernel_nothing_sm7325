@@ -769,6 +769,10 @@ noinline int slow_avc_audit(struct selinux_state *state,
 	if (!denied)
 		return 0;
 
+#ifdef CONFIG_SECURITY_SELINUX_DISABLE_ALL_LOGS
+	return 0;
+#endif
+
 	if (WARN_ON(!tclass || tclass >= ARRAY_SIZE(secclass_map)))
 		return -EINVAL;
 
