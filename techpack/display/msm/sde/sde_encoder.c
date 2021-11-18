@@ -4307,28 +4307,20 @@ void sde_encoder_kickoff(struct drm_encoder *drm_enc, bool is_error,
 			phys->ops.handle_post_kickoff(phys);
 	}
 
-	/*
-	 * Trigger a panel reset if this is the first kickoff and the refresh
-	 * rate is not 60 Hz
-	 */
+	/* Trigger a panel reset after the first non-60 Hz kickoff. */
 	if (cmpxchg(&first_run, true, false) &&
-		sde_enc->crtc->mode.vrefresh != 60) {
-		struct sde_connector *conn = container_of(phys->connector, struct sde_connector, base);
+		    sde_enc->crtc->mode.vrefresh != 60) {
+		struct sde_connector *conn = container_of(phys->connector,
+				struct sde_connector, base);
 		struct drm_event event = {
 			.type = DRM_EVENT_PANEL_DEAD,
-			.length = sizeof(bool)
+			.length = sizeof(bool),
 		};
 
 		conn->panel_dead = true;
-		event.type = DRM_EVENT_PANEL_DEAD;
-		event.length = sizeof(bool);
-		msm_mode_object_event_notify(&conn->base.base,
-			conn->base.dev, &event, (u8 *) &conn->panel_dead);
+		msm_mode_object_event_notify(&conn->base.base, conn->base.dev,
+					     &event, (u8 *)&conn->panel_dead);
 	}
-
-	if (sde_enc->autorefresh_solver_disable &&
-			!_sde_encoder_is_autorefresh_enabled(sde_enc))
-		_sde_encoder_update_rsc_client(drm_enc, true);
 
 	SDE_ATRACE_END("encoder_kickoff");
 }
