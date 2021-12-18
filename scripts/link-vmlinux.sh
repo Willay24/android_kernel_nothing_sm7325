@@ -75,7 +75,7 @@ modpost_link()
 		${KBUILD_VMLINUX_OBJS}				\
 		${KBUILD_VMLINUX_LIBS}"
 
-	if [ -n "${CONFIG_LTO_CLANG}" ]; then
+	if [ -n "${CONFIG_LTO_CLANG}" ] || [ -n "${CONFIG_LTO_GCC}" ]; then
 		# This might take a while, so indicate that we're doing
 		# an LTO link
 		info LTO ${1}
