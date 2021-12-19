@@ -1415,7 +1415,7 @@ static int memlat_mon_probe(struct platform_device *pdev, u32 mon_type)
 	ret = of_property_read_u32(dev->of_node, "qcom,wb-ev",
 					&event_id);
 	if (ret < 0) {
-		dev_err(dev, "l2wb event missing for mon: %d\n",
+		dev_dbg(dev, "wb-ev not set, l2wb filter disabled (%d)\n",
 				ret);
 		mon->mon_ev_ids[L2WB_IDX] = INVALID_PMU_EVENT_ID;
 	} else {
@@ -1425,7 +1425,7 @@ static int memlat_mon_probe(struct platform_device *pdev, u32 mon_type)
 	ret = of_property_read_u32(dev->of_node, "qcom,access-ev",
 					&event_id);
 	if (ret < 0) {
-		dev_err(dev, "l2wb event missing for mon: %d\n",
+		dev_dbg(dev, "access-ev not set, l2wb filter disabled (%d)\n",
 				ret);
 		mon->mon_ev_ids[L3_ACCESS_IDX] = INVALID_PMU_EVENT_ID;
 	} else {
