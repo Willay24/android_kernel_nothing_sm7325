@@ -89,11 +89,14 @@ static HLIST_HEAD(binder_dead_nodes);
 static DEFINE_SPINLOCK(binder_dead_nodes_lock);
 
 static struct dentry *binder_debugfs_dir_entry_root;
-static struct dentry *binder_debugfs_dir_entry_proc;
 static atomic_t binder_last_id;
+
+#ifdef CONFIG_ANDROID_BINDER_LOGS
+static struct dentry *binder_debugfs_dir_entry_proc;
 
 static int proc_show(struct seq_file *m, void *unused);
 DEFINE_SHOW_ATTRIBUTE(proc);
+#endif
 
 /* This is only defined in include/asm-arm/sizes.h */
 #ifndef SZ_1K
@@ -120,7 +123,7 @@ enum {
 	BINDER_DEBUG_SPINLOCKS              = 1U << 14,
 };
 
-#ifdef DEBUG
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 static uint32_t binder_debug_mask = BINDER_DEBUG_USER_ERROR |
 	BINDER_DEBUG_FAILED_TRANSACTION | BINDER_DEBUG_DEAD_TRANSACTION;
 module_param_named(debug_mask, binder_debug_mask, uint, 0644);
@@ -145,7 +148,7 @@ static int binder_set_stop_on_user_error(const char *val,
 module_param_call(stop_on_user_error, binder_set_stop_on_user_error,
 	param_get_int, &binder_stop_on_user_error, 0644);
 
-#ifdef DEBUG
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 #define binder_debug(mask, x...) \
 	do { \
 		if (binder_debug_mask & mask) \
@@ -179,6 +182,7 @@ static inline void binder_user_error(const char *fmt, ...)
 #define to_binder_fd_array_object(hdr) \
 	container_of(hdr, struct binder_fd_array_object, hdr)
 
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 static struct binder_stats binder_stats;
 
 static inline void binder_stats_deleted(enum binder_stat_types type)
@@ -213,6 +217,10 @@ static struct binder_transaction_log_entry *binder_transaction_log_add(
 	memset(e, 0, sizeof(*e));
 	return e;
 }
+#else
+static inline void binder_stats_deleted(enum binder_stat_types type) {}
+static inline void binder_stats_created(enum binder_stat_types type) {}
+#endif
 
 enum binder_deferred_state {
 	BINDER_DEFERRED_FLUSH        = 0x01,
@@ -3157,7 +3165,9 @@ static void binder_transaction(struct binder_proc *proc,
 	struct binder_thread *target_thread = NULL;
 	struct binder_node *target_node = NULL;
 	struct binder_transaction *in_reply_to = NULL;
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	struct binder_transaction_log_entry *e;
+#endif
 	uint32_t return_error = 0;
 	uint32_t return_error_param = 0;
 	uint32_t return_error_line = 0;
@@ -3175,6 +3185,7 @@ static void binder_transaction(struct binder_proc *proc,
 	INIT_LIST_HEAD(&sgc_head);
 	INIT_LIST_HEAD(&pf_head);
 
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	e = binder_transaction_log_add(&binder_transaction_log);
 	e->debug_id = t_debug_id;
 	e->call_type = reply ? 2 : !!(tr->flags & TF_ONE_WAY);
@@ -3184,6 +3195,7 @@ static void binder_transaction(struct binder_proc *proc,
 	e->data_size = tr->data_size;
 	e->offsets_size = tr->offsets_size;
 	strscpy(e->context_name, proc->context->name, BINDERFS_MAX_NAME);
+#endif
 
 	if (reply) {
 		binder_inner_proc_lock(proc);
@@ -3291,7 +3303,9 @@ static void binder_transaction(struct binder_proc *proc,
 			return_error_line = __LINE__;
 			goto err_dead_binder;
 		}
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 		e->to_node = target_node->debug_id;
+#endif
 		if (WARN_ON(proc == target_proc)) {
 			return_error = BR_FAILED_REPLY;
 			return_error_param = -EINVAL;
@@ -3365,9 +3379,11 @@ static void binder_transaction(struct binder_proc *proc,
 		}
 		binder_inner_proc_unlock(proc);
 	}
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	if (target_thread)
 		e->to_thread = target_thread->pid;
 	e->to_proc = target_proc->pid;
+#endif
 
 	/* TODO: reuse incoming transaction for reply */
 	t = kzalloc(sizeof(*t), GFP_KERNEL);
@@ -3888,12 +3904,14 @@ static void binder_transaction(struct binder_proc *proc,
 	binder_proc_dec_tmpref(target_proc);
 	if (target_node)
 		binder_dec_node_tmpref(target_node);
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	/*
 	 * write barrier to synchronize with initialization
 	 * of log entry
 	 */
 	smp_wmb();
 	WRITE_ONCE(e->debug_id_done, t_debug_id);
+#endif
 	return;
 
 err_dead_proc_or_thread:
@@ -3945,6 +3963,7 @@ err_invalid_target_handle:
 		     (u64)tr->data_size, (u64)tr->offsets_size,
 		     return_error_line);
 
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	{
 		struct binder_transaction_log_entry *fe;
 
@@ -3961,6 +3980,7 @@ err_invalid_target_handle:
 		WRITE_ONCE(e->debug_id_done, t_debug_id);
 		WRITE_ONCE(fe->debug_id_done, t_debug_id);
 	}
+#endif
 
 	BUG_ON(thread->return_error.cmd != BR_OK);
 	if (in_reply_to) {
@@ -4185,11 +4205,13 @@ static int binder_thread_write(struct binder_proc *proc,
 			return -EFAULT;
 		ptr += sizeof(uint32_t);
 		trace_binder_command(cmd);
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 		if (_IOC_NR(cmd) < ARRAY_SIZE(binder_stats.bc)) {
 			atomic_inc(&binder_stats.bc[_IOC_NR(cmd)]);
 			atomic_inc(&proc->stats.bc[_IOC_NR(cmd)]);
 			atomic_inc(&thread->stats.bc[_IOC_NR(cmd)]);
 		}
+#endif
 		switch (cmd) {
 		case BC_INCREFS:
 		case BC_ACQUIRE:
@@ -4655,11 +4677,13 @@ static void binder_stat_br(struct binder_proc *proc,
 			   struct binder_thread *thread, uint32_t cmd)
 {
 	trace_binder_return(cmd);
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	if (_IOC_NR(cmd) < ARRAY_SIZE(binder_stats.br)) {
 		atomic_inc(&binder_stats.br[_IOC_NR(cmd)]);
 		atomic_inc(&proc->stats.br[_IOC_NR(cmd)]);
 		atomic_inc(&thread->stats.br[_IOC_NR(cmd)]);
 	}
+#endif
 }
 
 static int binder_put_node_cmd(struct binder_proc *proc,
@@ -6103,7 +6127,9 @@ static int binder_open(struct inode *nodp, struct file *filp)
 	struct binder_proc_ext *eproc;
 	struct binder_device *binder_dev;
 	struct binderfs_info *info;
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	struct dentry *binder_binderfs_dir_entry_proc = NULL;
+#endif
 	bool existing_pid = false;
 
 	binder_debug(BINDER_DEBUG_OPEN_CLOSE, "%s: %d:%d\n", __func__,
@@ -6136,7 +6162,9 @@ static int binder_open(struct inode *nodp, struct file *filp)
 	if (is_binderfs_device(nodp)) {
 		binder_dev = nodp->i_private;
 		info = nodp->i_sb->s_fs_info;
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 		binder_binderfs_dir_entry_proc = info->proc_log_dir;
+#endif
 	} else {
 		binder_dev = container_of(filp->private_data,
 					  struct binder_device, miscdev);
@@ -6162,6 +6190,7 @@ static int binder_open(struct inode *nodp, struct file *filp)
 	hlist_add_head(&proc->proc_node, &binder_procs);
 	mutex_unlock(&binder_procs_lock);
 
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	if (binder_debugfs_dir_entry_proc && !existing_pid) {
 		char strbuf[11];
 
@@ -6201,6 +6230,7 @@ static int binder_open(struct inode *nodp, struct file *filp)
 				strbuf, error);
 		}
 	}
+#endif
 
 	return 0;
 }
@@ -6447,6 +6477,7 @@ binder_defer_work(struct binder_proc *proc, enum binder_deferred_state defer)
 	mutex_unlock(&binder_deferred_lock);
 }
 
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 static void print_binder_transaction_ilocked(struct seq_file *m,
 					     struct binder_proc *proc,
 					     const char *prefix,
@@ -6898,7 +6929,7 @@ static void print_binder_proc_stats(struct seq_file *m,
 	print_binder_stats(m, "  ", &proc->stats);
 }
 
-static void print_binder_state(struct seq_file *m, bool hash_ptrs)
+int binder_state_show(struct seq_file *m, void *unused)
 {
 	struct binder_proc *proc;
 	struct binder_node *node;
@@ -6909,41 +6940,54 @@ static void print_binder_state(struct seq_file *m, bool hash_ptrs)
 	spin_lock(&binder_dead_nodes_lock);
 	if (!hlist_empty(&binder_dead_nodes))
 		seq_puts(m, "dead nodes:\n");
-	hlist_for_each_entry(node, &binder_dead_nodes, dead_node)
-		last_node = print_next_binder_node_ilocked(m, NULL, node,
-							   last_node,
-							   hash_ptrs);
+	hlist_for_each_entry(node, &binder_dead_nodes, dead_node) {
+		/*
+		 * take a temporary reference on the node so it
+		 * survives and isn't removed from the list
+		 * while we print it.
+		 */
+		node->tmp_refs++;
+		spin_unlock(&binder_dead_nodes_lock);
+		if (last_node)
+			binder_put_node(last_node);
+		binder_node_lock(node);
+		print_binder_node_nilocked(m, node);
+		binder_node_unlock(node);
+		last_node = node;
+		spin_lock(&binder_dead_nodes_lock);
+	}
 	spin_unlock(&binder_dead_nodes_lock);
 	if (last_node)
 		binder_put_node(last_node);
 
 	mutex_lock(&binder_procs_lock);
 	hlist_for_each_entry(proc, &binder_procs, proc_node)
-		print_binder_proc(m, proc, true, hash_ptrs);
+		print_binder_proc(m, proc, 1);
 	mutex_unlock(&binder_procs_lock);
+
+	return 0;
 }
 
-static void print_binder_transactions(struct seq_file *m, bool hash_ptrs)
+static void print_binder_transactions(struct seq_file *m)
 {
 	struct binder_proc *proc;
 
 	seq_puts(m, "binder transactions:\n");
 	mutex_lock(&binder_procs_lock);
 	hlist_for_each_entry(proc, &binder_procs, proc_node)
-		print_binder_proc(m, proc, false, hash_ptrs);
+		print_binder_proc(m, proc, 0);
 	mutex_unlock(&binder_procs_lock);
 }
 
-int binder_state_show(struct seq_file *m, void *unused)
+int binder_transactions_show(struct seq_file *m, void *unused)
 {
-	print_binder_state(m, false);
+	print_binder_transactions(m);
 	return 0;
 }
 
 int binder_state_hashed_show(struct seq_file *m, void *unused)
 {
-	print_binder_state(m, true);
-	return 0;
+	return binder_state_show(m, unused);
 }
 
 int binder_stats_show(struct seq_file *m, void *unused)
@@ -7037,6 +7081,7 @@ int binder_transaction_log_show(struct seq_file *m, void *unused)
 	}
 	return 0;
 }
+#endif
 
 const struct file_operations binder_fops = {
 	.owner = THIS_MODULE,
@@ -7090,6 +7135,7 @@ static int __init binder_init(void)
 	if (ret)
 		return ret;
 
+#ifdef CONFIG_ANDROID_BINDER_LOGS
 	atomic_set(&binder_transaction_log.cur, ~0U);
 	atomic_set(&binder_transaction_log_failed.cur, ~0U);
 
@@ -7135,6 +7181,7 @@ static int __init binder_init(void)
 				    &binder_transaction_log_failed,
 				    &binder_transaction_log_fops);
 	}
+#endif
 
 	if (!IS_ENABLED(CONFIG_ANDROID_BINDERFS) &&
 	    strcmp(binder_devices_param, "") != 0) {
