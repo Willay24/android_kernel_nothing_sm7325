@@ -28,6 +28,7 @@
 
 #include <linux/soc/qcom/smem.h>
 #include <linux/soc/qcom/smem_state.h>
+#include <linux/signal.h>
 
 #include "peripheral-loader.h"
 
@@ -603,17 +604,28 @@ static int pil_init_image_trusted(struct pil_desc *pil,
 	struct pil_tz_data *d = desc_to_data(pil);
 	u32 scm_ret = 0;
 	int ret;
-
-	if (d->subsys_desc.no_auth)
+	sigset_t new_sigset;
+	sigset_t old_sigset;
+ 
+ 	if (d->subsys_desc.no_auth)
 		return 0;
 
 	ret = scm_pas_enable_bw();
 	if (ret)
 		return ret;
+ 
+	/* initialize the new signal mask with all signals */
+	sigfillset(&new_sigset);
 
-	scm_ret = qcom_scm_pas_init_image(d->pas_id, metadata, size);
+	/* block all signals while the metadata is mapped and authenticated */
+	sigprocmask(SIG_SETMASK, &new_sigset, &old_sigset);
 
-	scm_pas_disable_bw();
+ 	scm_ret = qcom_scm_pas_init_image(d->pas_id, metadata, size);
+ 
+	/* restore signal mask */
+	sigprocmask(SIG_SETMASK, &old_sigset, NULL);
+
+ 	scm_pas_disable_bw();
 	return scm_ret;
 }
 
