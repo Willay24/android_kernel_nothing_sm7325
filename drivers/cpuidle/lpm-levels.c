@@ -1341,9 +1341,7 @@ static int psci_enter_sleep(struct lpm_cpu *cpu, int idx, bool from_idle)
 	if (!idx) {
 		if (cpu->bias)
 			biastimer_start(cpu->bias);
-		stop_critical_timings();
 		cpu_do_idle();
-		start_critical_timings();
 		return 0;
 	}
 
@@ -1358,12 +1356,8 @@ static int psci_enter_sleep(struct lpm_cpu *cpu, int idx, bool from_idle)
 	affinity_level = PSCI_AFFINITY_LEVEL(affinity_level);
 	state_id += power_state + affinity_level + cpu->levels[idx].psci_id;
 
-	stop_critical_timings();
-
 	ret = psci_cpu_suspend_enter(state_id);
 	success = (ret == 0);
-
-	start_critical_timings();
 
 	if (from_idle && cpu->levels[idx].use_bc_timer)
 		tick_broadcast_exit();
@@ -1419,11 +1413,11 @@ static void update_history(struct cpuidle_device *dev, int idx)
 		else
 			history->hptr--;
 
-		history->resi[history->hptr] += dev->last_residency;
+		history->resi[history->hptr] += div_u64(dev->last_residency_ns, NSEC_PER_USEC);
 		history->htmr_wkup = 0;
 		tmr = 1;
 	} else
-		history->resi[history->hptr] = dev->last_residency;
+		history->resi[history->hptr] = div_u64(dev->last_residency_ns, NSEC_PER_USEC);
 
 	history->mode[history->hptr] = idx;
 
@@ -1479,7 +1473,6 @@ exit:
 
 	cluster_unprepare(cpu->parent, cpumask, idx, true, end_time, success);
 	cpu_unprepare(cpu, idx, true);
-	dev->last_residency = ktime_us_delta(ktime_get(), start);
 	update_history(dev, idx);
 	RCU_NONIDLE(trace_cpu_idle_exit(idx, ret));
 	if (lpm_prediction && cpu->lpm_prediction) {
@@ -1491,7 +1484,6 @@ exit:
 			biastimer_cancel();
 		cpu->bias = 0;
 	}
-	local_irq_enable();
 	return idx;
 }
 
