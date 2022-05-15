@@ -9641,7 +9641,7 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 #ifdef CONFIG_SCSI_SKHPB
 	ufshcd_init_hpb(hba);
 #endif
-	async_schedule(ufshcd_async_scan, hba);
+	ufshcd_async_scan(hba, 0);
 	ufs_sysfs_add_nodes(hba->dev);
 
 	device_enable_async_suspend(dev);
