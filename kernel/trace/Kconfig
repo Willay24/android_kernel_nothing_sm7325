@@ -127,7 +127,7 @@ config PREEMPTIRQ_TRACEPOINTS
 # hiding of the automatic options.
 
 config TRACING
-	bool
+	bool "Tracing"
 	select RING_BUFFER
 	select STACKTRACE if STACKTRACE_SUPPORT
 	select TRACEPOINTS
@@ -144,7 +144,7 @@ config TRACE_PRINTK
 	  If unsure, say N.
 
 config GENERIC_TRACER
-	bool
+	bool "generic tracer"
 	select TRACING
 
 #
@@ -152,7 +152,7 @@ config GENERIC_TRACER
 # be able to offer generic tracing facilities:
 #
 config TRACING_SUPPORT
-	bool
+	bool "tracing support"
 	depends on TRACE_IRQFLAGS_SUPPORT
 	depends on STACKTRACE_SUPPORT
 	default y
