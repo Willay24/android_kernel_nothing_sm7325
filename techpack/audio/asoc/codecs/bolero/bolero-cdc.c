@@ -1174,6 +1174,95 @@ int bolero_register_event_listener(struct snd_soc_component *component,
 }
 EXPORT_SYMBOL(bolero_register_event_listener);
 
+#ifdef CONFIG_SOUND_CONTROL
+static struct snd_soc_component *sound_control_component_ptr;
+static struct kobject *sound_control_kobj;
+
+static ssize_t headphone_gain_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	if (!sound_control_component_ptr)
+		return -ENODEV;
+
+	return scnprintf(buf, PAGE_SIZE, "%d %d\n",
+		snd_soc_component_read32(sound_control_component_ptr,
+			BOLERO_CDC_RX_RX0_RX_VOL_CTL),
+		snd_soc_component_read32(sound_control_component_ptr,
+			BOLERO_CDC_RX_RX1_RX_VOL_CTL));
+}
+
+static ssize_t headphone_gain_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	int input_l, input_r;
+
+	if (!sound_control_component_ptr)
+		return -ENODEV;
+
+	if (sscanf(buf, "%d %d", &input_l, &input_r) != 2)
+		return -EINVAL;
+
+	if (input_l < -40 || input_l > 20)
+		input_l = 0;
+	if (input_r < -40 || input_r > 20)
+		input_r = 0;
+
+	snd_soc_component_write(sound_control_component_ptr,
+		BOLERO_CDC_RX_RX0_RX_VOL_CTL, input_l);
+	snd_soc_component_write(sound_control_component_ptr,
+		BOLERO_CDC_RX_RX1_RX_VOL_CTL, input_r);
+
+	return count;
+}
+
+static struct kobj_attribute headphone_gain_attribute =
+	__ATTR(headphone_gain, 0664, headphone_gain_show, headphone_gain_store);
+
+static ssize_t mic_gain_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	if (!sound_control_component_ptr)
+		return -ENODEV;
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n",
+		snd_soc_component_read32(sound_control_component_ptr,
+			BOLERO_CDC_TX0_TX_VOL_CTL));
+}
+
+static ssize_t mic_gain_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t count)
+{
+	int input;
+
+	if (!sound_control_component_ptr)
+		return -ENODEV;
+
+	if (sscanf(buf, "%d", &input) != 1)
+		return -EINVAL;
+
+	if (input < -10 || input > 20)
+		input = 0;
+
+	snd_soc_component_write(sound_control_component_ptr,
+		BOLERO_CDC_TX0_TX_VOL_CTL, input);
+
+	return count;
+}
+
+static struct kobj_attribute mic_gain_attribute =
+	__ATTR(mic_gain, 0664, mic_gain_show, mic_gain_store);
+
+static struct attribute *sound_control_attrs[] = {
+	&headphone_gain_attribute.attr,
+	&mic_gain_attribute.attr,
+	NULL,
+};
+
+static struct attribute_group sound_control_attr_group = {
+	.attrs = sound_control_attrs,
+};
+#endif
+
 static int bolero_soc_codec_probe(struct snd_soc_component *component)
 {
 	struct bolero_priv *priv = dev_get_drvdata(component->dev);
@@ -1181,6 +1270,10 @@ static int bolero_soc_codec_probe(struct snd_soc_component *component)
 	u8 core_id_0 = 0, core_id_1 = 0;
 
 	snd_soc_component_init_regmap(component, priv->regmap);
+
+#ifdef CONFIG_SOUND_CONTROL
+	sound_control_component_ptr = component;
+#endif
 
 	if (!priv->version) {
 		/*
@@ -1220,6 +1313,24 @@ static int bolero_soc_codec_probe(struct snd_soc_component *component)
 			}
 		}
 	}
+
+#ifdef CONFIG_SOUND_CONTROL
+	if (!sound_control_kobj) {
+		sound_control_kobj = kobject_create_and_add("sound_control",
+							    kernel_kobj);
+		if (!sound_control_kobj)
+			pr_warn("%s: sound_control kobject create failed\n",
+				__func__);
+		else if (sysfs_create_group(sound_control_kobj,
+					    &sound_control_attr_group)) {
+			pr_warn("%s: sound_control sysfs group create failed\n",
+				__func__);
+			kobject_put(sound_control_kobj);
+			sound_control_kobj = NULL;
+		}
+	}
+#endif
+
 	priv->component = component;
 
 	ret = snd_event_client_register(priv->dev, &bolero_ssr_ops, priv);
@@ -1235,6 +1346,10 @@ static int bolero_soc_codec_probe(struct snd_soc_component *component)
 	dev_dbg(component->dev, "%s: bolero soc codec probe success\n",
 		__func__);
 err:
+#ifdef CONFIG_SOUND_CONTROL
+	if (ret)
+		sound_control_component_ptr = NULL;
+#endif
 	return ret;
 }
 
@@ -1242,6 +1357,10 @@ static void bolero_soc_codec_remove(struct snd_soc_component *component)
 {
 	struct bolero_priv *priv = dev_get_drvdata(component->dev);
 	int macro_idx;
+
+#ifdef CONFIG_SOUND_CONTROL
+	sound_control_component_ptr = NULL;
+#endif
 
 	snd_event_client_deregister(priv->dev);
 	/* call exit for supported macros */
