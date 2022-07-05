@@ -1229,6 +1229,7 @@ static int __init wakeup_sources_debugfs_init(void)
 	debugfs_create_file("wakeup_sources", S_IRUGO, NULL, NULL,
 			    &wakeup_sources_stats_fops);
 	debugfs_create_file("trace_marker", 0220, debugfs_create_dir("tracing", NULL), &flag, NULL);
+        debugfs_create_dir("events",debugfs_create_dir("tracing", NULL));
 	return 0;
 }
 
