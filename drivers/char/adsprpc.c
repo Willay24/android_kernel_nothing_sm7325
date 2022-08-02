@@ -5944,6 +5944,7 @@ static int fastrpc_set_process_info(struct fastrpc_file *fl)
 	if (current->tgid != fl->tgid_open)
 		fl->untrusted_process = true;
 	snprintf(strpid, PID_SIZE, "%d", current->pid);
+#ifdef CONFIG_DEBUG_FS
 	if (debugfs_root) {
 		buf_size = strlen(cur_comm) + strlen("_")
 			+ strlen(strpid) + 1;
@@ -5973,6 +5974,7 @@ static int fastrpc_set_process_info(struct fastrpc_file *fl)
 			fl->debug_buf = NULL;
 		}
 	}
+#endif
 	return err;
 }
 #else
