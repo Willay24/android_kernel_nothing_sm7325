@@ -250,6 +250,9 @@ static struct class *class;
 static dev_t device;
 static bool hdd_loaded = false;
 
+// Hack qcacld-3.0 to work properly when built-in
+#define MODULE
+
 /* the Android framework expects this param even though we don't use it */
 #define BUF_LEN 20
 static char fwpath_buffer[BUF_LEN];
