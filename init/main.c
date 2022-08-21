@@ -215,40 +215,6 @@ static bool __init obsolete_checksetup(char *line)
 unsigned long loops_per_jiffy = (1<<12);
 EXPORT_SYMBOL(loops_per_jiffy);
 
-static int __init debug_kernel(char *str)
-{
-	console_loglevel = CONSOLE_LOGLEVEL_DEBUG;
-	return 0;
-}
-
-static int __init quiet_kernel(char *str)
-{
-	console_loglevel = CONSOLE_LOGLEVEL_QUIET;
-	return 0;
-}
-
-early_param("debug", debug_kernel);
-early_param("quiet", quiet_kernel);
-
-static int __init loglevel(char *str)
-{
-	int newlevel;
-
-	/*
-	 * Only update loglevel value when a correct setting was passed,
-	 * to prevent blind crashes (when loglevel being set to 0) that
-	 * are quite hard to debug
-	 */
-	if (get_option(&str, &newlevel)) {
-		console_loglevel = newlevel;
-		return 0;
-	}
-
-	return -EINVAL;
-}
-
-early_param("loglevel", loglevel);
-
 /* Change NUL term back to "=", to make "param" the whole string. */
 static int __init repair_env_string(char *param, char *val,
 				    const char *unused, void *arg)
