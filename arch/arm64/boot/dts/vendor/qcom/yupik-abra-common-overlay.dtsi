@@ -9,8 +9,8 @@
 
 // 0x83A00000 reaseved for ramoops
 &qcom {
-	reg = <0x0 0x83A00000 0x0 0x400000>;
-	console-size = <0x200000>;
+	reg = <0x0 0xb0000000 0x0 0x400000>;
+	record-size = <0x200000>;
 	pmsg-size = <0x200000>;
+	max-reason = <4>;
 };
-
