@@ -66,3 +66,17 @@ ifeq ($(CONFIG_TOUCHSCREEN_GOODIX_BRL), y)
 
 	obj-$(CONFIG_MSM_TOUCH) += goodix_ts.o
 endif
+
+ifeq ($(CONFIG_TOUCHSCREEN_FOCALTECH_3680), y)
+	focaltech_touch-y := \
+		focaltech_touch/focaltech_core.o \
+		focaltech_touch/focaltech_ex_fun.o \
+		focaltech_touch/focaltech_ex_mode.o \
+		focaltech_touch/focaltech_gesture.o \
+		focaltech_touch/focaltech_esdcheck.o \
+		focaltech_touch/focaltech_point_report_check.o \
+		focaltech_touch/focaltech_flash.o \
+		focaltech_touch/focaltech_spi.o
+
+	obj-$(CONFIG_MSM_TOUCH) += focaltech_touch.o
+endif
