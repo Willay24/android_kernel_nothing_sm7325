@@ -51,7 +51,9 @@
 *****************************************************************************/
 #define FTS_DRIVER_NAME                     "fts_ts"
 #define FTS_DRIVER_PEN_NAME                 "fts_ts,pen"
-#define INTERVAL_READ_REG                   200  /* unit:ms */
+#define INTERVAL_READ_REG                   20   /* unit:ms */
+#define FTS_RESUME_RESET_DELAY              0    /* unit:ms */
+#define FTS_GESTURE_IRQ_DELAY               30   /* unit:ms */
 #define TIMEOUT_READ_REG                    1000 /* unit:ms */
 #if FTS_POWER_SOURCE_CUST_EN
 #define FTS_VTG_MIN_UV                      3300000
@@ -500,6 +502,12 @@ static int fts_input_report_key(struct fts_ts_data *ts_data, struct ts_event *ke
     return -EINVAL;
 }
 
+#ifdef FTS_NOTHING_TOUCHFEATURE
+#define fts_record_touch(id, down)   nothing_touch_record_event(id, down)
+#else
+#define fts_record_touch(id, down)  do { } while (0)
+#endif
+
 #if FTS_MT_PROTOCOL_B_EN
 static int fts_input_report_b(struct fts_ts_data *ts_data, struct ts_event *events)
 {
@@ -526,6 +534,9 @@ static int fts_input_report_b(struct fts_ts_data *ts_data, struct ts_event *even
             input_report_abs(input_dev, ABS_MT_POSITION_X, events[i].x);
             input_report_abs(input_dev, ABS_MT_POSITION_Y, events[i].y);
 
+            if (!(ts_data->touch_points & (1 << events[i].id)))
+                fts_record_touch(events[i].id, true);
+
             touch_down_point_cur |= (1 << events[i].id);
             touch_point_pre |= (1 << events[i].id);
 
@@ -538,6 +549,8 @@ static int fts_input_report_b(struct fts_ts_data *ts_data, struct ts_event *even
         } else {
             input_mt_slot(input_dev, events[i].id);
             input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, false);
+            if (ts_data->touch_points & (1 << events[i].id))
+                fts_record_touch(events[i].id, false);
             touch_point_pre &= ~(1 << events[i].id);
             if (ts_data->log_level >= 1) FTS_DEBUG("[B]P%d UP!", events[i].id);
         }
@@ -547,6 +560,7 @@ static int fts_input_report_b(struct fts_ts_data *ts_data, struct ts_event *even
         for (i = 0; i < max_touch_num; i++)  {
             if ((1 << i) & (touch_point_pre ^ touch_down_point_cur)) {
                 if (ts_data->log_level >= 1) FTS_DEBUG("[B]P%d UP!", i);
+                fts_record_touch(i, false);
                 input_mt_slot(input_dev, i);
                 input_mt_report_slot_state(input_dev, MT_TOOL_FINGER, false);
             }
@@ -951,7 +965,7 @@ static irqreturn_t fts_irq_handler(int irq, void *data)
     if ((ts_data->suspended) && (ts_data->gesture_support)) {
         pm_stay_awake(ts_data->dev);
         schedule_delayed_work(&ts_data->gesture_work,msecs_to_jiffies(2000));
-        msleep(100);
+        msleep(FTS_GESTURE_IRQ_DELAY);
     }
     ts_data->intr_jiffies = jiffies;
     fts_prc_queue_work(ts_data);
@@ -2663,7 +2677,7 @@ static int fts_ts_resume(struct device *dev)
 #if FTS_POWER_SOURCE_CUST_EN
         fts_power_source_resume(ts_data);
 #endif
-        fts_reset_proc(ts_data,200);
+        fts_reset_proc(ts_data, FTS_RESUME_RESET_DELAY);
     }
 
     fts_wait_tp_to_valid();
