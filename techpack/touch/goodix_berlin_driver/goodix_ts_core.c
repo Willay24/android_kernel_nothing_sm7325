@@ -2488,11 +2488,11 @@ static int goodix_set_cur_value(int gtp_mode, int gtp_value)
 		return 0;
 	}
 
-	xm_intf.touch_mode[gtp_mode][SET_CUR_VALUE] = gtp_value;
-	if (gtp_mode >= Touch_Mode_NUM) {
+	if (gtp_mode < 0 || gtp_mode >= Touch_Mode_NUM) {
 		ts_err("gtp mode is error:%d", gtp_mode);
 		return -EINVAL;
 	}
+	xm_intf.touch_mode[gtp_mode][SET_CUR_VALUE] = gtp_value;
 
 	if (xm_intf.touch_mode[gtp_mode][SET_CUR_VALUE] >
 			xm_intf.touch_mode[gtp_mode][GET_MAX_VALUE]) {
@@ -2723,6 +2723,12 @@ static int goodix_ts_probe(struct platform_device *pdev)
 	}
 	goodix_core_data = core_data;
 
+#ifdef GOODIX_NOTHING_TOUCHFEATURE
+	/* nothing_touch must have probed first, or registration is skipped */
+	if (!nothing_touch_ready())
+		return -EPROBE_DEFER;
+#endif
+
 	if (IS_ENABLED(CONFIG_OF) && bus_interface->dev->of_node) {
 		/* parse devicetree property */
 		ret = goodix_parse_dt(bus_interface->dev->of_node,
@@ -2870,8 +2876,12 @@ static int goodix_ts_remove(struct platform_device *pdev)
 		goodix_ts_wq_exit(core_data);
 	}
 
-#ifdef GOODIX_NOTHING_TOUCH
-	destroy_workqueue(core_data->event_wq);
+#ifdef GOODIX_NOTHING_TOUCHFEATURE
+	if (core_data->game_wq) {
+		cancel_work_sync(&core_data->game_work);
+		destroy_workqueue(core_data->game_wq);
+		core_data->game_wq = NULL;
+	}
 #endif
 	goodix_tools_exit();
 	goodix_ts_unregister_notifier(&core_data->ts_notifier);

@@ -517,6 +517,7 @@ int fts_gesture_suspend(struct fts_ts_data *ts_data)
     u8 state = 0xFF;
 
     FTS_FUNC_ENTER();
+    ts_data->single_tap_pressed = 0;
     if (enable_irq_wake(ts_data->irq)) {
         FTS_DEBUG("enable_irq_wake(irq:%d) fail", ts_data->irq);
     }
@@ -551,6 +552,7 @@ int fts_gesture_resume(struct fts_ts_data *ts_data)
     u8 state = 0xFF;
 
     FTS_FUNC_ENTER();
+    ts_data->single_tap_pressed = 0;
     if (disable_irq_wake(ts_data->irq)) {
         FTS_DEBUG("disable_irq_wake(irq:%d) fail", ts_data->irq);
     }
