@@ -66,7 +66,10 @@
 #define TS_DEFAULT_FIRMWARE				"goodix_firmware.bin"
 #define TS_DEFAULT_CFG_BIN				"goodix_cfg_group.bin"
 
+#if IS_ENABLED(CONFIG_TOUCHSCREEN_NOTHING_TOUCHFEATURE)
+#include "../nothing/nothing_touch.h"
 #define GOODIX_NOTHING_TOUCHFEATURE
+#endif
 #define GOODIX_QGKI
 
 enum PANEL_ORIENTATION {
