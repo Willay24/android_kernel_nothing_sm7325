@@ -327,12 +327,16 @@ proc_read_err:
     return ret;
 }
 
+<<<<<<< HEAD
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+=======
+>>>>>>> 18e2fc0bcddd1 (drivers: input: Import FTS touchscreen driver)
 static const struct proc_ops fts_proc_fops = {
     .proc_read   = fts_debug_read,
     .proc_write  = fts_debug_write,
 };
 #else
+<<<<<<< HEAD
 static const struct file_operations fts_proc_fops = {
     .owner  = THIS_MODULE,
     .read   = fts_debug_read,
@@ -340,6 +344,8 @@ static const struct file_operations fts_proc_fops = {
 };
 #endif
 #else
+=======
+>>>>>>> 18e2fc0bcddd1 (drivers: input: Import FTS touchscreen driver)
 static int fts_debug_write(
     struct file *filp, const char __user *buff, unsigned long count, void *data)
 {
@@ -633,12 +639,16 @@ static ssize_t fts_ta_read(
     return read_num;
 }
 
+<<<<<<< HEAD
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 6, 0))
+=======
+>>>>>>> 18e2fc0bcddd1 (drivers: input: Import FTS touchscreen driver)
 static const struct proc_ops fts_procta_fops = {
     .proc_open = fts_ta_open,
     .proc_release = fts_ta_release,
     .proc_read = fts_ta_read,
 };
+<<<<<<< HEAD
 #else
 static const struct file_operations fts_procta_fops = {
     .open = fts_ta_open,
@@ -646,6 +656,8 @@ static const struct file_operations fts_procta_fops = {
     .read = fts_ta_read,
 };
 #endif
+=======
+>>>>>>> 18e2fc0bcddd1 (drivers: input: Import FTS touchscreen driver)
 #endif
 
 int fts_create_apk_debug_channel(struct fts_ts_data *ts_data)
