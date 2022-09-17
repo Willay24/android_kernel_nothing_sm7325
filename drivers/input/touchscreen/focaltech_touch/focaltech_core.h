@@ -103,6 +103,37 @@
 
 #define FTS_MAX_TOUCH_BUF                   4096
 
+/* Nothing touch feature (nothing_touch framework in techpack/touch/nothing) */
+#define FTS_NOTHING_TOUCHFEATURE
+#define FTS_NT_LOCKDOWN_EN                  0   /* 1: read panel lockdown info at probe */
+#define FTS_LOCKDOWN_INFO_SIZE              8
+
+#define EXPERT_ARRAY_SIZE                   3
+#define PANEL_ORIENTATION_DEGREE_0          0   /* normal portrait orientation */
+#define PANEL_ORIENTATION_DEGREE_90         1   /* anticlockwise 90 degrees */
+#define PANEL_ORIENTATION_DEGREE_180        2   /* anticlockwise 180 degrees */
+#define PANEL_ORIENTATION_DEGREE_270        3   /* anticlockwise 270 degrees */
+
+#ifndef FTS_PALM_EN
+#define FTS_PALM_EN                         0x9A
+#endif
+#ifndef FTS_PALM_DATA
+#define FTS_PALM_DATA                       0x9B
+#endif
+#ifndef FTS_PALM_ON
+#define FTS_PALM_ON                         0x05
+#endif
+#ifndef FTS_PALM_OFF
+#define FTS_PALM_OFF                        0x00
+#endif
+#ifndef FTS_REG_ORIENTATION
+#define FTS_REG_ORIENTATION                 0x8C
+#endif
+#ifndef FTS_REG_EDGE_FILTER_LEVEL
+#define FTS_REG_EDGE_FILTER_LEVEL           0x8D
+#endif
+
+
 #define FTS_REG_FOD_INFO                       0xE1
 #define FTS_REG_FOD_INFO_LEN                   9
 
@@ -141,6 +172,11 @@ struct fts_ts_platform_data {
     u32 x_min;
     u32 y_min;
     u32 max_touch_number;
+#ifdef FTS_NOTHING_TOUCHFEATURE
+    u32 touch_range_array[5];
+    u32 touch_def_array[4];
+    u32 touch_expert_array[4 * EXPERT_ARRAY_SIZE];
+#endif
 };
 
 struct ts_event {
@@ -184,12 +220,22 @@ struct fts_ts_data {
     struct device *dev;
     struct input_dev *input_dev;
     struct input_dev *pen_dev;
+#ifdef FTS_NOTHING_TOUCHFEATURE
+    struct class *fts_tp_class;
+    struct device *fts_touch_dev;
+#endif
     struct fts_ts_platform_data *pdata;
     struct ts_ic_info ic_info;
     struct workqueue_struct *ts_workqueue;
     struct work_struct fwupg_work;
     struct delayed_work esdcheck_work;
     struct delayed_work prc_work;
+    /* power supply options */
+    struct power_supply *battery_psy;
+    struct work_struct power_supply_work;
+    struct notifier_block power_supply_notifier;
+    int charger_status;
+    /* power supply options end */
     struct delayed_work gesture_work;
     struct work_struct resume_work;
     struct work_struct suspend_work;
@@ -255,7 +301,24 @@ struct fts_ts_data {
 #ifdef CONFIG_DRM_PANEL
     struct notifier_block drm_notifier;
 #endif
+    int single_tap_pressed;
+#ifdef FTS_NOTHING_TOUCHFEATURE
+    struct mutex cmd_update_mutex;
+    int palm_sensor_switch;
+    u8 gesture_status;              /* bit0: double tap, bit1: AOD */
+    bool gamemode_enabled;
+    bool is_expert_mode;
+    bool touchmode_used;
+    u8 lockdown_info[FTS_LOCKDOWN_INFO_SIZE];
+#endif
 };
+
+#ifdef FTS_NOTHING_TOUCHFEATURE
+enum GESTURE_MODE_TYPE {
+    GESTURE_DOUBLETAP,
+    GESTURE_AOD,
+};
+#endif
 
 enum _FTS_BUS_TYPE {
     BUS_TYPE_NONE,
@@ -359,4 +422,9 @@ int fts_ex_mode_recovery(struct fts_ts_data *ts_data);
 
 void fts_irq_disable(void);
 void fts_irq_enable(void);
+
+/* power supply functions*/
+extern int power_supply_reg_notifier(struct notifier_block *nb);
+extern int power_supply_is_system_supplied(void);
+/* power supply functions end*/
 #endif /* __LINUX_FOCALTECH_CORE_H__ */
