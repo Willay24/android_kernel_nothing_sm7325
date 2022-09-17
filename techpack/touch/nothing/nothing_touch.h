@@ -13,19 +13,21 @@
 #include <linux/proc_fs.h>
 #include <linux/uaccess.h>
 #include <linux/debugfs.h>
-#include <linux/device.h>
 #include <linux/of.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
 #include <linux/platform_device.h>
-#include <linux/wait.h>
 #include <linux/poll.h>
 #include <linux/slab.h>
+#include <linux/mm.h>
 #include <linux/mempolicy.h>
 #include <linux/dma-mapping.h>
 #include <linux/export.h>
 #include <linux/rtc.h>
+#include <linux/ktime.h>
 #include <linux/seq_file.h>
+#include <linux/mutex.h>
+#include <linux/spinlock.h>
 
 /* CUR, DEFAULT, MIN, MAX */
 #define VALUE_TYPE_SIZE 6
@@ -33,7 +35,6 @@
 #define MAX_BUF_SIZE 256
 #define BTN_INFO 0x152
 #define MAX_TOUCH_ID 10
-#define RAW_BUF_NUM 4
 
 enum MODE_CMD {
 	SET_CUR_VALUE = 0,
@@ -141,13 +142,14 @@ struct nothing_touch_pdata {
 	int raw_head;
 	int raw_tail;
 	int raw_len;
-	unsigned int *raw_buf[RAW_BUF_NUM];
 	unsigned int *raw_data;
 	spinlock_t raw_lock;
 	int palm_value;
 	bool palm_changed;
 	int prox_value;
 	bool prox_changed;
+	bool bump_sample_rate;
+	spinlock_t event_lock;
 	struct proc_dir_entry *last_touch_events_proc;
 	struct last_touch_event *last_touch_events;
 };
@@ -162,7 +164,9 @@ extern int update_palm_sensor_value(int value);
 
 extern int update_prox_sensor_value(int value);
 
+extern void nothing_touch_record_event(u32 slot, bool down);
+
 extern int nothingtouch_register_modedata(int touchId,
-					 struct nothing_touch_interface *data);
+					  struct nothing_touch_interface *data);
 
 #endif /* __NOTHING__TOUCH_H */
