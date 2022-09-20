@@ -271,6 +271,7 @@ struct battery_chg_dev {
 	bool				ship_mode_en;
 	bool				usb_charger_en;
 	bool				debug_battery_detected;
+	bool				wls_not_supported;
 	bool				wls_fw_update_reqd;
 	u32				wls_fw_version;
 	u16				wls_fw_crc;
@@ -1376,12 +1377,17 @@ static int battery_chg_init_psy(struct battery_chg_dev *bcdev)
 		return rc;
 	}
 
-	bcdev->psy_list[PSY_TYPE_WLS].psy =
-		devm_power_supply_register(bcdev->dev, &wls_psy_desc, &psy_cfg);
-	if (IS_ERR(bcdev->psy_list[PSY_TYPE_WLS].psy)) {
-		rc = PTR_ERR(bcdev->psy_list[PSY_TYPE_WLS].psy);
-		pr_err("Failed to register wireless power supply, rc=%d\n", rc);
-		return rc;
+	if (bcdev->wls_not_supported) {
+		pr_debug("Wireless charging is not supported\n");
+	} else {
+		bcdev->psy_list[PSY_TYPE_WLS].psy =
+			devm_power_supply_register(bcdev->dev, &wls_psy_desc, &psy_cfg);
+
+		if (IS_ERR(bcdev->psy_list[PSY_TYPE_WLS].psy)) {
+			rc = PTR_ERR(bcdev->psy_list[PSY_TYPE_WLS].psy);
+			pr_err("Failed to register wireless power supply, rc=%d\n", rc);
+			return rc;
+		}
 	}
 
 	return 0;
@@ -2373,6 +2379,27 @@ static struct attribute *battery_class_attrs[] = {
 };
 ATTRIBUTE_GROUPS(battery_class);
 
+static struct attribute *battery_class_no_wls_attrs[] = {
+	&class_attr_soh.attr,
+	&class_attr_resistance.attr,
+	&class_attr_moisture_detection_status.attr,
+	&class_attr_moisture_detection_en.attr,
+	&class_attr_fake_soc.attr,
+	&class_attr_ship_mode_en.attr,
+	&class_attr_usb_charger_en.attr,
+	&class_attr_charge_power.attr,
+	&class_attr_slowcharge_en.attr,
+	&class_attr_restrict_chg.attr,
+	&class_attr_restrict_cur.attr,
+	&class_attr_usb_real_type.attr,
+	&class_attr_usb_typec_compliant.attr,
+	&class_attr_charge_pump_enable.attr,
+	&class_attr_typec_cc_orientation.attr,
+	&class_attr_charging_enabled.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(battery_class_no_wls);
+
 #ifdef CONFIG_DEBUG_FS
 static void battery_chg_add_debugfs(struct battery_chg_dev *bcdev)
 {
@@ -2400,6 +2427,9 @@ static int battery_chg_parse_dt(struct battery_chg_dev *bcdev)
 	struct psy_state *pst = &bcdev->psy_list[PSY_TYPE_BATTERY];
 	int i, rc, len;
 	u32 prev, val;
+
+	bcdev->wls_not_supported = of_property_read_bool(node,
+			"qcom,wireless-charging-not-supported");
 
 	of_property_read_string(node, "qcom,wireless-fw-name",
 				&bcdev->wls_fw_name);
@@ -2693,7 +2723,12 @@ static int battery_chg_probe(struct platform_device *pdev)
 		goto error;
 
 	bcdev->battery_class.name = "qcom-battery";
-	bcdev->battery_class.class_groups = battery_class_groups;
+
+	if (bcdev->wls_not_supported)
+		bcdev->battery_class.class_groups = battery_class_no_wls_groups;
+	else
+		bcdev->battery_class.class_groups = battery_class_groups;
+
 	rc = class_register(&bcdev->battery_class);
 	if (rc < 0) {
 		dev_err(dev, "Failed to create battery_class rc=%d\n", rc);
