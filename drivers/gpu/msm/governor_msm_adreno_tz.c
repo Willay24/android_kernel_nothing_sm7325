@@ -2,6 +2,7 @@
 /*
  * Copyright (c) 2010-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2010-2019, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/errno.h>
 #include <linux/module.h>
