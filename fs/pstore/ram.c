@@ -733,7 +733,6 @@ static int ramoops_parse_dt(struct platform_device *pdev,
 	parse_u32("pmsg-size", pdata->pmsg_size, 0);
 	parse_u32("ecc-size", pdata->ecc_info.ecc_size, 0);
 	parse_u32("flags", pdata->flags, 0);
-	parse_u32("max-reason", pdata->max_reason);
 
 #undef parse_u32
 
@@ -837,6 +836,11 @@ static int ramoops_probe(struct platform_device *pdev)
 	if (err)
 		goto fail_init;
 
+	err = ramoops_init_prz("pmsg", dev, cxt, &cxt->mprz, &paddr,
+				cxt->pmsg_size, 0);
+	if (err)
+		goto fail_init;
+
 	cxt->max_ftrace_cnt = (cxt->flags & RAMOOPS_FLAG_FTRACE_PER_CPU)
 				? nr_cpu_ids
 				: 1;
@@ -845,11 +849,6 @@ static int ramoops_probe(struct platform_device *pdev)
 				&cxt->max_ftrace_cnt, LINUX_VERSION_CODE,
 				(cxt->flags & RAMOOPS_FLAG_FTRACE_PER_CPU)
 					? PRZ_FLAG_NO_LOCK : 0);
-	if (err)
-		goto fail_init;
-
-	err = ramoops_init_prz("pmsg", dev, cxt, &cxt->mprz, &paddr,
-				cxt->pmsg_size, 0);
 	if (err)
 		goto fail_init;
 
