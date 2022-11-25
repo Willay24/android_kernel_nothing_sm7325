@@ -6507,6 +6507,7 @@ static int msm_pcie_probe(struct platform_device *pdev)
 			pcie_dev->bdf_count = 0;
 	}
 
+#if 0
 	if (pcie_dev->boot_option & MSM_PCIE_NO_PROBE_ENUMERATION) {
 		PCIE_DBG(pcie_dev,
 			"PCIe: RC%d will be enumerated by client or endpoint.\n",
@@ -6514,6 +6515,7 @@ static int msm_pcie_probe(struct platform_device *pdev)
 		mutex_unlock(&pcie_drv.drv_lock);
 		return 0;
 	}
+#endif
 
 	ret = msm_pcie_enumerate(rc_idx);
 	if (ret)
