@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/clk/qcom.h>
@@ -426,6 +426,16 @@ static void a6xx_hwcg_set(struct adreno_device *adreno_dev, bool on)
 
 	kgsl_regread(device, A6XX_RBBM_CLOCK_CNTL, &value);
 
+	/*
+	 * GBIF L2 CGC control is not part of the UCHE and is enabled by
+	 * default. Hence modify the register when CGC disabled is
+	 * requested.
+	 * Note: The below programming will need modification in case
+	 * of change in the register reset value in future.
+	 */
+	if (!on)
+		kgsl_regrmw(device, A6XX_UCHE_GBIF_GX_CONFIG, 0x70000, 0);
+
 	if (value == __get_rbbm_clock_cntl_on(adreno_dev) && on)
 		return;
 
@@ -448,9 +458,6 @@ static void a6xx_hwcg_set(struct adreno_device *adreno_dev, bool on)
 	for (i = 0; i < a6xx_core->hwcg_count; i++)
 		kgsl_regwrite(device, a6xx_core->hwcg[i].offset,
 			on ? a6xx_core->hwcg[i].value : 0);
-
-	/* GBIF L2 CGC control is not part of the UCHE */
-	kgsl_regrmw(device, A6XX_UCHE_GBIF_GX_CONFIG, 0x70000, on ? 2 : 0);
 
 	/*
 	 * Enable SP clock after programming HWCG registers.
@@ -2495,7 +2502,6 @@ int a6xx_perfcounter_update(struct adreno_device *adreno_dev,
 	struct cpu_gpu_lock *lock = ptr;
 	u32 *data = ptr + sizeof(*lock);
 	int i, offset = 0;
-	u32 pending_pairs = 2; /* No of pairs to add: <select,value> and <cntl,1> */
 	bool select_reg_present = false;
 
 	for (i = 0; i < lock->list_length >> 1; i++) {
@@ -2523,13 +2529,6 @@ int a6xx_perfcounter_update(struct adreno_device *adreno_dev,
 	if (select_reg_present) {
 		data[offset + 1] = reg->countable;
 		goto update;
-	}
-
-	/* Ensure there is enough space in the reglist buffer for new pairs */
-	if ((offset + (pending_pairs * 2)) >=
-		(adreno_dev->pwrup_reglist->size / sizeof(u32))) {
-		cpu_gpu_unlock(lock);
-		return -ENOSPC;
 	}
 
 	/*
