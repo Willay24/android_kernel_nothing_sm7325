@@ -3,13 +3,13 @@
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
 
-#define CREATE_TRACE_POINTS
 #define MAX_SSR_STRING_LEN 64
 #define MAX_DEBUG_LEVEL_STRING_LEN 15
 #include "msm_vidc_debug.h"
 #include "vidc_hfi_api.h"
 
-int msm_vidc_debug = 0;
+int msm_vidc_debug = VIDC_ERR | VIDC_PRINTK |
+	FW_ERROR | FW_FATAL | FW_FTRACE;
 EXPORT_SYMBOL(msm_vidc_debug);
 
 bool msm_vidc_lossless_encode = !true;
@@ -261,7 +261,6 @@ failed_create_dir:
 struct dentry *msm_vidc_debugfs_init_core(struct msm_vidc_core *core,
 		struct dentry *parent)
 {
-#ifdef CONFIG_DEBUG_FS
 	struct dentry *dir = NULL;
 	char debugfs_name[MAX_DEBUGFS_NAME];
 
@@ -293,9 +292,6 @@ struct dentry *msm_vidc_debugfs_init_core(struct msm_vidc_core *core,
 	}
 failed_create_dir:
 	return dir;
-#else
-	return NULL;
-#endif
 }
 
 static int inst_info_open(struct inode *inode, struct file *file)
@@ -605,86 +601,6 @@ int msm_vidc_check_ratelimit(void)
 				VIDC_DBG_SESSION_RATELIMIT_INTERVAL,
 				VIDC_DBG_SESSION_RATELIMIT_BURST);
 	return __ratelimit(&_rs);
-}
-
-/**
- * get_sid() must be called under "&core->lock"
- * to avoid race condition at occupying empty slot.
- */
-int get_sid(u32 *sid, u32 session_type)
-{
-	int i;
-
-	for (i = 0; i < vidc_driver->num_ctxt; i++) {
-		if (!vidc_driver->ctxt[i].used) {
-			vidc_driver->ctxt[i].used = 1;
-			*sid = i+1;
-			update_log_ctxt(*sid, session_type, 0);
-			break;
-		}
-	}
-
-	return (i == vidc_driver->num_ctxt);
-}
-
-inline void update_log_ctxt(u32 sid, u32 session_type, u32 fourcc)
-{
-	const char *codec;
-	char type;
-	u32 s_type = 0;
-
-	if (!sid || sid > vidc_driver->num_ctxt) {
-		d_vpr_e("%s: invalid sid %#x\n",
-			__func__, sid);
-	}
-
-	switch (fourcc) {
-	case V4L2_PIX_FMT_H264:
-	case V4L2_PIX_FMT_H264_NO_SC:
-		codec = "h264";
-		break;
-	case V4L2_PIX_FMT_H264_MVC:
-		codec = " mvc";
-		break;
-	case V4L2_PIX_FMT_MPEG1:
-		codec = "mpg1";
-		break;
-	case V4L2_PIX_FMT_MPEG2:
-		codec = "mpg2";
-		break;
-	case V4L2_PIX_FMT_VP8:
-		codec = " vp8";
-		break;
-	case V4L2_PIX_FMT_VP9:
-		codec = " vp9";
-		break;
-	case V4L2_PIX_FMT_HEVC:
-		codec = "h265";
-		break;
-	default:
-		codec = "....";
-		break;
-	}
-
-	switch (session_type) {
-	case MSM_VIDC_ENCODER:
-		type = 'e';
-		s_type = VIDC_ENCODER;
-		break;
-	case MSM_VIDC_DECODER:
-		type = 'd';
-		s_type = VIDC_DECODER;
-		break;
-	default:
-		type = '.';
-		break;
-	}
-
-	vidc_driver->ctxt[sid-1].session_type = s_type;
-	vidc_driver->ctxt[sid-1].codec_type = fourcc;
-	memcpy(&vidc_driver->ctxt[sid-1].name, codec, 4);
-	vidc_driver->ctxt[sid-1].name[4] = type;
-	vidc_driver->ctxt[sid-1].name[5] = '\0';
 }
 
 /* Mock all the missing parts for successful compilation starts here */
