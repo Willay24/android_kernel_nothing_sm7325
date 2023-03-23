@@ -2735,7 +2735,7 @@ exit:
 	put_inst(inst);
 }
 
-void handle_cmd_response(u32 cmd, void *data)
+void handle_cmd_response(enum hal_command_response cmd, void *data)
 {
 	switch (cmd) {
 	case HAL_SYS_INIT_DONE:
@@ -5836,8 +5836,6 @@ static int msm_vidc_check_mbpf_supported(struct msm_vidc_inst *inst)
 	mutex_unlock(&core->lock);
 
 	if (mbpf > core->resources.max_mbpf) {
-		s_vpr_e(inst->sid, "%s: Hardware overloaded, Required %u, Max %u \n",
-			__func__, mbpf, core->resources.max_mbpf);
 		msm_vidc_print_running_insts(inst->core);
 		return -ENOMEM;
 	}
