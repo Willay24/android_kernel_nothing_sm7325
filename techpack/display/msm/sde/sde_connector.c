@@ -891,6 +891,15 @@ static int _sde_connector_update_dirty_properties(
 	return 0;
 }
 
+static bool sde_connector_fod_dim_layer_status(struct sde_connector *c_conn)
+{
+	if (!c_conn->encoder || !c_conn->encoder->crtc ||
+	    !c_conn->encoder->crtc->state)
+		return false;
+
+	return !!to_sde_crtc_state(c_conn->encoder->crtc->state)->fod_dim_layer;
+}
+
 static int _sde_connector_update_finger_hbm_status(
 				struct drm_connector *connector)
 {
@@ -914,7 +923,7 @@ static int _sde_connector_update_finger_hbm_status(
 		return -EINVAL;
 	}
 
-	status = sde_crtc_is_fod_enabled(connector->state->crtc->state);
+	status = sde_connector_fod_dim_layer_status(c_conn);
 	if (status == dsi_panel_get_fod_ui(display->panel)) {
 		return 0;
 	}
@@ -927,6 +936,9 @@ static int _sde_connector_update_finger_hbm_status(
 		SDE_ERROR("panel in power off\n");
 		return 0;
 	}
+
+	if (display->panel->bl_config.real_bl_level >= display->panel->bl_config.bl_hbm_level)
+		return 0;
 
 	SDE_ATRACE_BEGIN("_sde_connector_update_finger_hbm_statuss");
 	finger_hbm_flag = status;
