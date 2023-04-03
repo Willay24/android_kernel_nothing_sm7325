@@ -20,6 +20,7 @@
 #include "sde_core_irq.h"
 #include "dsi_panel.h"
 #include "sde_hw_color_proc_common_v4.h"
+#include "dsi_display.h"
 
 #ifdef CONFIG_DRM_MSM_KCAL_CTRL
 #include "sde_hw_kcal_ctrl.h"
@@ -1551,6 +1552,24 @@ static int sde_cp_crtc_checkfeature(struct sde_cp_node *prop_node,
 	return ret;
 }
 
+static bool sde_is_fod_pressed(struct drm_crtc *crtc)
+{
+	struct sde_crtc_state *cstate = to_sde_crtc_state(crtc->state);
+	struct dsi_display *display;
+
+	display = get_main_display();
+	if (!display || !display->panel) {
+		SDE_ERROR("Invalid primary display\n");
+		return false;
+	}
+
+	return cstate->fod_pressed ||
+	       dsi_panel_get_force_fod_ui(display->panel) ||
+	       cstate->fod_dim_layer;
+}
+
+bool skip_pcc;
+
 static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 				   struct sde_crtc *sde_crtc)
 {
@@ -1586,8 +1605,17 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 				cstate->color_invert_on = false;
 				hw_cfg.payload = NULL;
 				hw_cfg.len = 0;
-			} else
+				skip_pcc = cstate->fod_pressed;
+			} else {
 				cstate->color_invert_on = true;
+				if (sde_is_fod_pressed(drm_crtc)) {
+					hw_cfg.payload = NULL;
+					hw_cfg.len = 0;
+					skip_pcc = true;
+				} else {
+					skip_pcc = false;
+				}
+			}
 		}
 	}
 
