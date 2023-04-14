@@ -1065,6 +1065,9 @@ void a6xx_spin_idle_debug(struct adreno_device *adreno_dev,
 		adreno_dev->cur_rb->id, rptr, wptr, status, status3, intstatus);
 
 	dev_err(device->dev, " hwfault=%8.8X\n", hwfault);
+
+	kgsl_device_snapshot(device, NULL, false);
+
 }
 
 /*
@@ -2574,28 +2577,6 @@ update:
 	return 0;
 }
 
-#if IS_ENABLED(CONFIG_COMMON_CLK_QCOM)
-static void a6xx_clk_set_options(struct adreno_device *adreno_dev,
-	const char *name, struct clk *clk, bool on)
-{
-	/* Handle clock settings for GFX PSCBCs */
-	if (on) {
-		if (!strcmp(name, "mem_iface_clk")) {
-			qcom_clk_set_flags(clk, CLKFLAG_NORETAIN_PERIPH);
-			qcom_clk_set_flags(clk, CLKFLAG_NORETAIN_MEM);
-		} else if (!strcmp(name, "core_clk")) {
-			qcom_clk_set_flags(clk, CLKFLAG_RETAIN_PERIPH);
-			qcom_clk_set_flags(clk, CLKFLAG_RETAIN_MEM);
-		}
-	} else {
-		if (!strcmp(name, "core_clk")) {
-			qcom_clk_set_flags(clk, CLKFLAG_NORETAIN_PERIPH);
-			qcom_clk_set_flags(clk, CLKFLAG_NORETAIN_MEM);
-		}
-	}
-}
-#endif
-
 u64 a6xx_read_alwayson(struct adreno_device *adreno_dev)
 {
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
@@ -2644,6 +2625,7 @@ const struct adreno_gpudev adreno_a6xx_gpudev = {
 	.reg_offsets = a6xx_register_offsets,
 	.probe = a6xx_probe,
 	.start = a6xx_start,
+	.snapshot = a6xx_snapshot,
 	.init = a6xx_init,
 	.irq_handler = a6xx_irq_handler,
 	.rb_start = a6xx_rb_start,
@@ -2660,8 +2642,8 @@ const struct adreno_gpudev adreno_a6xx_gpudev = {
 	.set_marker = a6xx_set_marker,
 	.preemption_context_init = a6xx_preemption_context_init,
 	.ccu_invalidate = a6xx_ccu_invalidate,
-#if IS_ENABLED(CONFIG_COMMON_CLK_QCOM)
-	.clk_set_options = a6xx_clk_set_options,
+#ifdef CONFIG_QCOM_KGSL_CORESIGHT
+	.coresight = {&a6xx_coresight, &a6xx_coresight_cx},
 #endif
 	.read_alwayson = a6xx_read_alwayson,
 	.power_ops = &adreno_power_operations,
@@ -2672,11 +2654,15 @@ const struct adreno_gpudev adreno_a6xx_gpudev = {
 const struct adreno_gpudev adreno_a6xx_hwsched_gpudev = {
 	.reg_offsets = a6xx_register_offsets,
 	.probe = a6xx_hwsched_probe,
+	.snapshot = a6xx_hwsched_snapshot,
 	.irq_handler = a6xx_irq_handler,
 	.read_throttling_counters = a6xx_read_throttling_counters,
 	.iommu_fault_block = a6xx_iommu_fault_block,
 	.preemption_context_init = a6xx_preemption_context_init,
 	.context_detach = a6xx_hwsched_context_detach,
+#ifdef CONFIG_QCOM_KGSL_CORESIGHT
+	.coresight = {&a6xx_coresight, &a6xx_coresight_cx},
+#endif
 	.read_alwayson = a6xx_read_alwayson,
 	.power_ops = &a6xx_hwsched_power_ops,
 };
@@ -2685,6 +2671,7 @@ const struct adreno_gpudev adreno_a6xx_gmu_gpudev = {
 	.reg_offsets = a6xx_register_offsets,
 	.probe = a6xx_gmu_device_probe,
 	.start = a6xx_start,
+	.snapshot = a6xx_gmu_snapshot,
 	.init = a6xx_init,
 	.irq_handler = a6xx_irq_handler,
 	.rb_start = a6xx_rb_start,
@@ -2715,6 +2702,7 @@ const struct adreno_gpudev adreno_a6xx_rgmu_gpudev = {
 	.reg_offsets = a6xx_register_offsets,
 	.probe = a6xx_rgmu_device_probe,
 	.start = a6xx_start,
+	.snapshot = a6xx_rgmu_snapshot,
 	.init = a6xx_init,
 	.irq_handler = a6xx_irq_handler,
 	.rb_start = a6xx_rb_start,
@@ -2742,6 +2730,7 @@ const struct adreno_gpudev adreno_a619_holi_gpudev = {
 	.reg_offsets = a6xx_register_offsets,
 	.probe = a6xx_probe,
 	.start = a6xx_start,
+	.snapshot = a6xx_snapshot,
 	.init = a6xx_holi_init,
 	.irq_handler = a6xx_irq_handler,
 	.rb_start = a6xx_rb_start,
@@ -2764,9 +2753,6 @@ const struct adreno_gpudev adreno_a619_holi_gpudev = {
 #ifdef CONFIG_QCOM_KGSL_CORESIGHT
 	.coresight = {&a6xx_coresight, &a6xx_coresight_cx},
 #endif
-#if IS_ENABLED(CONFIG_COMMON_CLK_QCOM)
-	.clk_set_options = a6xx_clk_set_options,
-#endif
 	.read_alwayson = a6xx_read_alwayson,
 	.power_ops = &adreno_power_operations,
 	.clear_pending_transactions = a6xx_clear_pending_transactions,
@@ -2778,6 +2764,7 @@ const struct adreno_gpudev adreno_a630_gpudev = {
 	.reg_offsets = a6xx_register_offsets,
 	.probe = a6xx_gmu_device_probe,
 	.start = a6xx_start,
+	.snapshot = a6xx_gmu_snapshot,
 	.init = a6xx_init,
 	.irq_handler = a6xx_irq_handler,
 	.rb_start = a6xx_rb_start,
