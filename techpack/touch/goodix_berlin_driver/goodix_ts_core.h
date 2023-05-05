@@ -43,6 +43,7 @@
 #include <linux/pm_runtime.h>
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #endif
 #include "../nothing/nothing_touch.h"
 
@@ -818,7 +819,7 @@ struct goodix_ts_core {
 	struct goodix_ts_esd ts_esd;
 
 #ifdef CONFIG_DRM_PANEL
-	struct notifier_block drm_notifier;
+	void *notifier_cookie;	/* panel_event_notifier registration cookie */
 #endif
 	struct notifier_block charger_notifier;
 
