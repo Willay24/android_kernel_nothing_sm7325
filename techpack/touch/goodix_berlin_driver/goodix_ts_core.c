@@ -1955,31 +1955,63 @@ static void goodix_self_check(struct work_struct *work)
 }
 
 #ifdef CONFIG_DRM_PANEL
-static int drm_notifier_callback(struct notifier_block *self, unsigned long event,
-				 void *data)
+static void goodix_panel_notifier_callback(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notification, void *client_data)
 {
-	struct goodix_ts_core *core_data = container_of(self, struct goodix_ts_core,
-							drm_notifier);
-	struct drm_panel_notifier *evdata = data;
-	int *blank = evdata->data;
+	struct goodix_ts_core *core_data = client_data;
 
-	flush_workqueue(core_data->event_wq);
+	if (!notification || !core_data) {
+		ts_err(NULL, "Invalid panel notification");
+		return;
+	}
 
-	switch (*blank) {
-	case DRM_PANEL_BLANK_POWERDOWN:
-	case DRM_PANEL_BLANK_LP:
-		if (event == DRM_PANEL_EARLY_EVENT_BLANK)
+	ts_debug(NULL, "panel notification type:%d, early_trigger:%d",
+		 notification->notif_type,
+		 notification->notif_data.early_trigger);
+
+	switch (notification->notif_type) {
+	case DRM_PANEL_EVENT_BLANK:
+	case DRM_PANEL_EVENT_BLANK_LP:
+		/* suspend early, before the panel goes off */
+		if (notification->notif_data.early_trigger) {
+			flush_workqueue(core_data->event_wq);
 			queue_work(core_data->event_wq, &core_data->suspend_work);
+		}
 		break;
-	case DRM_PANEL_BLANK_UNBLANK:
-		if (event == DRM_PANEL_EVENT_BLANK)
+	case DRM_PANEL_EVENT_UNBLANK:
+		/* resume once the panel is actually up */
+		if (!notification->notif_data.early_trigger) {
+			flush_workqueue(core_data->event_wq);
 			queue_work(core_data->event_wq, &core_data->resume_work);
+		}
 		break;
 	default:
 		break;
 	}
+}
 
-	return NOTIFY_DONE;
+static void goodix_register_for_panel_events(struct goodix_ts_core *cd)
+{
+	struct device *dev = cd->bus->dev;
+	void *cookie;
+
+	if (!active_panel) {
+		ts_err(dev, "no active panel, skip panel event registration");
+		return;
+	}
+
+	cookie = panel_event_notifier_register(PANEL_EVENT_NOTIFICATION_PRIMARY,
+			PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH, active_panel,
+			goodix_panel_notifier_callback, cd);
+	if (IS_ERR_OR_NULL(cookie)) {
+		ts_err(dev, "Failed to register for panel events, ret=%ld",
+		       PTR_ERR_OR_ZERO(cookie));
+		return;
+	}
+
+	cd->notifier_cookie = cookie;
+	ts_info(dev, "registered for panel notifications, panel: %p",
+		active_panel);
 }
 #endif
 
@@ -2081,17 +2113,6 @@ int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 		goto exit;
 	}
 
-#ifdef CONFIG_DRM_PANEL
-	cd->drm_notifier.notifier_call = drm_notifier_callback;
-	if (active_panel)
-		ret = drm_panel_notifier_register(active_panel, &cd->drm_notifier);
-	else
-		ret = -ENODEV;
-
-	if (ret)
-		ts_err(dev, "Failed to register DRM panel notifier, ret=%d\n", ret);
-#endif
-
 #ifdef GOODIX_QGKI
 	/* register charger status change notifier */
 	INIT_WORK(&cd->power_supply_work, charger_power_supply_work);
@@ -2123,6 +2144,11 @@ int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 
 	INIT_WORK(&cd->suspend_work, goodix_ts_suspend_work);
 	INIT_WORK(&cd->resume_work, goodix_ts_resume_work);
+
+#ifdef CONFIG_DRM_PANEL
+	/* works must be initialised before the first panel event can arrive */
+	goodix_register_for_panel_events(cd);
+#endif
 
 	/* Do self check on first boot */
 	INIT_WORK(&cd->self_check_work, goodix_self_check);
@@ -2694,6 +2720,12 @@ static int goodix_ts_remove(struct platform_device *pdev)
 
 	if (core_data->init_stage >= CORE_INIT_STAGE2) {
 		hw_ops->irq_enable(core_data, false);
+#ifdef CONFIG_DRM_PANEL
+		if (core_data->notifier_cookie) {
+			panel_event_notifier_unregister(core_data->notifier_cookie);
+			core_data->notifier_cookie = NULL;
+		}
+#endif
 		inspect_module_exit(core_data);
 		gesture_module_exit(core_data);
 
@@ -2705,11 +2737,6 @@ static int goodix_ts_remove(struct platform_device *pdev)
 
 		goodix_ts_pen_dev_remove(core_data);
 		goodix_ts_input_dev_remove(core_data);
-
-#ifdef CONFIG_DRM_PANEL
-		if (active_panel)
-			drm_panel_notifier_unregister(active_panel, &core_data->drm_notifier);
-#endif
 
 		goodix_fw_update_uninit(core_data);
 		goodix_ts_wq_exit(core_data);
