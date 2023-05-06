@@ -39,6 +39,7 @@
 #include <linux/of_irq.h>
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #endif
 #include <linux/power_supply.h>
 #include "focaltech_core.h"
@@ -1616,85 +1617,42 @@ static void fts_suspend_work(struct work_struct *work)
     fts_ts_suspend(ts_data->dev);
 }
 
-static int fts_get_charging_status(void)
-{
-	static const char * const names[] = { "wireless", "usb" };
-	union power_supply_propval val;
-	struct power_supply *psy;
-	int i, ret;
-
-	for (i = 0; i < ARRAY_SIZE(names); i++) {
-		psy = power_supply_get_by_name(names[i]);
-		if (!psy)
-			continue;
-		ret = power_supply_get_property(psy, POWER_SUPPLY_PROP_ONLINE, &val);
-		power_supply_put(psy);
-		if (ret < 0)
-			FTS_ERROR("Couldn't get %s online status, rc=%d",
-				  names[i], ret);
-		else if (val.intval == 1)
-			return 1;
-	}
-
-	return 0;
-}
-
 /**
  * @brief Write 1/0 to Touch IC 0x8B register depending on whether it is in charge state
  */
 static void fts_power_supply_work(struct work_struct *work)
 {
 	int ret = 0;
+	int charger_status = 0;
 	struct fts_ts_data *ts_data =
 		container_of(work, struct fts_ts_data, power_supply_work);
-	int charger_status = -1;
 
-	if (ts_data == NULL)
-		return;
 #if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
 	if (ts_data->pm_suspend) {
 		FTS_ERROR("TP is in suspend mode, don't set usb status!");
 		return;
 	}
 #endif
+
 	pm_stay_awake(ts_data->dev);
 
-	charger_status = !!fts_get_charging_status();
+	charger_status = !!power_supply_is_system_supplied();
 	if (ts_data->suspended) {
 		/* IC is asleep/in gesture mode: remember it, resume applies it */
 		ts_data->charger_status = charger_status;
 		pm_relax(ts_data->dev);
 		return;
 	}
+
 	if (charger_status != ts_data->charger_status ||
 	    ts_data->charger_status < 0) {
 		ts_data->charger_status = charger_status;
-		if (charger_status) {
-			FTS_INFO("charger usb in");
-			ret = fts_write_reg(FTS_REG_CHARGER_MODE_EN, true);
-			if (ret < 0) {
-				FTS_ERROR(
-					"failed to set power supply status:%d",
-					ts_data->charger_status);
-			} else {
-				FTS_INFO(
-					"success to set power supply status:%d",
-					ts_data->charger_status);
-			}
-		} else {
-			FTS_INFO("charger usb out");
-			ret = fts_write_reg(FTS_REG_CHARGER_MODE_EN, false);
-			if (ret < 0) {
-				FTS_ERROR(
-					"failed to set power supply status:%d",
-					ts_data->charger_status);
-			} else {
-				FTS_INFO(
-					"success to set power supply status:%d",
-					ts_data->charger_status);
-			}
-		}
+		ret = fts_write_reg(FTS_REG_CHARGER_MODE_EN, charger_status);
+		if (ret < 0)
+			FTS_ERROR("failed to set power supply status:%d",
+				  ts_data->charger_status);
 	}
+
 	pm_relax(ts_data->dev);
 }
 
@@ -1704,7 +1662,7 @@ static void fts_charger_mode_recovery(struct fts_ts_data *ts_data)
 
 	/* first call after boot/FW download: state not known yet */
 	if (ts_data->charger_status < 0)
-		ts_data->charger_status = !!fts_get_charging_status();
+		ts_data->charger_status = !!power_supply_is_system_supplied();
 
 	ret = fts_write_reg(FTS_REG_CHARGER_MODE_EN, ts_data->charger_status);
 	if (ret < 0)
@@ -1714,27 +1672,13 @@ static void fts_charger_mode_recovery(struct fts_ts_data *ts_data)
 		FTS_INFO("restore charger mode:%d", ts_data->charger_status);
 }
 
-/**
- * @brief Charge mode callback function
- *
- * @param nb - Notification chain structure pointer
- * @param event - useless on here,Parameters passed in the notification side
- * @param ptr - useless on here,The pointer passed in on the notification side
- * @return int
- */
 static int fts_power_supply_callback(struct notifier_block *nb,
 				     unsigned long event, void *ptr)
 {
-	/*
- * Find the first address of the variable of type struct fts_ts_data
- * through the power_supply notifier member of the structure nb
- */
 	struct fts_ts_data *ts_data =
 		container_of(nb, struct fts_ts_data, power_supply_notifier);
-	/* If the ts_data structure is found, insert the work into the work queue */
 
-	if (ts_data)
-		queue_work(ts_data->ts_workqueue, &ts_data->power_supply_work);
+	queue_work(ts_data->ts_workqueue, &ts_data->power_supply_work);
 
 	return 0;
 }
@@ -1772,39 +1716,71 @@ static int drm_check_dt(struct device_node *np)
     return PTR_ERR(panel);
 }
 
-static int drm_notifier_callback(struct notifier_block *self,
-                                 unsigned long event, void *data)
+static void fts_ts_panel_notifier_callback(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notification, void *client_data)
 {
-    struct fts_ts_data *ts_data = container_of(self, struct fts_ts_data,
-                                  drm_notifier);
-    struct drm_panel_notifier *evdata = data;
-    int *blank;
+	struct fts_ts_data *ts_data = client_data;
 
-    if (!evdata || !evdata->data)
-        return NOTIFY_DONE;
+	if (!notification || !ts_data) {
+		FTS_ERROR("Invalid panel notification");
+		return;
+	}
 
-    blank = evdata->data;
+	FTS_DEBUG("panel notification type:%d, early_trigger:%d",
+		  notification->notif_type,
+		  notification->notif_data.early_trigger);
 
-    switch (*blank) {
-    case DRM_PANEL_BLANK_POWERDOWN:
-    case DRM_PANEL_BLANK_LP:
-        if (event == DRM_PANEL_EARLY_EVENT_BLANK) {
-            flush_workqueue(ts_data->ts_workqueue);
-            queue_work(ts_data->ts_workqueue, &ts_data->suspend_work);
-        }
-        break;
-    case DRM_PANEL_BLANK_UNBLANK:
-        if (event == DRM_PANEL_EVENT_BLANK) {
-            ts_data->blank_up = 1;
-            flush_workqueue(ts_data->ts_workqueue);
-            queue_work(ts_data->ts_workqueue, &ts_data->resume_work);
-        }
-        break;
-    default:
-        break;
-    }
+	switch (notification->notif_type) {
+	case DRM_PANEL_EVENT_BLANK:
+	case DRM_PANEL_EVENT_BLANK_LP:
+		/* suspend as early as possible, before the panel goes off */
+		if (notification->notif_data.early_trigger) {
+			flush_workqueue(ts_data->ts_workqueue);
+			queue_work(ts_data->ts_workqueue, &ts_data->suspend_work);
+		}
+		break;
+	case DRM_PANEL_EVENT_UNBLANK:
+		/* resume once the panel is actually up */
+		if (!notification->notif_data.early_trigger) {
+			ts_data->blank_up = 1;
+			flush_workqueue(ts_data->ts_workqueue);
+			queue_work(ts_data->ts_workqueue, &ts_data->resume_work);
+		}
+		break;
+	default:
+		break;
+	}
+}
 
-    return NOTIFY_DONE;
+static void fts_ts_register_for_panel_events(struct fts_ts_data *ts_data)
+{
+	const char *touch_type;
+	void *cookie;
+
+	if (!active_panel) {
+		FTS_ERROR("no active panel, skip panel event registration");
+		return;
+	}
+
+	/* "focaltech,touch-type" is optional, default to primary */
+	if (!of_property_read_string(ts_data->dev->of_node,
+				     "focaltech,touch-type", &touch_type) &&
+	    strcmp(touch_type, "primary")) {
+		FTS_ERROR("Invalid touch type: %s", touch_type);
+		return;
+	}
+
+	cookie = panel_event_notifier_register(PANEL_EVENT_NOTIFICATION_PRIMARY,
+			PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH,
+			active_panel, fts_ts_panel_notifier_callback, ts_data);
+	if (IS_ERR_OR_NULL(cookie)) {
+		FTS_ERROR("Failed to register for panel events, ret=%ld",
+			  PTR_ERR_OR_ZERO(cookie));
+		return;
+	}
+
+	ts_data->notifier_cookie = cookie;
+	FTS_INFO("registered for panel notifications, panel: %p", active_panel);
 }
 #endif
 
@@ -2479,13 +2455,7 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
 		FTS_ERROR("get battery psy failed, don't register callback for charger mode");
 
 #ifdef CONFIG_DRM_PANEL
-    ts_data->drm_notifier.notifier_call = drm_notifier_callback;
-    if (active_panel) {
-        ret = drm_panel_notifier_register(active_panel,
-                                          &ts_data->drm_notifier);
-        if (ret)
-            FTS_ERROR("Failed to register DRM panel notifier, ret=%d", ret);
-    }
+    fts_ts_register_for_panel_events(ts_data);
 #endif
 
 #ifdef FTS_NOTHING_TOUCHFEATURE
@@ -2539,6 +2509,14 @@ static int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 {
     FTS_FUNC_ENTER();
 
+#ifdef CONFIG_DRM_PANEL
+    /* stop panel events before the works/workqueue are torn down */
+    if (ts_data->notifier_cookie) {
+        panel_event_notifier_unregister(ts_data->notifier_cookie);
+        ts_data->notifier_cookie = NULL;
+    }
+#endif
+
     cancel_work_sync(&fts_data->resume_work);
     cancel_work_sync(&fts_data->suspend_work);
     fts_point_report_check_exit(ts_data);
@@ -2575,12 +2553,6 @@ static int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 
     if (ts_data->ts_workqueue)
         destroy_workqueue(ts_data->ts_workqueue);
-
-#ifdef CONFIG_DRM_PANEL
-    if (active_panel)
-        drm_panel_notifier_unregister(active_panel,
-                                      &ts_data->drm_notifier);
-#endif
 
     if (gpio_is_valid(ts_data->pdata->reset_gpio))
         gpio_free(ts_data->pdata->reset_gpio);
