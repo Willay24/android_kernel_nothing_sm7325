@@ -689,10 +689,13 @@ endif # KBUILD_EXTMOD
 # Defaults to vmlinux, but the arch makefile usually adds further targets
 all: vmlinux
 
-CFLAGS_GCOV	:= --coverage \
-ifdef CONFIG_CC_IS_GCC
-CFLAGS_GCOV	+= -fno-tree-loop-im
+ifeq ($(CONFIG_PGO_GEN),y)
+CFLAGS_GCOV := -fprofile-generate -fkernel-pgo
+else
+CFLAGS_GCOV := --coverage
 endif
+CFLAGS_GCOV += $(call cc-option,-fno-tree-loop-im) \
+	$(call cc-disable-warning,maybe-uninitialized,)
 export CFLAGS_GCOV
 
 # The arch Makefiles can override CC_FLAGS_FTRACE. We may also append it later.
