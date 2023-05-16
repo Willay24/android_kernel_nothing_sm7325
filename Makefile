@@ -689,7 +689,11 @@ endif # KBUILD_EXTMOD
 # Defaults to vmlinux, but the arch makefile usually adds further targets
 all: vmlinux
 
+ifeq ($(CONFIG_PGO_GEN),y)
+CFLAGS_GCOV	:= -fprofile-generate -ftest-coverage
+else
 CFLAGS_GCOV	:= -fprofile-arcs -ftest-coverage
+endif
 ifdef CONFIG_CC_IS_GCC
 CFLAGS_GCOV	+= -fno-tree-loop-im
 endif
