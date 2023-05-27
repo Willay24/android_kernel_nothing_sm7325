@@ -73,6 +73,7 @@ int fscrypt_select_encryption_impl(struct fscrypt_info *ci,
 	unsigned int dun_bytes;
 	struct request_queue **devs;
 	int num_devs;
+	struct request_queue *devs_onstack;
 	int i;
 
 	/* The file must need contents encryption, not filenames encryption */
@@ -113,10 +114,13 @@ int fscrypt_select_encryption_impl(struct fscrypt_info *ci,
 	}
 
 	num_devs = fscrypt_get_num_devices(sb);
-	devs = kmalloc_array(num_devs, sizeof(*devs), GFP_KERNEL);
-	if (!devs)
-		return -ENOMEM;
-
+	if (num_devs == 1) {
+		devs = &devs_onstack;
+	} else {
+		devs = kmalloc_array(num_devs, sizeof(*devs), GFP_KERNEL);
+		if (!devs)
+			return -ENOMEM;
+	}
 	fscrypt_get_devices(sb, num_devs, devs);
 
 	dun_bytes = fscrypt_get_dun_bytes(ci);
@@ -132,7 +136,9 @@ int fscrypt_select_encryption_impl(struct fscrypt_info *ci,
 
 	ci->ci_inlinecrypt = true;
 out_free_devs:
-	kfree(devs);
+	if (devs != &devs_onstack)
+		kfree(devs);
+
 	return 0;
 }
 
