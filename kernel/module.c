@@ -4029,7 +4029,7 @@ static int load_module(struct load_info *info, const char __user *uargs,
 	 * if it's blacklisted.
 	 */
 	if (blacklisted(info->name)) {
-		err = -EPERM;
+//		err = -EPERM;
 		goto free_copy;
 	}
 
