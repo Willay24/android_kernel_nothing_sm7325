@@ -1564,6 +1564,10 @@ static irqreturn_t goodix_ts_threadirq_func(int irq, void *data)
 	}
 #endif
 
+	/* prevent CPU from entering deep sleep */
+	cpu_latency_qos_update_request(&core_data->pm_qos_touch_req, 100);
+	cpu_latency_qos_update_request(&core_data->pm_qos_spi_req, 100);
+
 	/* read touch data from touch device */
 	ret = hw_ops->event_handler(core_data, ts_event);
 	if (likely(!ret)) {
@@ -1592,6 +1596,9 @@ static irqreturn_t goodix_ts_threadirq_func(int irq, void *data)
 #if (GOODIX_ENABLE_DUMP_DEV)
 	goodix_get_dump_frame(core_data);
 #endif
+	cpu_latency_qos_update_request(&core_data->pm_qos_spi_req, PM_QOS_DEFAULT_VALUE);
+	cpu_latency_qos_update_request(&core_data->pm_qos_touch_req, PM_QOS_DEFAULT_VALUE);
+
 	pm_relax(core_data->bus->dev);
 
 	return IRQ_HANDLED;
@@ -1615,15 +1622,26 @@ static int goodix_ts_irq_setup(struct goodix_ts_core *core_data)
 		return -EINVAL;
 	}
 
+	core_data->pm_qos_spi_req.type = PM_QOS_REQ_AFFINE_IRQ;
+	core_data->pm_qos_spi_req.irq = core_data->bus->irq;
+	cpu_latency_qos_add_request(&core_data->pm_qos_spi_req, PM_QOS_DEFAULT_VALUE);
+
+	core_data->pm_qos_touch_req.type = PM_QOS_REQ_AFFINE_IRQ;
+	core_data->pm_qos_touch_req.irq = core_data->irq;
+	cpu_latency_qos_add_request(&core_data->pm_qos_touch_req, PM_QOS_DEFAULT_VALUE);
+
 	ts_info(dev, "IRQ:%u,flags:%d", core_data->irq, (int)ts_bdata->irq_flags);
 	ret = devm_request_threaded_irq(&core_data->pdev->dev, core_data->irq,
 					NULL, goodix_ts_threadirq_func,
 					ts_bdata->irq_flags | IRQF_ONESHOT,
 					GOODIX_CORE_DRIVER_NAME, core_data);
-	if (ret < 0)
+	if (ret < 0) {
 		ts_err(dev, "Failed to requeset threaded irq:%d", ret);
-	else
+		cpu_latency_qos_remove_request(&core_data->pm_qos_touch_req);
+		cpu_latency_qos_remove_request(&core_data->pm_qos_spi_req);
+	} else {
 		atomic_set(&core_data->irq_enabled, 1);
+	}
 
 	return ret;
 }
@@ -3112,6 +3130,11 @@ static int goodix_ts_remove(struct platform_device *pdev)
 #endif
 
 		goodix_fw_update_uninit(core_data);
+
+		if (cpu_latency_qos_request_active(&core_data->pm_qos_touch_req))
+			cpu_latency_qos_remove_request(&core_data->pm_qos_touch_req);
+		if (cpu_latency_qos_request_active(&core_data->pm_qos_spi_req))
+			cpu_latency_qos_remove_request(&core_data->pm_qos_spi_req);
 	}
 
 	goodix_charger_proc_exit(core_data);

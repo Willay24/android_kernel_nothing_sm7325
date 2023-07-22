@@ -41,6 +41,7 @@
 #include <linux/regulator/consumer.h>
 #endif
 #include <linux/pm_runtime.h>
+#include <linux/pm_qos.h>
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
 #endif
@@ -620,6 +621,7 @@ struct goodix_bus_interface {
 	int bus_type;
 	int ic_type;
 	int sub_ic_type;
+	int irq;
 	struct device *dev;
 	struct mutex spi_lock;
 	u8 tx_buf[GOODIX_SPI_TRANS_MAX_LEN];
@@ -845,6 +847,9 @@ struct goodix_ts_core {
 	bool tp_pm_suspend;
 
 	struct completion pm_resume_completion;
+
+	struct pm_qos_request pm_qos_touch_req;
+	struct pm_qos_request pm_qos_spi_req;
 };
 
 /* log macro */
