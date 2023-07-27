@@ -1297,11 +1297,6 @@ int dsi_display_set_power(struct drm_connector *connector,
 	g_notify_data.data = &power_mode;
 	switch (power_mode) {
 	case SDE_MODE_DPMS_LP1:
-		drm_notifier_call_chain(DRM_EARLY_EVENT_BLANK, &g_notify_data);
-		if (display->panel->power_mode == SDE_MODE_DPMS_LP2) {
-			if (dsi_display_set_ulp_load(display, false) < 0)
-				DSI_ERR("failed to set load for lp1 state\n");
-		}
 		rc = dsi_panel_set_lp1(display->panel);
 		drm_notifier_call_chain(DRM_EVENT_BLANK, &g_notify_data);
 		break;
@@ -1310,15 +1305,9 @@ int dsi_display_set_power(struct drm_connector *connector,
 		dsi_panel_set_backlight(display->panel, dsi_panel_get_aod_bl(display));
 		usleep_range(20000, 30000);
 		rc = dsi_panel_set_lp2(display->panel);
-		if (dsi_display_set_ulp_load(display, true) < 0)
-			DSI_ERR("failed to set load for lp2 state\n");
 		drm_notifier_call_chain(DRM_EVENT_BLANK, &g_notify_data);
 		break;
 	case SDE_MODE_DPMS_ON:
-		if (display->panel->power_mode == SDE_MODE_DPMS_LP2) {
-			if (dsi_display_set_ulp_load(display, false) < 0)
-				DSI_ERR("failed to set load for on state\n");
-		}
 		if ((display->panel->power_mode == SDE_MODE_DPMS_LP1) ||
 		    (display->panel->power_mode == SDE_MODE_DPMS_LP2)) {
 			drm_notifier_call_chain(DRM_EARLY_EVENT_BLANK,
@@ -4092,35 +4081,6 @@ int dsi_pre_clkon_cb(void *priv,
 		DSI_DEBUG("%s: Enable DSI core power\n", __func__);
 	}
 
-	return rc;
-}
-
-int dsi_display_set_ulp_load(struct dsi_display *display, bool enable)
-{
-	int i, rc = 0;
-	struct dsi_display_ctrl *display_ctrl;
-	struct dsi_ctrl *ctrl;
-	struct dsi_panel *panel;
-
-	display_for_each_ctrl(i, display) {
-		display_ctrl = &display->ctrl[i];
-		if (!display_ctrl->ctrl)
-			continue;
-		ctrl = display_ctrl->ctrl;
-
-		rc = dsi_pwr_config_vreg_opt_mode(&ctrl->pwr_info.host_pwr, enable);
-		if (rc) {
-			DSI_ERR("failed to set ctrl load\n");
-			return rc;
-		}
-	}
-
-	panel = display->panel;
-	rc = dsi_pwr_config_vreg_opt_mode(&panel->power_info, enable);
-	if (rc) {
-		DSI_ERR("failed to set panel load\n");
-		return rc;
-	}
 	return rc;
 }
 
