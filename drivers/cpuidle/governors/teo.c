@@ -187,7 +187,6 @@ struct teo_bin {
  * @next_recent_idx: Index of the next @recent_idx entry to update.
  * @recent_idx: Indices of bins corresponding to recent "intercepts".
  * @util_threshold: Threshold above which the CPU is considered utilized
- * @utilized: Whether the last sleep on the CPU happened while utilized
  */
 struct teo_cpu {
 	s64 time_span_ns;
@@ -197,7 +196,6 @@ struct teo_cpu {
 	int next_recent_idx;
 	int recent_idx[NR_RECENT];
 	unsigned long util_threshold;
-	bool utilized;
 };
 
 static DEFINE_PER_CPU(struct teo_cpu, teo_cpus);
@@ -362,6 +360,7 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	int idx0 = 0, idx = -1;
 	bool alt_intercepts, alt_recent;
 	ktime_t delta_tick;
+	bool cpu_utilized;
 	s64 duration_us;
 	int i;
 
@@ -387,13 +386,13 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 			goto out_tick;
 	}
 
-	cpu_data->utilized = teo_cpu_is_utilized(dev->cpu, cpu_data);
+	cpu_utilized = teo_cpu_is_utilized(dev->cpu, cpu_data);
 	/*
 	 * If the CPU is being utilized over the threshold and there are only 2
 	 * states to choose from, the metrics need not be considered, so choose
 	 * the shallowest non-polling state and exit.
 	 */
-	if (drv->state_count < 3 && cpu_data->utilized) {
+	if (drv->state_count < 3 && cpu_utilized) {
 		/* The CPU is utilized, so assume a short idle duration. */
 		duration_us = teo_middle_of_bin(0, drv);
 		/*
@@ -561,7 +560,8 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	 * been stopped already and the shallower state's target residency is
 	 * not sufficiently large.
 	 */
-	if (cpu_data->utilized) {
+
+	if (cpu_utilized) {
 		s64 span_us;
 
 		i = teo_find_shallower_state(drv, dev, idx, duration_us, true);
@@ -578,25 +578,6 @@ end:
 	 * one or the expected idle duration is shorter than the tick period
 	 * length.
 	 */
-<<<<<<< HEAD
-	if (((drv->states[idx].flags & CPUIDLE_FLAG_POLLING) ||
-	    duration_us < TICK_USEC) && !tick_nohz_tick_stopped()) {
-		unsigned int delta_tick_us = ktime_to_us(delta_tick);
-
-		*stop_tick = false;
-
-		/*
-		 * The tick is not going to be stopped, so if the target
-		 * residency of the state to be returned is not within the time
-		 * till the closest timer including the tick, try to correct
-		 * that.
-		 */
-		if (idx > idx0 &&
-
-		    drv->states[idx].target_residency > delta_tick_us)
-			idx = teo_find_shallower_state(drv, dev, idx, delta_tick_us, false);
-	}
-
 	if ((!(drv->states[idx].flags & CPUIDLE_FLAG_POLLING) &&
 	    duration_us >= TICK_USEC) || tick_nohz_tick_stopped())
 		return idx;
