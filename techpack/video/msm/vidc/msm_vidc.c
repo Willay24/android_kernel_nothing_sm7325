@@ -1615,10 +1615,10 @@ void *msm_vidc_open(int core_id, int session_type)
 	}
 
 	msm_comm_scale_clocks_and_bus(inst, 1);
-
+#ifdef CONFIG_DEBUG_FS
 	inst->debugfs_root =
 		msm_vidc_debugfs_init_inst(inst, core->debugfs_root);
-
+#endif
 	return inst;
 fail_bufq_output:
 	vb2_queue_release(&inst->bufq[OUTPUT_PORT].vb2_bufq);
@@ -1774,7 +1774,9 @@ int msm_vidc_destroy(struct msm_vidc_inst *inst)
 	mutex_destroy(&inst->bufq[INPUT_PORT].lock);
 	mutex_destroy(&inst->lock);
 
+#ifdef CONFIG_DEBUG_FS
 	msm_vidc_debugfs_deinit_inst(inst);
+#endif
 
 #ifdef CONFIG_DEBUG_KERNEL
 	pr_info(VIDC_DBG_TAG "Closed video instance: %pK\n",

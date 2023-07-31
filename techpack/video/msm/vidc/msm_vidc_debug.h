@@ -146,6 +146,7 @@ static inline char *get_debug_level_str(int level)
 		BUG_ON(value);					\
 	} while (0)
 
+#ifdef CONFIG_DEBUG_FS
 struct dentry *msm_vidc_debugfs_init_drv(void);
 struct dentry *msm_vidc_debugfs_init_core(struct msm_vidc_core *core,
 		struct dentry *parent);
@@ -154,6 +155,7 @@ struct dentry *msm_vidc_debugfs_init_inst(struct msm_vidc_inst *inst,
 void msm_vidc_debugfs_deinit_inst(struct msm_vidc_inst *inst);
 void msm_vidc_debugfs_update(struct msm_vidc_inst *inst,
 		enum msm_vidc_debugfs_event e);
+#endif
 int msm_vidc_check_ratelimit(void);
 
 /**
