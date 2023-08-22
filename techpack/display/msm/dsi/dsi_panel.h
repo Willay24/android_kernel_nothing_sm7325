@@ -289,6 +289,8 @@ struct dsi_panel {
 	enum dsi_doze_type doze_status;
 	u32 doze_hbm_threshold;
 
+	u8 dsi_refresh_flag;
+
 	struct brightness_alpha_pair *fod_dim_lut;
 	unsigned int fod_dim_lut_len;
 	u8 fod_dim_alpha;
@@ -433,4 +435,5 @@ bool dsi_panel_get_fod_ui(struct dsi_panel *panel);
 void dsi_panel_set_fod_ui(struct dsi_panel *panel, bool status);
 u8 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel);
 
+void dsi_set_backlight_control(struct dsi_panel *panel);
 #endif /* _DSI_PANEL_H_ */
