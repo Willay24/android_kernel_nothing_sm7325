@@ -54,6 +54,12 @@ enum dsi_backlight_type {
 	DSI_BACKLIGHT_MAX,
 };
 
+enum dsi_doze_type {
+	DSI_DOZE_OFF,
+	DSI_DOZE_HBM,
+	DSI_DOZE_LBM,
+};
+
 enum bl_update_flag {
 	BL_UPDATE_DELAY_UNTIL_FIRST_FRAME,
 	BL_UPDATE_NONE,
@@ -124,6 +130,7 @@ struct dsi_backlight_config {
 	u32 bl_hbm_level;
 	u32 brightness_max_level;
 	u32 bl_level;
+	u32 bl_level_nodim;
 	u32 bl_scale;
 	u32 bl_scale_sv;
 	bool bl_inverted_dbv;
@@ -278,6 +285,9 @@ struct dsi_panel {
 	u32 tlmm_gpio_count;
 
 	struct dsi_panel_ops panel_ops;
+
+	enum dsi_doze_type doze_status;
+	u32 doze_hbm_threshold;
 
 	struct brightness_alpha_pair *fod_dim_lut;
 	unsigned int fod_dim_lut_len;
