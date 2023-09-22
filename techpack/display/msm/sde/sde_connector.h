@@ -1116,4 +1116,9 @@ int sde_connector_get_panel_vfp(struct drm_connector *connector,
  */
 int sde_connector_esd_status(struct drm_connector *connector);
 
+ssize_t nt_tx_cmd(struct sde_connector *c_conn, const char *buf, size_t count);
+ssize_t nt_rx_cmd(struct sde_connector *c_conn, const char *buf, size_t count);
+int nt_set_refresh_rate(struct sde_connector *conn, int index);
+int nt_get_refresh_rate(struct sde_connector *conn);
+
 #endif /* _SDE_CONNECTOR_H_ */
