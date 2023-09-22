@@ -22,6 +22,8 @@
 #include "sde_dbg.h"
 #include "dsi_parser.h"
 #include <video/mipi_display.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
 #ifdef CONFIG_DRM_SDE_EXPO
 #include "sde_expo_dim_layer.h"
 #endif
@@ -65,6 +67,9 @@ static const struct of_device_id dsi_display_dt_match[] = {
 };
 
 static unsigned int cur_refresh_rate = 60;
+int nt_cur_refresh_rate = 120;
+static char panel_id_param[8];
+static struct proc_dir_entry *panel_id_entry;
 
 bool is_skip_op_required(struct dsi_display *display)
 {
@@ -6312,6 +6317,24 @@ static void dsi_display_firmware_display(const struct firmware *fw,
 	DSI_DEBUG("success\n");
 }
 
+static int panel_id_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%s\n", panel_id_param);
+	return 0;
+}
+
+static int panel_id_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, panel_id_show, NULL);
+}
+
+static const struct proc_ops panel_id_fops = {
+	.proc_open = panel_id_open,
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = single_release,
+};
+
 int dsi_display_dev_probe(struct platform_device *pdev)
 {
 	struct dsi_display *display = NULL;
@@ -6386,6 +6409,13 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 
 	dsi_display_parse_cmdline_topology(display, index);
 
+	if (!strcmp(display->display_type, "primary") && !panel_id_entry) {
+		panel_id_entry = proc_create("panel_id", 0444, NULL,
+					     &panel_id_fops);
+		if (!panel_id_entry)
+			DSI_ERR("panel_id proc_create failed\n");
+	}
+
 	platform_set_drvdata(pdev, display);
 
 	/* initialize display in firmware callback */
@@ -6439,6 +6469,11 @@ int dsi_display_dev_remove(struct platform_device *pdev)
 
 	/* decrement ref count */
 	of_node_put(display->panel_node);
+
+	if (panel_id_entry) {
+		proc_remove(panel_id_entry);
+		panel_id_entry = NULL;
+	}
 
 	if (display->dma_cmd_workq) {
 		flush_workqueue(display->dma_cmd_workq);
@@ -7821,6 +7856,8 @@ int dsi_display_set_mode(struct dsi_display *display,
 			timing.h_active, timing.v_active, timing.refresh_rate);
 
 	memcpy(display->panel->cur_mode, &adj_mode, sizeof(adj_mode));
+
+	nt_cur_refresh_rate = timing.refresh_rate;
 error:
 	mutex_unlock(&display->display_lock);
 	return rc;
@@ -9118,3 +9155,6 @@ module_param_string(dsi_display1, dsi_display_secondary, MAX_CMDLINE_PARAM_LEN,
 								0600);
 MODULE_PARM_DESC(dsi_display1,
 	"msm_drm.dsi_display1=<display node>:<configX> where <display node> is 'secondary dsi display node name' and <configX> where x represents index in the topology list");
+module_param_string(panel_id, panel_id_param, sizeof(panel_id_param), 0600);
+MODULE_PARM_DESC(panel_id,
+	"msm_drm.panel_id=<ID1><ID2><ID3>");

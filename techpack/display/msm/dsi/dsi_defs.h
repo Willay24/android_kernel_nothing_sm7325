@@ -254,6 +254,12 @@ enum dsi_dyn_clk_feature_type {
  * @DSI_CMD_SET_VID_TO_CMD_SWITCH:         Video to cmd mode switch
  * @DSI_CMD_SET_POST_VID_TO_CMD_SWITCH:    Post vid to cmd switch
  * @DSI_CMD_SET_PANEL_STATUS:              Panel status
+ * @DSI_CMD_SET_AOD_5NIT:                  AOD brightness tier 1
+ * @DSI_CMD_SET_AOD_30NIT:                 AOD brightness tier 2
+ * @DSI_CMD_SET_AOD_60NIT:                 AOD brightness tier 3
+ * @DSI_CMD_SET_LP1_5NIT:                  Low power mode 1, brightness tier 1
+ * @DSI_CMD_SET_LP1_30NIT:                 Low power mode 1, brightness tier 2
+ * @DSI_CMD_SET_LP1_60NIT:                 Low power mode 1, brightness tier 3
  * @DSI_CMD_SET_LP1:                       Low power mode 1
  * @DSI_CMD_SET_LP2:                       Low power mode 2
  * @DSI_CMD_SET_NOLP:                      Low power mode disable
@@ -282,6 +288,12 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_VID_TO_CMD_SWITCH,
 	DSI_CMD_SET_POST_VID_TO_CMD_SWITCH,
 	DSI_CMD_SET_PANEL_STATUS,
+	DSI_CMD_SET_AOD_5NIT,
+	DSI_CMD_SET_AOD_30NIT,
+	DSI_CMD_SET_AOD_60NIT,
+	DSI_CMD_SET_LP1_5NIT,
+	DSI_CMD_SET_LP1_30NIT,
+	DSI_CMD_SET_LP1_60NIT,
 	DSI_CMD_SET_LP1,
 	DSI_CMD_SET_LP2,
 	DSI_CMD_SET_NOLP,

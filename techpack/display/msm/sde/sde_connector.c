@@ -29,6 +29,8 @@
 #define MAX_BRIGHTNESS_LEVEL 255
 int finger_hbm_flag = 0;
 int hbm_mode_flag = 0;
+static struct sde_connector *panel_feature_sde_conn;
+static struct kobject *panel_feature_kobj;
 
 /* Autorefresh will occur after FRAME_CNT frames. Large values are unlikely */
 #define AUTOREFRESH_MAX_FRAME_CNT 6
@@ -278,6 +280,8 @@ static int sde_backlight_setup(struct sde_connector *c_conn,
 		return -ENODEV;
 	}
 	c_conn->thermal_max_brightness = brightness_max_level;
+	if (c_conn->connector_type == DRM_MODE_CONNECTOR_DSI && !panel_feature_sde_conn)
+		panel_feature_sde_conn = c_conn;
 
 	/**
 	 * In TVM, thermal cooling device is not enabled. Registering with dummy
@@ -3398,6 +3402,269 @@ static const struct attribute_group *sde_connector_attr_groups[] = {
 	NULL,
 };
 
+static int nt_parse_cmd_str(const char *buf, size_t count, u8 *out, u32 *out_len)
+{
+	char *dup, *cur, *token;
+	int rc = 0, val;
+	u32 len = 0;
+
+	dup = kstrndup(buf, count, GFP_KERNEL);
+	if (!dup)
+		return -ENOMEM;
+
+	cur = dup;
+	while ((token = strsep(&cur, " "))) {
+		if (!*token)
+			continue;
+		rc = kstrtoint(token, 0, &val);
+		if (rc)
+			break;
+		if (len >= MAX_CMD_PAYLOAD_SIZE) {
+			rc = -EFAULT;
+			break;
+		}
+		out[len++] = val & 0xff;
+	}
+
+	if (!rc && !len)
+		rc = -EINVAL;
+
+	*out_len = len;
+	kfree(dup);
+	return rc;
+}
+
+ssize_t nt_tx_cmd(struct sde_connector *c_conn, const char *buf, size_t count)
+{
+	struct sde_vm_ops *vm_ops;
+	struct sde_kms *sde_kms;
+	char buffer[MAX_CMD_PAYLOAD_SIZE] = {0};
+	u32 len = 0;
+	int rc;
+
+	if (!c_conn || !buf)
+		return -EINVAL;
+
+	sde_kms = _sde_connector_get_kms(&c_conn->base);
+	if (!sde_kms) {
+		SDE_ERROR("invalid kms\n");
+		return -EINVAL;
+	}
+
+	if (!c_conn->ops.cmd_transfer) {
+		SDE_ERROR("no cmd transfer support for connector %s\n",
+				c_conn->name);
+		return -EINVAL;
+	}
+
+	rc = nt_parse_cmd_str(buf, count, (u8 *)buffer, &len);
+	if (rc) {
+		SDE_ERROR("input buffer conversion failed, rc=%d\n", rc);
+		return rc;
+	}
+
+	vm_ops = sde_vm_get_ops(sde_kms);
+	sde_vm_lock(sde_kms);
+	if (vm_ops && vm_ops->vm_owns_hw && !vm_ops->vm_owns_hw(sde_kms)) {
+		SDE_ERROR("op not supported due to HW unavailablity\n");
+		rc = -EOPNOTSUPP;
+		goto end;
+	}
+
+	mutex_lock(&c_conn->lock);
+	rc = c_conn->ops.cmd_transfer(&c_conn->base, c_conn->display, buffer,
+			len);
+	c_conn->last_cmd_tx_sts = !rc;
+	mutex_unlock(&c_conn->lock);
+end:
+	sde_vm_unlock(sde_kms);
+	return rc;
+}
+
+ssize_t nt_rx_cmd(struct sde_connector *c_conn, const char *buf, size_t count)
+{
+	unsigned char buffer[MAX_CMD_PAYLOAD_SIZE] = {0};
+	u32 len = 0;
+	int rc;
+
+	if (!c_conn || !buf)
+		return -EINVAL;
+
+	if (!c_conn->ops.cmd_receive) {
+		SDE_ERROR("no cmd receive support for connector %s\n",
+				c_conn->name);
+		return -EINVAL;
+	}
+
+	rc = nt_parse_cmd_str(buf, count, buffer, &len);
+	if (rc) {
+		SDE_ERROR("input buffer conversion failed, rc=%d\n", rc);
+		return rc;
+	}
+
+	if (len < 2 || !buffer[0] || buffer[0] > MAX_CMD_RECEIVE_SIZE) {
+		SDE_ERROR("invalid rx length\n");
+		return -EFAULT;
+	}
+
+	mutex_lock(&c_conn->lock);
+	memset(c_conn->cmd_rx_buf, 0x0, MAX_CMD_RECEIVE_SIZE);
+	c_conn->rx_len = c_conn->ops.cmd_receive(c_conn->display, buffer + 1,
+			len - 1, c_conn->cmd_rx_buf, buffer[0]);
+	mutex_unlock(&c_conn->lock);
+
+	return c_conn->rx_len <= 0 ? -EINVAL : 0;
+}
+
+static ssize_t nt_hbm_mode_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t size)
+{
+	unsigned long val;
+	int rc;
+
+	if (!panel_feature_sde_conn || !panel_feature_sde_conn->bl_device)
+		return -ENODEV;
+
+	rc = kstrtoul(buf, 0, &val);
+	if (rc)
+		return rc;
+
+	hbm_mode_flag = val ? 1 : 0;
+	sde_backlight_device_update_status(panel_feature_sde_conn->bl_device);
+
+	return size;
+}
+
+static ssize_t nt_hbm_mode_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", hbm_mode_flag);
+}
+
+static ssize_t nt_read_panel_id(char *buf, u8 reg)
+{
+	char cmd[64];
+	int rc;
+
+	if (!panel_feature_sde_conn)
+		return -ENODEV;
+
+	scnprintf(cmd, sizeof(cmd),
+		"0x01 0x06 0x01 0x00 0x01 0x00 0x00 0x01 0x%02x", reg);
+	rc = nt_rx_cmd(panel_feature_sde_conn, cmd, strlen(cmd));
+	if (rc)
+		return rc;
+
+	return scnprintf(buf, PAGE_SIZE, "%.2x\n",
+			panel_feature_sde_conn->cmd_rx_buf[0]);
+}
+
+static ssize_t nt_panel_id1_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return nt_read_panel_id(buf, 0xda);
+}
+
+static ssize_t nt_panel_id2_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return nt_read_panel_id(buf, 0xdb);
+}
+
+static ssize_t nt_panel_id3_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	return nt_read_panel_id(buf, 0xdc);
+}
+
+static ssize_t nt_skip_frame_mode_store(struct kobject *kobj,
+		struct kobj_attribute *attr, const char *buf, size_t size)
+{
+	struct dsi_display *display;
+	unsigned long index;
+	int rc;
+
+	if (!panel_feature_sde_conn)
+		return -ENODEV;
+
+	rc = kstrtoul(buf, 0, &index);
+	if (rc)
+		return rc;
+
+	if (nt_cur_refresh_rate == 90 || nt_cur_refresh_rate == 60) {
+		SDE_ERROR("refresh rate %d does not allow index %lu\n",
+				nt_cur_refresh_rate, index);
+		return -EINVAL;
+	}
+
+	display = panel_feature_sde_conn->display;
+	if (!display || !display->panel ||
+	    display->panel->power_mode == SDE_MODE_DPMS_OFF)
+		return -EAGAIN;
+
+	rc = nt_set_refresh_rate(panel_feature_sde_conn, index);
+	if (rc)
+		return rc;
+
+	return size;
+}
+
+static ssize_t nt_skip_frame_mode_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	int index;
+
+	if (!panel_feature_sde_conn)
+		return -ENODEV;
+
+	index = nt_get_refresh_rate(panel_feature_sde_conn);
+	if (index < 0)
+		return index;
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", index);
+}
+
+static struct kobj_attribute nt_hbm_mode_attr =
+	__ATTR(hbm_mode, 0644, nt_hbm_mode_show, nt_hbm_mode_store);
+static struct kobj_attribute nt_skip_frame_mode_attr =
+	__ATTR(skip_frame_mode, 0644, nt_skip_frame_mode_show,
+		nt_skip_frame_mode_store);
+static struct kobj_attribute nt_panel_id1_attr =
+	__ATTR(panel_id1, 0444, nt_panel_id1_show, NULL);
+static struct kobj_attribute nt_panel_id2_attr =
+	__ATTR(panel_id2, 0444, nt_panel_id2_show, NULL);
+static struct kobj_attribute nt_panel_id3_attr =
+	__ATTR(panel_id3, 0444, nt_panel_id3_show, NULL);
+
+static struct attribute *nt_feature_attrs[] = {
+	&nt_hbm_mode_attr.attr,
+	&nt_skip_frame_mode_attr.attr,
+	&nt_panel_id1_attr.attr,
+	&nt_panel_id2_attr.attr,
+	&nt_panel_id3_attr.attr,
+	NULL,
+};
+
+static const struct attribute_group nt_feature_attr_group = {
+	.attrs = nt_feature_attrs,
+};
+
+static void sde_connector_nt_feature_init(void)
+{
+	if (panel_feature_kobj || !nt_is_panel_detected())
+		return;
+
+	panel_feature_kobj = kobject_create_and_add("panel_feature", NULL);
+	if (!panel_feature_kobj)
+		return;
+
+	if (sysfs_create_group(panel_feature_kobj, &nt_feature_attr_group)) {
+		SDE_ERROR("panel_feature sysfs group create failed\n");
+		kobject_put(panel_feature_kobj);
+		panel_feature_kobj = NULL;
+	}
+}
+
 int sde_connector_post_init(struct drm_device *dev, struct drm_connector *conn)
 {
 	struct sde_connector *c_conn;
@@ -3426,6 +3693,8 @@ int sde_connector_post_init(struct drm_device *dev, struct drm_connector *conn)
 		else
 			rc = PTR_ERR(c_conn->sysfs_dev);
 	}
+
+	sde_connector_nt_feature_init();
 
 	return rc;
 }
