@@ -785,11 +785,12 @@ int icnss_qmi_get_dms_mac(struct icnss_priv *priv)
 		if (resp.resp.error == DMS_MAC_NOT_PROVISIONED) {
 			icnss_pr_err("NV MAC address is not provisioned");
 			priv->dms.nv_mac_not_prov = 1;
+			ret = -resp.resp.result;
 		} else {
 			icnss_pr_err("QMI_DMS_GET_MAC_ADDRESS_REQ_V01 failed, result: %d, err: %d\n",
 				     resp.resp.result, resp.resp.error);
+			ret = -EAGAIN;
 		}
-		ret = -resp.resp.result;
 		goto out;
 	}
 	if (!resp.mac_address_valid ||
