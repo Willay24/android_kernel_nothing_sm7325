@@ -6,6 +6,7 @@
 
 #include <linux/err.h>
 #include <linux/module.h>
+#include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/random.h>
 #include <linux/slab.h>
@@ -237,6 +238,7 @@ static struct socinfo {
 #define SMEM_IMAGE_VERSION_OEM_SIZE 33
 #define SMEM_IMAGE_VERSION_OEM_OFFSET 95
 #define SMEM_IMAGE_VERSION_PARTITION_APPS 10
+#define SMEM_IMAGE_MACHINE_NAME_SIZE 75
 
 int softsku_idx;
 module_param_named(softsku_idx, softsku_idx, int, 0644);
@@ -1025,6 +1027,16 @@ msm_get_images(struct device *dev,
 	return pos;
 }
 
+static const char *machine_name_buf;
+
+static ssize_t
+msm_get_machine_name(struct device *dev, struct device_attribute *attr,
+			char *buf)
+{
+	return sysfs_emit(buf, "%.*s\n", SMEM_IMAGE_MACHINE_NAME_SIZE,
+			  machine_name_buf ? machine_name_buf : "Unknown");
+}
+
 static struct device_attribute image_version =
 	__ATTR(image_version, 0644,
 			msm_get_image_version, msm_set_image_version);
@@ -1044,6 +1056,8 @@ static struct device_attribute select_image =
 static struct device_attribute images =
 	__ATTR(images, 0444, msm_get_images, NULL);
 
+static struct device_attribute machine_name =
+	__ATTR(machine_name, 0444, msm_get_machine_name, NULL);
 
 static umode_t soc_info_attribute(struct kobject *kobj,
 						   struct attribute *attr,
@@ -1121,6 +1135,7 @@ static void socinfo_populate_sysfs(struct qcom_socinfo *qcom_socinfo)
 	msm_custom_socinfo_attrs[i++] = &image_crm_version.attr;
 	msm_custom_socinfo_attrs[i++] = &select_image.attr;
 	msm_custom_socinfo_attrs[i++] = &images.attr;
+	msm_custom_socinfo_attrs[i++] = &machine_name.attr;
 	msm_custom_socinfo_attrs[i++] = NULL;
 	qcom_socinfo->attr.custom_attr_group = &custom_soc_attr_group;
 }
@@ -1363,12 +1378,31 @@ const char *socinfo_get_id_string(void)
 }
 EXPORT_SYMBOL(socinfo_get_id_string);
 
+static const char *of_parse_machine_name(void)
+{
+	struct device_node *root;
+	const char *name = NULL;
+
+	root = of_find_node_by_path("/");
+	if (!root)
+		return NULL;
+
+	if (of_property_read_string(root, "model", &name))
+		of_property_read_string(root, "compatible", &name);
+
+	of_node_put(root);
+
+	return name;
+}
+
 static int qcom_socinfo_probe(struct platform_device *pdev)
 {
 	struct qcom_socinfo *qs;
 	struct socinfo *info;
 	size_t item_size;
 	const char *machine, *esku;
+
+	machine_name_buf = of_parse_machine_name();
 
 	info = qcom_smem_get(QCOM_SMEM_HOST_ANY, SMEM_HW_SW_BUILD_ID,
 			      &item_size);
