@@ -18,6 +18,8 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 
+#include <soc/qcom/socinfo.h>
+
 /*HWID | GPIO19 | GPIO21*/
 /* T0     |  0          |  0        */
 /* EVT   |  0          |  1        */
@@ -29,6 +31,20 @@
 
 static char *hw_ver[]     = {"T0","EVT","DVT","PVT"};
 static int ver_gpioflag = 0;
+
+static bool hwid_ready;
+
+/*
+ * nt_hwid_get - hardware stage read from GPIO19/GPIO21
+ *
+ * Returns 0..3 (T0, EVT, DVT, PVT), or -ENODEV if the hwid driver has not
+ * probed yet or its GPIOs could not be read.
+ */
+int nt_hwid_get(void)
+{
+	return hwid_ready ? ver_gpioflag : -ENODEV;
+}
+EXPORT_SYMBOL(nt_hwid_get);
 
 static int hwid_show(struct seq_file *m, void *v)
 {
@@ -65,34 +81,41 @@ static int hwid_probe(struct platform_device *pdev)
 	int ret;
 	int id1;
 	int id2;
-	int id1_val;
-	int id2_val;
+	int id1_val = 0;
+	int id2_val = 0;
 
 	enum of_gpio_flags flags ;
 
 	printk(KERN_EMERG "enter hwid_probe\n");
 
 	id1 = of_get_named_gpio_flags(pdev->dev.of_node, "gpio_id1", 0, &flags);
+	if (id1 >= 0) {
+		ret = gpio_direction_input(id1);
+		if (ret)
+		{
+			pr_err("set gpio id1 failed\n");
+		}
 
-	ret = gpio_direction_input(id1);
-	if (ret)
-	{
-		pr_err("set gpio id1 failed\n");
+		id1_val = !!gpio_get_value(id1);
+	} else {
+		pr_err("gpio_id1 not found: %d\n", id1);
 	}
-
-	id1_val = gpio_get_value(id1);
 
 	id2 = of_get_named_gpio_flags(pdev->dev.of_node, "gpio_id2", 0, &flags);
+	if (id2 >= 0) {
+		ret = gpio_direction_input(id2);
+		if (ret)
+		{
+			pr_err("set gpio id2 failed\n");
+		}
 
-	ret = gpio_direction_input(id2);
-	if (ret)
-	{
-		pr_err("set gpio id2 failed\n");
+		id2_val = !!gpio_get_value(id2);
+	} else {
+		pr_err("gpio_id2 not found: %d\n", id2);
 	}
 
-	id2_val = gpio_get_value(id2);
-
 	ver_gpioflag = (id1_val << 1) | (id2_val);
+	hwid_ready = (id1 >= 0 && id2 >= 0);
 
 	printk(KERN_INFO"%s ver_gpioflag is %d\n", __func__,ver_gpioflag);
 
