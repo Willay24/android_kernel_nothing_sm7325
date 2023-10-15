@@ -32,6 +32,7 @@
  */
 #define SMEM_HW_SW_BUILD_ID            137
 #define SMEM_IMAGE_VERSION_TABLE	469
+#define SMEM_ID_VENDOR1			135
 
 static uint32_t socinfo_format;
 static const char *sku;
@@ -442,6 +443,63 @@ static uint32_t socinfo_get_nproduct_code(void)
 		: 0;
 }
 
+#define SPACEWAR_PRODUCT_NAME	"SPACEWAR"
+
+const char *product_name_get(void)
+{
+	size_t size;
+	char *product_name;
+
+	/* Vendor SMEM item, if the bootloader populated it */
+	product_name = qcom_smem_get(QCOM_SMEM_HOST_ANY, SMEM_ID_VENDOR1,
+				     &size);
+	if (IS_ERR_OR_NULL(product_name) || !size || !product_name[0])
+		return SPACEWAR_PRODUCT_NAME;
+
+	return product_name;
+}
+EXPORT_SYMBOL(product_name_get);
+
+uint32_t get_hw_country_version(void)
+{
+	uint32_t version = socinfo_get_platform_version();
+
+	return (version & HW_COUNTRY_VERSION_MASK) >> HW_COUNTRY_VERSION_SHIFT;
+}
+EXPORT_SYMBOL(get_hw_country_version);
+
+uint32_t get_hw_version_platform(void)
+{
+	return HARDWARE_PLATFORM_SPACEWAR;
+}
+EXPORT_SYMBOL(get_hw_version_platform);
+
+uint32_t get_hw_version_major(void)
+{
+	uint32_t version = socinfo_get_platform_version();
+
+	return (version & HW_MAJOR_VERSION_MASK) >> HW_MAJOR_VERSION_SHIFT;
+}
+EXPORT_SYMBOL(get_hw_version_major);
+
+uint32_t get_hw_version_minor(void)
+{
+	uint32_t version = socinfo_get_platform_version();
+
+	return (version & HW_MINOR_VERSION_MASK) >> HW_MINOR_VERSION_SHIFT;
+}
+EXPORT_SYMBOL(get_hw_version_minor);
+
+int __weak nt_hwid_get(void) { return -ENODEV; }
+
+uint32_t get_hw_version_build(void)
+{
+	int id = nt_hwid_get();
+
+	return id < 0 ? 0 : id;
+}
+EXPORT_SYMBOL(get_hw_version_build);
+
 /* Version 2 */
 static ssize_t
 msm_get_raw_id(struct device *dev,
@@ -472,6 +530,8 @@ msm_get_hw_platform(struct device *dev,
 	uint32_t hw_type;
 
 	hw_type = socinfo_get_platform_type();
+	if (hw_type >= ARRAY_SIZE(hw_platform) || !hw_platform[hw_type])
+		return snprintf(buf, PAGE_SIZE, "%u\n", hw_type);
 
 	return snprintf(buf, PAGE_SIZE, "%-.32s\n",
 			hw_platform[hw_type]);
