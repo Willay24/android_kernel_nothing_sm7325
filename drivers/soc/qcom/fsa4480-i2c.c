@@ -586,6 +586,22 @@ static int fsa4480_probe(struct i2c_client *i2c,
 		((fsa_priv->fsa4480_notifier).rwsem);
 	fsa_priv->fsa4480_notifier.head = NULL;
 
+	if (fsa_priv->use_powersupply && !IS_ERR_OR_NULL(fsa_priv->iio_ch)) {
+		int typec_mode = TYPEC_ACCESSORY_NONE;
+		int ret;
+
+		ret = iio_read_channel_processed(fsa_priv->iio_ch, &typec_mode);
+		if (ret < 0) {
+			dev_err(fsa_priv->dev,
+				"%s: unable to read USB TYPEC_MODE during probe: %d\n",
+				__func__, ret);
+		} else {
+			atomic_set(&fsa_priv->usbc_mode, typec_mode);
+			dev_info(fsa_priv->dev, "%s: set usbc_mode to %d\n",
+				 __func__, typec_mode);
+		}
+	}
+
 	return 0;
 
 err_supply:
