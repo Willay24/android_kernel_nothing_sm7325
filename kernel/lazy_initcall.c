@@ -40,6 +40,72 @@ static bool completed;
  * You can also use this as an ignorelist.
  */
 static const __initconst char * const blacklist[] = {
+        // Custom load order
+	"hdcp",
+
+	// Disabled
+	"f_fs_ipc_log",
+	"mem_offline",
+	"msm_show_resume_irq",
+	"phy_qcom_ufs_qmp_v4_anarok",
+	"phy_qcom_ufs_qmp_v4_diwali",
+	"phy_qcom_ufs_qmp_v4_lahaina",
+	"phy_qcom_ufs_qmp_v4_parrot",
+	"phy_qcom_ufs_qmp_v4_waipio",
+	"qca6490",
+	"qca_cld3_qca6490",
+	"qca6750",
+	"qca_cld3_qca6750",
+	"qcom_ipc_logging",
+	"qcom_logbuf_vendor_hooks",
+	"rimps_log",
+	"wcd937x_dlkm",
+	"wcd937x_slave_dlkm",
+
+	// Renamed
+	"hdcp_qseecom",
+        
+        // Removed
+        "fsa4480_i2c",
+        "qti_amoled_ecm",
+        "nothing_disk_usage",
+        "nothing_readahead_trace",
+        "nothing_writeback_kmsg",
+        "memory_dump_v2",
+        "minidump",
+        "qcom_edac",
+        "kryo_arm64_edac",
+        "qnoc_parrot",
+        "qcom_cpufreq_hw_debug",
+        "qcom_cpuss_sleep_stats",
+        "qti_battery_debug",
+        "charger_ulog_glink",
+        "debug_regulator",
+        "qcom_iommu_debug",
+        "spmi_pmic_arb_debug",
+        "spmi_glink_debug",
+        "tz_log",
+        "icc_test",
+        "icc_debug",
+        "coresight",
+        "coresight_tmc",
+        "coresight_funnel",
+        "coresight_replicator",
+        "coresight_stm",
+        "coresight_cti",
+        "coresight_tpda",
+        "coresight_tpdm",
+        "coresight_csr",
+        "coresight_dummy",
+        "coresight_remote_etm",
+        "coresight_tgu",
+        "coresight_hwevent",
+        "stm_core",
+        "stm_p_basic",
+        "stm_p_ost",
+        "stm_console",
+        "stm_ftrace",
+
 	NULL
 };
 
@@ -55,6 +121,16 @@ static const __initconst char * const deferred_list[] = {
 
 static struct lazy_initcall __initdata lazy_initcalls[MODULE_LIST_LIMIT];
 static int __initdata counter;
+
+static char __initdata errors_str[16 * 1024];
+
+#define __err(...) do { \
+	size_t len = strlen(errors_str); \
+	char *ptr = errors_str + len; \
+	snprintf(ptr, sizeof(errors_str) - len, __VA_ARGS__); \
+	smp_mb(); \
+	pr_err("%s", ptr); \
+} while (0)
 
 bool __init add_lazy_initcall(initcall_t fn, char modname[], char filename[])
 {
@@ -73,6 +149,14 @@ bool __init add_lazy_initcall(initcall_t fn, char modname[], char filename[])
 		}
 	}
 
+	// Check for duplicates
+	for (i = 0; i < counter; i++) {
+		if (!strcmp(lazy_initcalls[i].modname, modname)) {
+			__err("duplicate module detected: %s - %s\n", modname, filename);
+			__err("enable DEBUG from %s to debug further\n", __FILE__);
+		}
+	}
+
 	mutex_lock(&lazy_initcall_mutex);
 
 	pr_debug("adding lazy_initcalls[%d] from %s - %s\n",
@@ -88,16 +172,6 @@ bool __init add_lazy_initcall(initcall_t fn, char modname[], char filename[])
 
 	return true;
 }
-
-static char __initdata errors_str[16 * 1024];
-
-#define __err(...) do { \
-	size_t len = strlen(errors_str); \
-	char *ptr = errors_str + len; \
-	snprintf(ptr, sizeof(errors_str) - len, __VA_ARGS__); \
-	smp_mb(); \
-	pr_err("%s", ptr); \
-} while (0)
 
 static bool __init show_errors_str(void)
 {
@@ -262,6 +336,7 @@ static noinline void __init load_modname(const char * const modname, const char 
 			if (*args)
 				parse_args(modname, args, NULL, 0, 0, 0, NULL,
 					   integrated_module_param_cb);
+			kfree(args);
 		}
 	}
 
@@ -314,7 +389,6 @@ static noinline int __init __load_module(struct load_info *info, const char __us
 	load_modname(info->name, uargs);
 
 err:
-	free_copy(info);
 	return err;
 }
 
@@ -348,6 +422,7 @@ static int __ref load_module(struct load_info *info, const char __user *uargs,
 	}
 
 out:
+	free_copy(info);
 	mutex_unlock(&lazy_initcall_mutex);
 	return ret;
 }
@@ -357,6 +432,12 @@ static int may_init_module(void)
 	if (!capable(CAP_SYS_MODULE))
 		return -EPERM;
 
+	return 0;
+}
+
+SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
+               unsigned int, flags)
+{
 	return 0;
 }
 
