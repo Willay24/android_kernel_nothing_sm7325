@@ -611,6 +611,16 @@ static ssize_t goodix_report_rate_store(struct device *dev,
 	return count;
 }
 
+/* fp_state_show: "x,y,down" of the last FOD event */
+static ssize_t fp_state_show(struct device *dev,
+			     struct device_attribute *attr, char *buf)
+{
+	struct goodix_ts_core *cd = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%d,%d,%d\n",
+			  cd->gesture_x, cd->gesture_y, cd->gesture_up_flag);
+}
+
 static DEVICE_ATTR(driver_info, 0440, driver_info_show, NULL);
 static DEVICE_ATTR(chip_info, 0440, chip_info_show, NULL);
 static DEVICE_ATTR(reset, 0220, NULL, goodix_ts_reset_store);
@@ -624,6 +634,7 @@ static DEVICE_ATTR(die_info, 0440, die_info_show, NULL);
 static DEVICE_ATTR(double_tap_enable, 0664, goodix_ts_double_tap_show, goodix_ts_double_tap_store);
 static DEVICE_ATTR(aod_enable, 0664, goodix_ts_aod_show, goodix_ts_aod_store);
 static DEVICE_ATTR(switch_report_rate, 0664, goodix_report_rate_show, goodix_report_rate_store);
+static DEVICE_ATTR(fp_state, 0444, fp_state_show, NULL);
 
 static struct attribute *sysfs_attrs[] = {
 	&dev_attr_driver_info.attr,
@@ -639,6 +650,7 @@ static struct attribute *sysfs_attrs[] = {
 	&dev_attr_double_tap_enable.attr,
 	&dev_attr_aod_enable.attr,
 	&dev_attr_switch_report_rate.attr,
+	&dev_attr_fp_state.attr,
 	NULL,
 };
 
