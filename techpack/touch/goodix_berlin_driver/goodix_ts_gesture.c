@@ -27,6 +27,7 @@
 #include <linux/delay.h>
 #include <linux/atomic.h>
 #include <linux/input/mt.h>
+#include <linux/namei.h>
 
 #include "goodix_ts_core.h"
 
@@ -38,6 +39,12 @@
 #define GOODIX_GESTURE_SLIDE_DOWN		0xAB
 #define GOODIX_GESTURE_SLIDE_LEFT		0xAA
 #define GOODIX_GESTURE_SLIDE_RIGHT		0xBB
+
+/*
+ * When no vendor (Nothing OS) framework is found, report single tap through
+ * the single_tap sysfs node (AOSP / custom ROM) instead of an input key.
+ */
+static bool aosp_gesture_enable;
 
 static ssize_t double_type_show(struct kobject *kobj,
 				struct kobj_attribute *attr, char *buf)
@@ -178,12 +185,20 @@ int goodix_ts_report_gesture(struct goodix_ts_core *cd,
 	case GOODIX_GESTURE_SINGLE_TAP:
 		if (cd->gesture_type & GESTURE_SINGLE_TAP) {
 			ts_info(dev, "get SINGLE-TAP gesture");
-			input_report_key(cd->input_dev, KEY_GOTO, 1);
-			input_sync(cd->input_dev);
-			input_report_key(cd->input_dev, KEY_GOTO, 0);
-			input_sync(cd->input_dev);
+			if (aosp_gesture_enable) {
+				cd->single_tap_pressed = 1;
+				sysfs_notify(&cd->pdev->dev.kobj, NULL,
+					     "single_tap");
+			} else {
+				input_report_key(cd->input_dev, KEY_GOTO, 1);
+				input_sync(cd->input_dev);
+				input_report_key(cd->input_dev, KEY_GOTO, 0);
+				input_sync(cd->input_dev);
+			}
 		} else {
 			ts_debug(dev, "not enable SINGLE-TAP");
+			cd->single_tap_pressed = 0;
+			sysfs_notify(&cd->pdev->dev.kobj, NULL, "single_tap");
 		}
 		break;
 	case GOODIX_GESTURE_DOUBLE_TAP:
@@ -315,6 +330,16 @@ int gesture_module_init(struct goodix_ts_core *cd)
 	int ret = -EINVAL;
 	struct kobject *parent = &cd->pdev->dev.kobj;
 	struct device *dev = cd->bus->dev;
+	struct path path;
+
+	/* No vendor framework present: assume a custom OS, use AOSP gestures */
+	if (kern_path("/system/framework/nt-framework.jar", LOOKUP_FOLLOW,
+		      &path)) {
+		ts_info(dev, "enable aosp gesture support");
+		aosp_gesture_enable = true;
+	} else {
+		path_put(&path);
+	}
 
 	/* gesture sysfs init */
 	cd->gesture_kobj = kobject_create_and_add("gesture", parent);
