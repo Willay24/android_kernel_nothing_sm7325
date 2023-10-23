@@ -589,6 +589,8 @@ struct goodix_ts_core {
 	bool tp_pm_suspend;
 
 	struct completion pm_resume_completion;
+
+        int single_tap_pressed;
 };
 
 /* external module structures */
