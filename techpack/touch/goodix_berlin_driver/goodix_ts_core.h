@@ -806,6 +806,8 @@ struct goodix_ts_core {
 	int gesture_x;
 	int gesture_y;
 	int gesture_up_flag;	/* 1: FOD finger down, 0: FOD finger up */
+	/* set on single tap when AOSP gesture mode is used, see single_tap sysfs */
+	int single_tap_pressed;
 
 	char input_name[32];
 	char input_pen_name[32];
