@@ -621,6 +621,15 @@ static ssize_t fp_state_show(struct device *dev,
 			  cd->gesture_x, cd->gesture_y, cd->gesture_up_flag);
 }
 
+/* single_tap_show: 1 once a single tap gesture was reported (AOSP mode) */
+static ssize_t single_tap_show(struct device *dev,
+			       struct device_attribute *attr, char *buf)
+{
+	struct goodix_ts_core *cd = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%d\n", cd->single_tap_pressed);
+}
+
 static DEVICE_ATTR(driver_info, 0440, driver_info_show, NULL);
 static DEVICE_ATTR(chip_info, 0440, chip_info_show, NULL);
 static DEVICE_ATTR(reset, 0220, NULL, goodix_ts_reset_store);
@@ -635,6 +644,7 @@ static DEVICE_ATTR(double_tap_enable, 0664, goodix_ts_double_tap_show, goodix_ts
 static DEVICE_ATTR(aod_enable, 0664, goodix_ts_aod_show, goodix_ts_aod_store);
 static DEVICE_ATTR(switch_report_rate, 0664, goodix_report_rate_show, goodix_report_rate_store);
 static DEVICE_ATTR(fp_state, 0444, fp_state_show, NULL);
+static DEVICE_ATTR(single_tap, 0444, single_tap_show, NULL);
 
 static struct attribute *sysfs_attrs[] = {
 	&dev_attr_driver_info.attr,
@@ -651,6 +661,7 @@ static struct attribute *sysfs_attrs[] = {
 	&dev_attr_aod_enable.attr,
 	&dev_attr_switch_report_rate.attr,
 	&dev_attr_fp_state.attr,
+	&dev_attr_single_tap.attr,
 	NULL,
 };
 
