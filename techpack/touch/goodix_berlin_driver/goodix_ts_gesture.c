@@ -345,10 +345,12 @@ static int gsx_gesture_ist(struct goodix_ts_core *cd,
 	case GOODIX_GESTURE_DOUBLE_TAP:
 		if (cd->gesture_type & GESTURE_DOUBLE_TAP) {
 			ts_info("get DOUBLE-TAP gesture");
-			input_report_key(cd->input_dev, KEY_WAKEUP, 1);
-			input_sync(cd->input_dev);
-			input_report_key(cd->input_dev, KEY_WAKEUP, 0);
-			input_sync(cd->input_dev);
+			cd->single_tap_pressed = 1;
+			sysfs_notify(&cd->pdev->dev.kobj, NULL, "single_tap");
+		} else {
+			ts_debug("not enable SINGLE-TAP");
+			cd->single_tap_pressed = 0;
+			sysfs_notify(&cd->pdev->dev.kobj, NULL, "single_tap");
 		}
 		break;
 #if GOODIX_FOD_ENABLE
