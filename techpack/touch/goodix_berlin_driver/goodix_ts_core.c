@@ -1069,6 +1069,22 @@ static ssize_t goodix_pocket_mode_store(struct device  *dev,
 	return count;
 }
 
+static ssize_t fp_state_show(
+    struct device *dev, struct device_attribute *attr, char *buf)
+{
+    int fp_x = 0;
+    int fp_y = 0;
+    int fp_down = 0;
+
+    struct goodix_ts_core *ts_core = dev_get_drvdata(dev);
+
+    fp_down = ts_core->gesture_up_flag;
+    fp_x = ts_core->gesture_x;
+    fp_y = ts_core->gesture_y;
+
+    return snprintf(buf, PAGE_SIZE, "%d,%d,%d\n", fp_x, fp_y, fp_down);
+}
+
 static DEVICE_ATTR(driver_info, 0440, driver_info_show, NULL);
 static DEVICE_ATTR(chip_info, 0440, chip_info_show, NULL);
 static DEVICE_ATTR(reset, 0220, NULL, goodix_ts_reset_store);
@@ -1090,6 +1106,8 @@ static DEVICE_ATTR(power_off_bin_info, 0440,
 		goodix_bin_info_show, NULL);
 static DEVICE_ATTR(pocket_mode, 0664,
 		goodix_pocket_mode_show, goodix_pocket_mode_store);
+static DEVICE_ATTR(fp_state, S_IRUGO,
+                   fp_state_show, NULL);
 
 static struct attribute *sysfs_attrs[] = {
 	&dev_attr_driver_info.attr,
@@ -1109,6 +1127,7 @@ static struct attribute *sysfs_attrs[] = {
 	&dev_attr_edge_mode.attr,
 	&dev_attr_power_off_bin_info.attr,
 	&dev_attr_pocket_mode.attr,
+        &dev_attr_fp_state.attr,
 	NULL,
 };
 
