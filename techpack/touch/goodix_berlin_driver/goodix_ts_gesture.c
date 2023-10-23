@@ -367,6 +367,7 @@ static int gsx_gesture_ist(struct goodix_ts_core *cd,
 			input_report_abs(cd->input_dev, ABS_MT_WIDTH_MAJOR, overlay_area);
 			input_sync(cd->input_dev);
 			core->gesture_up_flag = 1;
+                        sysfs_notify(&cd->pdev->dev.kobj, NULL, "fp_state");
 		} else {
 			ts_debug("not enable FOD-DOWN");
 		}
@@ -380,6 +381,7 @@ static int gsx_gesture_ist(struct goodix_ts_core *cd,
 					MT_TOOL_FINGER, 0);
 			input_sync(cd->input_dev);
 			core->gesture_up_flag = 0;
+                        sysfs_notify(&cd->pdev->dev.kobj, NULL, "fp_state");
 		} else {
 			ts_debug("not enable FOD-UP");
 		}
