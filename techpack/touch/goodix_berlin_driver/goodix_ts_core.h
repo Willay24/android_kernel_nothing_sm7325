@@ -802,6 +802,10 @@ struct goodix_ts_core {
 	struct regulator *avdd;
 	struct regulator *iovdd;
 	u32 gesture_type;
+	/* FOD (fingerprint-on-display) state, exposed via fp_state sysfs */
+	int gesture_x;
+	int gesture_y;
+	int gesture_up_flag;	/* 1: FOD finger down, 0: FOD finger up */
 
 	char input_name[32];
 	char input_pen_name[32];
