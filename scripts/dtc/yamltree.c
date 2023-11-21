@@ -33,7 +33,7 @@ static void yaml_propval_int(yaml_emitter_t *emitter, struct marker *markers,
 	char *data, unsigned int seq_offset, unsigned int len, int width)
 {
 	yaml_event_t event;
-	void *tag;
+	const void *tag;
 	unsigned int off;
 
 	switch(width) {
@@ -102,7 +102,7 @@ static void yaml_propval_string(yaml_emitter_t *emitter, char *str, int len)
 
 	/* Make sure the entire string is in the lower 7-bit ascii range */
 	for (i = 0; i < len; i++)
-		assert(isascii(str[i]));
+		assert(isascii((unsigned char)str[i]));
 
 	yaml_scalar_event_initialize(&event, NULL,
 		(const yaml_char_t *)YAML_STR_TAG, (const yaml_char_t*)str,
