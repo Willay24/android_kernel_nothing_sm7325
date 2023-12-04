@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2023-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/debugfs.h>
@@ -19,6 +19,9 @@
 #include "cam_sync_api.h"
 #include "cam_trace.h"
 #include "cam_debug_util.h"
+#include "cam_packet_util.h"
+#include "cam_common_util.h"
+
 
 static uint cam_debug_ctx_req_list;
 module_param(cam_debug_ctx_req_list, uint, 0644);
@@ -269,7 +272,9 @@ int32_t cam_context_config_dev_to_hw(
 	size_t len;
 	struct cam_hw_stream_setttings cfg;
 	uintptr_t packet_addr;
-	struct cam_packet *packet;
+	struct cam_packet *packet_u;
+	struct cam_packet *packet = NULL;
+	size_t remain_len = 0;
 
 	if (!ctx || !cmd) {
 		CAM_ERR(CAM_CTXT, "Invalid input params %pK %pK", ctx, cmd);
@@ -299,8 +304,15 @@ int32_t cam_context_config_dev_to_hw(
 		return rc;
 	}
 
-	packet = (struct cam_packet *) ((uint8_t *)packet_addr +
+	packet_u = (struct cam_packet *) ((uint8_t *)packet_addr +
 		(uint32_t)cmd->offset);
+	remain_len = len - (uint32_t)cmd->offset;
+
+	rc = cam_packet_util_copy_pkt_to_kmd(packet_u, &packet, remain_len);
+	if (rc) {
+		CAM_ERR(CAM_CTXT, "Copying packet to KMD failed");
+		goto put_ref;
+	}
 
 	memset(&cfg, 0, sizeof(cfg));
 	cfg.packet = packet;
@@ -317,6 +329,9 @@ int32_t cam_context_config_dev_to_hw(
 		rc = -EFAULT;
 	}
 
+	cam_common_mem_free(packet);
+	packet = NULL;
+put_ref:
 	cam_mem_put_cpu_buf((int32_t) cmd->packet_handle);
 	return rc;
 }
