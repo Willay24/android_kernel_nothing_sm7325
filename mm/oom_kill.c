@@ -57,8 +57,8 @@
 int sysctl_panic_on_oom =
 IS_ENABLED(CONFIG_DEBUG_PANIC_ON_OOM) ? 2 : 0;
 int sysctl_oom_kill_allocating_task;
-int sysctl_oom_dump_tasks;
-int sysctl_reap_mem_on_sigkill = 1;
+int sysctl_oom_dump_tasks = 1;
+int sysctl_reap_mem_on_sigkill;
 
 static int panic_on_adj_zero;
 module_param(panic_on_adj_zero, int, 0644);
@@ -771,7 +771,7 @@ void exit_oom_victim(void)
 void oom_killer_enable(void)
 {
 	oom_killer_disabled = false;
-	pr_debug("OOM killer enabled.\n");
+	pr_info("OOM killer enabled.\n");
 }
 
 /**
@@ -808,7 +808,7 @@ bool oom_killer_disable(signed long timeout)
 		oom_killer_enable();
 		return false;
 	}
-	pr_debug("OOM killer disabled.\n");
+	pr_info("OOM killer disabled.\n");
 
 	return true;
 }
