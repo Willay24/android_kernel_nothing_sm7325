@@ -2947,6 +2947,7 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 	int locked;
 	int exclusive = 0;
 	vm_fault_t ret = 0;
+	bool need_clear_cache = false;
 
 	if (!pte_unmap_same(vma->vm_mm, vmf->pmd, vmf->pte, vmf->orig_pte))
 		goto out;
@@ -2979,6 +2980,15 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 		if (si->flags & SWP_SYNCHRONOUS_IO &&
 				__swap_count(entry) == 1) {
 			/* skip swapcache */
+
+			/* Keep the slot from being reused until PTE validation. */
+			if (swapcache_prepare(entry)) {
+				delayacct_clear_flag(DELAYACCT_PF_SWAPIN);
+				schedule_timeout_uninterruptible(1);
+				goto out;
+			}
+			need_clear_cache = true;
+
 			page = alloc_page_vma(GFP_HIGHUSER_MOVABLE | __GFP_CMA
 					      | __GFP_OFFLINABLE, vma,
 					      vmf->address);
@@ -3133,6 +3143,9 @@ vm_fault_t do_swap_page(struct vm_fault *vmf)
 unlock:
 	pte_unmap_unlock(vmf->pte, vmf->ptl);
 out:
+	/* Drop the direct-swapin reservation after releasing the PTL. */
+	if (need_clear_cache)
+		swapcache_clear(entry);
 	return ret;
 out_nomap:
 	mem_cgroup_cancel_charge(page, memcg, false);
@@ -3145,6 +3158,9 @@ out_release:
 		unlock_page(swapcache);
 		put_page(swapcache);
 	}
+	/* Drop the direct-swapin reservation after releasing the PTL. */
+	if (need_clear_cache)
+		swapcache_clear(entry);
 	return ret;
 }
 
