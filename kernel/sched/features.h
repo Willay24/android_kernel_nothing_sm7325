@@ -86,6 +86,13 @@
 #define SCHED_FEAT_SIS_UTIL 1
 
 /*
+ * Force max CPU frequency when an RT task is runnable, bypassing normal
+ * utilization-based frequency selection, to minimize RT scheduling latency.
+ * Used by the schedhorizon cpufreq governor.
+ */
+#define SCHED_FEAT_SUGOV_MAX_RT_FREQ 1
+
+/*
  * Issue a WARN when we do multiple update_rq_clock() calls
  * in a single rq->lock section. Default disabled because the
  * annotations are not complete.
