@@ -27,7 +27,10 @@
 #define MAX_SV_BL_SCALE_LEVEL 65535
 #define DSI_CMD_PPS_SIZE 135
 
+/* Phone (2) LTPO panel (NOS A065 code base): has skip-frame/LTPO commands */
 #define NT_PANEL_NAME "nt37705 amoled fhd+ 120hz cmd mode dsi visionox panel"
+/* Phone (1) panel (spacewar): fixed 60/90/120Hz, no skip-frame */
+#define NT_PANEL_NAME_RM692E5 "rm692e5 amoled fhd+ 120hz cmd mode dsi visionox panel"
 
 enum dsi_cmd_sfm_set_type {
 	DSI_CMD_SET_FRAME = 0,
@@ -466,6 +469,7 @@ void dsi_panel_set_fod_ui(struct dsi_panel *panel, bool status);
 u8 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel);
 
 int nt_is_panel_detected(void);
+bool nt_panel_has_skip_frame(void);
 int nt_display_parse_switch_cmds(struct dsi_panel *panel);
 void nt_display_free_switch_cmds(struct dsi_panel *panel);
 

@@ -3610,9 +3610,23 @@ error:
 
 struct dsi_panel *nt_panel;
 
+static bool nt_panel_name_supported(const char *name)
+{
+	return name && (!strcmp(name, NT_PANEL_NAME) ||
+			!strcmp(name, NT_PANEL_NAME_RM692E5));
+}
+
 int nt_is_panel_detected(void)
 {
-	return nt_panel && !strcmp(nt_panel->name, NT_PANEL_NAME);
+	return nt_panel && nt_panel_name_supported(nt_panel->name);
+}
+
+/* Skip-frame (LTPO) is only wired up on panels that supplied the commands */
+bool nt_panel_has_skip_frame(void)
+{
+	return nt_panel &&
+	       nt_panel->nt_cmd_sets[DSI_CMD_SET_FRAME].cmds &&
+	       nt_panel->nt_cmd_sets[DSI_CMD_GET_REG2F].cmds;
 }
 
 static int dsi_panel_parse_doze(struct dsi_panel *panel)
@@ -3842,11 +3856,14 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	if (rc)
 		DSI_DEBUG("failed to parse esd config, rc=%d\n", rc);
 
-	if (!strcmp(panel->name, NT_PANEL_NAME)) {
+	if (nt_panel_name_supported(panel->name)) {
 		nt_panel = panel;
-		rc = nt_display_parse_switch_cmds(panel);
-		if (rc)
-			DSI_DEBUG("failed to parse switch cmds, rc=%d\n", rc);
+		/* LTPO skip-frame commands only exist on the NT37705 panel */
+		if (!strcmp(panel->name, NT_PANEL_NAME)) {
+			rc = nt_display_parse_switch_cmds(panel);
+			if (rc)
+				DSI_DEBUG("failed to parse switch cmds, rc=%d\n", rc);
+		}
 	}
 
 	rc = dsi_panel_parse_doze(panel);
@@ -4575,7 +4592,8 @@ static enum dsi_cmd_set_type dsi_panel_pick_aod_set(struct dsi_panel *panel,
 {
 	u32 tier;
 
-	if (!bl_lvl || !panel->cur_mode || !panel->cur_mode->priv_info)
+	/* NOS 3.0: bl_lvl == 0 selects the lowest tier ("brightness >= 0") */
+	if (!panel->cur_mode || !panel->cur_mode->priv_info)
 		return fallback;
 
 	if (bl_lvl < panel->aod_nit_threshold[0])

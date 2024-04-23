@@ -914,8 +914,26 @@ static int _sde_connector_update_finger_hbm_status(
 		return -EINVAL;
 	}
 
-	status = sde_crtc_is_fod_enabled(connector->state->crtc->state);
-	if (status == dsi_panel_get_fod_ui(display->panel)) {
+	/*
+	 * FOD press is signalled either by the FOD layer on the crtc
+	 * (AOSP/Lineage style HWC) or by the "finger_flag" connector
+	 * property (stock Nothing OS HWC).
+	 */
+	status = !!c_conn->finger_flag;
+	if (connector->state && connector->state->crtc &&
+	    connector->state->crtc->state)
+		status |= sde_crtc_is_fod_enabled(connector->state->crtc->state);
+
+	/*
+	 * Compare against what has actually been applied to the panel
+	 * (finger_hbm_flag), not panel->fod_ui: the LP1/LP2/disable paths
+	 * clear finger_hbm_flag behind our back, and comparing against a
+	 * stale fod_ui would leave HBM permanently off after a doze cycle.
+	 */
+	if (status == !!finger_hbm_flag) {
+		if (dsi_panel_get_fod_ui(display->panel) != status)
+			dsi_panel_set_fod_ui(display->panel, status);
+		c_conn->fingerlayer_dirty = false;
 		return 0;
 	}
 
@@ -957,6 +975,7 @@ static int _sde_connector_update_finger_hbm_status(
 	}
 
 	dsi_panel_set_fod_ui(display->panel, finger_hbm_flag);
+	c_conn->fingerlayer_dirty = false;
 	SDE_ATRACE_END("_sde_connector_update_finger_hbm_statuss");
 	return 0;
 }
@@ -1701,6 +1720,13 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 	case CONNECTOR_PROP_QSYNC_MODE:
 		msm_property_set_dirty(&c_conn->property_info,
 				&c_state->property_state, idx);
+		break;
+	case CONNECTOR_PROP_FINGER_FLAG:
+		/* set by the stock NOS HWC while the FOD sensor is pressed */
+		if (c_conn->finger_flag != val) {
+			c_conn->finger_flag = val;
+			c_conn->fingerlayer_dirty = true;
+		}
 		break;
 	default:
 		break;
@@ -2983,6 +3009,13 @@ static int _sde_connector_install_properties(struct drm_device *dev,
 	c_conn->bl_scale = MAX_BL_SCALE_LEVEL;
 	c_conn->bl_scale_sv = MAX_SV_BL_SCALE_LEVEL;
 
+	if (connector_type == DRM_MODE_CONNECTOR_DSI)
+		msm_property_install_range(&c_conn->property_info,
+			"finger_flag", 0x0, 0, 255, 0,
+			CONNECTOR_PROP_FINGER_FLAG);
+	c_conn->fingerlayer_dirty = false;
+	c_conn->finger_flag = 0;
+
 	if (connector_type == DRM_MODE_CONNECTOR_DisplayPort)
 		msm_property_install_range(&c_conn->property_info,
 			"supported_colorspaces",
@@ -3584,7 +3617,7 @@ static ssize_t nt_skip_frame_mode_store(struct kobject *kobj,
 	unsigned long index;
 	int rc;
 
-	if (!panel_feature_sde_conn)
+	if (!panel_feature_sde_conn || !nt_panel_has_skip_frame())
 		return -ENODEV;
 
 	rc = kstrtoul(buf, 0, &index);
@@ -3614,7 +3647,7 @@ static ssize_t nt_skip_frame_mode_show(struct kobject *kobj,
 {
 	int index;
 
-	if (!panel_feature_sde_conn)
+	if (!panel_feature_sde_conn || !nt_panel_has_skip_frame())
 		return -ENODEV;
 
 	index = nt_get_refresh_rate(panel_feature_sde_conn);
