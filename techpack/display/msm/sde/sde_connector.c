@@ -29,6 +29,7 @@
 #define MAX_BRIGHTNESS_LEVEL 255
 int finger_hbm_flag = 0;
 int hbm_mode_flag = 0;
+bool update_hbm_brightness = false;
 static struct sde_connector *panel_feature_sde_conn;
 static struct kobject *panel_feature_kobj;
 
@@ -98,7 +99,7 @@ static inline struct sde_kms *_sde_connector_get_kms(struct drm_connector *conn)
 	return to_sde_kms(priv->kms);
 }
 
-static int sde_backlight_device_update_status(struct backlight_device *bd)
+static int _sde_backlight_update_status(struct backlight_device *bd)
 {
 	int brightness;
 	struct dsi_display *dsi_display;
@@ -194,6 +195,29 @@ done:
 	sde_vm_unlock(sde_kms);
 
 	return rc;
+}
+
+static int sde_backlight_device_update_status(struct backlight_device *bd)
+{
+	struct sde_connector *c_conn = bl_get_data(bd);
+
+	if (!update_hbm_brightness) {
+		schedule_work(&c_conn->set_brightness_work);
+		return 0;
+	}
+
+	return _sde_backlight_update_status(bd);
+}
+
+static void _sde_connector_set_brightness_work(struct work_struct *work)
+{
+	struct sde_connector *c_conn;
+
+	c_conn = container_of(work, struct sde_connector, set_brightness_work);
+	if (!c_conn || !c_conn->bl_device)
+		return;
+
+	_sde_backlight_update_status(c_conn->bl_device);
 }
 
 static int sde_backlight_device_get_brightness(struct backlight_device *bd)
@@ -951,12 +975,16 @@ static int _sde_connector_update_finger_hbm_status(
 			mutex_unlock(&c_conn->lock);
 			c_conn->last_panel_power_mode = SDE_MODE_DPMS_ON;
 		}
+		update_hbm_brightness = true;
 		sde_backlight_device_update_status(c_conn->bl_device);
+		update_hbm_brightness = false;
 		/*wait for VBLANK */
 		sde_encoder_wait_for_event(c_conn->encoder, MSM_ENC_VBLANK);
 	} else {
 		SDE_ERROR("close hbm");
+		update_hbm_brightness = true;
 		sde_backlight_device_update_status(c_conn->bl_device);
+		update_hbm_brightness = false;
 		/*wait for VBLANK */
 		sde_encoder_wait_for_event(c_conn->encoder, MSM_ENC_VBLANK);
 		if ((c_conn->lp_mode == SDE_MODE_DPMS_LP1) ||
@@ -1218,6 +1246,7 @@ void sde_connector_destroy(struct drm_connector *connector)
 
 	if (c_conn->cdev)
 		backlight_cdev_unregister(c_conn->cdev);
+	cancel_work_sync(&c_conn->set_brightness_work);
 	if (c_conn->bl_device)
 		backlight_device_unregister(c_conn->bl_device);
 	drm_connector_unregister(connector);
@@ -3809,6 +3838,9 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 		SDE_ERROR("failed to attach encoder to connector, %d\n", rc);
 		goto error_cleanup_fence;
 	}
+
+	INIT_WORK(&c_conn->set_brightness_work,
+			_sde_connector_set_brightness_work);
 
 	rc = sde_backlight_setup(c_conn, dev);
 	if (rc) {
