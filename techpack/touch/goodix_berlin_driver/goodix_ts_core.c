@@ -1453,11 +1453,11 @@ static void goodix_ts_report_finger(struct goodix_ts_core *cd,
 			else
 				finger_down_flag = 0;
 			if (touch_num && finger_down_flag) {
-				ts_info(device, "ACTION_DOWN:%d, %d, id[%d], x %d, y %d, w %d",
+/*				ts_info(device, "ACTION_DOWN:%d, %d, id[%d], x %d, y %d, w %d",
 					finger_down_flag, touch_num, i,
 					touch_data->coords[i].x,
 					touch_data->coords[i].y,
-					touch_data->coords[i].w);
+					touch_data->coords[i].w); */
 				com = touch_num;
 				finger_up_flag = 0;
 			}
@@ -1487,7 +1487,7 @@ static void goodix_ts_report_finger(struct goodix_ts_core *cd,
 	}
 
 	if (!touch_num && !finger_up_flag) {
-		ts_info(device, "ACTION_UP");
+/*		ts_info(device, "ACTION_UP"); */
 		finger_up_flag = 1;
 		finger_down_flag = 1;
 		com = 0;
