@@ -690,7 +690,7 @@ endif # KBUILD_EXTMOD
 all: vmlinux
 
 ifeq ($(CONFIG_PGO_GEN),y)
-CFLAGS_GCOV	:= -fprofile-generate -ftest-coverage
+CFLAGS_GCOV	:= -fprofile-generate -fkernel-pgo -ftest-coverage
 else
 CFLAGS_GCOV	:= -fprofile-arcs -ftest-coverage
 endif
