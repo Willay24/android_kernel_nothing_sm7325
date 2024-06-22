@@ -1462,6 +1462,22 @@ static void _sde_crtc_setup_blend_cfg_by_stage(struct sde_crtc_mixer *mixer,
 	}
 }
 
+#ifdef CONFIG_NOTHING
+static bool _sde_crtc_fod_stage_shared(struct drm_crtc *crtc,
+		struct sde_crtc_state *cstate)
+{
+	struct drm_plane *plane;
+
+	drm_atomic_crtc_for_each_plane(plane, crtc) {
+		if (plane->state &&
+		    to_sde_plane_state(plane->state)->stage ==
+					cstate->fod_dim_layer.stage)
+			return true;
+	}
+	return false;
+}
+#endif
+
 static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 		struct drm_crtc_state *old_state, struct sde_crtc *sde_crtc,
 		struct sde_crtc_mixer *mixer)
@@ -1612,14 +1628,16 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 			for (i = 0; i < cstate->num_dim_layers; i++)
 				_sde_crtc_setup_dim_layer_cfg(crtc, sde_crtc,
 						mixer, &cstate->dim_layer[i]);
-
-#ifdef CONFIG_NOTHING
-			if (cstate->fod_pressed)
-				_sde_crtc_setup_dim_layer_cfg(crtc, sde_crtc,
-						mixer, &cstate->fod_dim_layer);
-#endif
 			clear_bit(SDE_CRTC_DIRTY_DIM_LAYERS, cstate->dirty);
 		}
+
+#ifdef CONFIG_NOTHING
+		/* not gated on the dirty bit: mixer_op_mode is rebuilt every pass */
+		if (cstate->fod_pressed &&
+		    !_sde_crtc_fod_stage_shared(crtc, cstate))
+			_sde_crtc_setup_dim_layer_cfg(crtc, sde_crtc,
+					mixer, &cstate->fod_dim_layer);
+#endif
 #ifdef CONFIG_DRM_SDE_EXPO
 		if (test_bit(SDE_CRTC_DIRTY_DIM_LAYER_EXPO, cstate->dirty)) {
 			if (cstate->exposure_dim_layer) {
@@ -4911,6 +4929,18 @@ static int sde_crtc_exposure_atomic_check(struct sde_crtc_state *cstate,
 			zpos = pstates[i].stage;
 	}
 	zpos++;
+
+#ifdef CONFIG_NOTHING
+	if (cstate->fod_pressed) {
+		struct sde_kms *kms = _sde_crtc_get_kms(cstate->base.crtc);
+
+		if (kms && kms->catalog) {
+			int off = kms->catalog->has_base_layer ? 0 : SDE_STAGE_0;
+
+			zpos = max(zpos, (int)cstate->fod_dim_layer.stage - off + 1);
+		}
+	}
+#endif
 
 	if (sde_crtc_config_exposure_dim_layer(&cstate->base, zpos)) {
 		SDE_ERROR("Failed to config dim layer\n");
