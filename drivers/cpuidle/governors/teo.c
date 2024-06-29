@@ -369,6 +369,7 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	int i;
 	int duration_us;
 	bool cpu_utilized;
+	int prev_intercept_idx;
 
 	if (dev->last_state_idx >= 0) {
 		teo_update(drv, dev);
@@ -470,6 +471,7 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	 * all of the deeper states a shallower idle state is likely to be a
 	 * better choice.
 	 */
+	prev_intercept_idx = idx;
 	if (2 * idx_intercept_sum > cpu_data->total - idx_hit_sum) {
 		int first_suitable_idx = idx;
 
@@ -520,6 +522,15 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 
 			first_suitable_idx = i;
 		}
+	}
+	if (!idx && prev_intercept_idx) {
+		/*
+		 * We have to query the sleep length here otherwise we don't
+		 * know after wakeup if our guess was correct.
+		 */
+		duration_ns = tick_nohz_get_sleep_length(&delta_tick);
+		cpu_data->sleep_length_ns = duration_ns;
+		goto out_tick;
 	}
 
 	/*
