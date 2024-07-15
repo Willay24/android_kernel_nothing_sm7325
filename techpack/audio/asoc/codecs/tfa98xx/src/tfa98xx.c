@@ -896,6 +896,7 @@ static const struct file_operations tfa98xx_dbgfs_fw_state_fops = {
 	.llseek = default_llseek,
 };
 
+#ifdef CONFIG_DEBUG_FS
 static const struct file_operations tfa98xx_dbgfs_rpc_fops = {
 	.owner = THIS_MODULE,
 	.open = simple_open,
@@ -903,6 +904,14 @@ static const struct file_operations tfa98xx_dbgfs_rpc_fops = {
 	.write = tfa98xx_dbgfs_rpc_send,
 	.llseek = default_llseek,
 };
+#else
+static const struct proc_ops tfa98xx_dbgfs_rpc_fops = {
+	.proc_open = simple_open,
+	.proc_read = tfa98xx_dbgfs_rpc_read,
+	.proc_write = tfa98xx_dbgfs_rpc_send,
+	.proc_lseek = default_llseek,
+};
+#endif
 
 static void tfa98xx_debug_init(struct tfa98xx *tfa98xx, struct i2c_client *i2c)
 {
