@@ -462,6 +462,7 @@ struct sde_crtc_state {
 #ifdef CONFIG_NOTHING
 	struct sde_hw_dim_layer fod_dim_layer;
 	bool fod_pressed;
+	bool fod_dim_valid;
 #endif
 	uint32_t num_ds;
 	uint32_t num_ds_enabled;
