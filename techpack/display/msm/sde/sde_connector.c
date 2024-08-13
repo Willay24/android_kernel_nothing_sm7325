@@ -842,11 +842,31 @@ static int _sde_connector_update_hdr_metadata(struct sde_connector *c_conn,
 #ifdef CONFIG_NOTHING
 static bool sde_connector_fod_dim_layer_status(struct sde_connector *c_conn)
 {
+	struct sde_crtc_state *cstate;
+
 	if (!c_conn->encoder || !c_conn->encoder->crtc ||
 		!c_conn->encoder->crtc->state)
 		return false;
 
-	return to_sde_crtc_state(c_conn->encoder->crtc->state)->fod_pressed;
+	cstate = to_sde_crtc_state(c_conn->encoder->crtc->state);
+
+	/* HBM must not come up before the dim layer is on the mixers */
+	return cstate->fod_pressed && cstate->fod_dim_valid;
+}
+
+static void _sde_connector_fod_hbm_settle(struct drm_connector *connector,
+		struct sde_connector *c_conn, struct dsi_display *display)
+{
+	struct drm_crtc *crtc = connector->state ? connector->state->crtc : NULL;
+
+	if (!crtc || !crtc->state || !crtc->state->active || !c_conn->encoder)
+		return;
+
+	sde_encoder_wait_for_event(c_conn->encoder, MSM_ENC_VBLANK);
+
+	mutex_lock(&display->panel->panel_lock);
+	usleep_range(10000, 11000);
+	mutex_unlock(&display->panel->panel_lock);
 }
 
 static int _sde_connector_update_finger_hbm_status(
@@ -899,6 +919,9 @@ static int _sde_connector_update_finger_hbm_status(
 		c_conn->fingerlayer_dirty = false;
 		return 0;
 	}
+
+	if (is_aosp)
+		_sde_connector_fod_hbm_settle(connector, c_conn, display);
 
 	finger_hbm_flag = is_aosp ? status : c_conn->finger_flag;
 

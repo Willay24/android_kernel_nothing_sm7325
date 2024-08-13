@@ -1643,9 +1643,7 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 		if (feature_enabled && pcc_cfg &&
 			hw_cfg.len == sizeof(save_pcc)) {
 			memcpy(&save_pcc, pcc_cfg, sizeof(save_pcc));
-			pcc_skippable = !(pcc_cfg->r.c == 0 &&
-					  pcc_cfg->g.c == 0 &&
-					  pcc_cfg->b.c == 0);
+			pcc_skippable = true;
 		} else {
 			pcc_skippable = false;
 		}

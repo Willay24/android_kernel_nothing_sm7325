@@ -1634,9 +1634,11 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 #ifdef CONFIG_NOTHING
 		/* not gated on the dirty bit: mixer_op_mode is rebuilt every pass */
 		if (cstate->fod_pressed &&
-		    !_sde_crtc_fod_stage_shared(crtc, cstate))
+		    !_sde_crtc_fod_stage_shared(crtc, cstate)) {
 			_sde_crtc_setup_dim_layer_cfg(crtc, sde_crtc,
 					mixer, &cstate->fod_dim_layer);
+			cstate->fod_dim_valid = true;
+		}
 #endif
 #ifdef CONFIG_DRM_SDE_EXPO
 		if (test_bit(SDE_CRTC_DIRTY_DIM_LAYER_EXPO, cstate->dirty)) {
@@ -5090,6 +5092,9 @@ done:
 	if (active != cstate->fod_pressed ||
 		memcmp(&layer, &cstate->fod_dim_layer, sizeof(layer)))
 		set_bit(SDE_CRTC_DIRTY_DIM_LAYERS, cstate->dirty);
+
+	if (!active || !cstate->fod_pressed)
+		cstate->fod_dim_valid = false;
 
 	cstate->fod_pressed = active;
 	cstate->fod_dim_layer = layer;
