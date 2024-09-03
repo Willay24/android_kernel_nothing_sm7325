@@ -2158,7 +2158,7 @@ int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 	ts_info("success register irq");
 
 	cd->event_wq = alloc_workqueue("gtp-event-queue",
-					WQ_UNBOUND | WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
+					WQ_UNBOUND | WQ_HIGHPRI, 1);
 	if (!cd->event_wq) {
 		ts_err("goodix cannot create event work thread");
 		ret = -ENOMEM;
@@ -2166,7 +2166,7 @@ int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 	}
 
 	cd->gesture_wq = alloc_workqueue("gtp-gesture-queue",
-					WQ_UNBOUND | WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
+					WQ_UNBOUND | WQ_HIGHPRI, 1);
 	if (!cd->gesture_wq) {
 		ts_err("goodix cannot create gesture work thread");
 		ret = -ENOMEM;
@@ -2784,7 +2784,7 @@ static int goodix_ts_probe(struct platform_device *pdev)
 
 #ifdef GOODIX_NOTHING_TOUCH
 	core_data->game_wq = alloc_workqueue("gtp-game-queue",
-				WQ_UNBOUND | WQ_HIGHPRI | WQ_CPU_INTENSIVE, 1);
+				WQ_UNBOUND | WQ_HIGHPRI, 1);
 	if (!core_data->game_wq)
 		ts_err("goodix cannot create game work thread");
 	INIT_WORK(&core_data->game_work, goodix_set_game_work);
