@@ -41,9 +41,9 @@ static int hwid_open(struct inode *inode, struct file *file)
 	return single_open(file, hwid_show, inode->i_private);
 }
 
-static const struct file_operations hwid_fops = {
-	.open		= hwid_open,
-	.read		= seq_read,
+static const struct proc_ops hwid_fops = {
+	.proc_open	= hwid_open,
+	.proc_read	= seq_read,
 };
 
 static int create_hwid_proc_file(void)
