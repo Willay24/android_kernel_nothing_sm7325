@@ -192,6 +192,7 @@ struct fts_ts_data {
     struct delayed_work prc_work;
     struct delayed_work gesture_work;
     struct work_struct resume_work;
+    struct work_struct suspend_work;
     wait_queue_head_t ts_waitqueue;
     struct ftxxxx_proc proc;
     struct ftxxxx_proc proc_ta;
@@ -251,10 +252,8 @@ struct fts_ts_data {
     struct pinctrl_state *pins_suspend;
     struct pinctrl_state *pins_release;
 #endif
-#if defined(CONFIG_FB) || defined(CONFIG_DRM)
-    struct notifier_block fb_notif;
-#elif defined(CONFIG_HAS_EARLYSUSPEND)
-    struct early_suspend early_suspend;
+#ifdef CONFIG_DRM_PANEL
+    struct notifier_block drm_notifier;
 #endif
 };
 
