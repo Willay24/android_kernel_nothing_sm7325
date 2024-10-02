@@ -290,6 +290,32 @@ static void fts_read_fod_info(struct fts_ts_data *ts_data)
     ts_data->fod_info.fp_y = (val[6] << 8) + val[7];
 }
 
+static int fts_create_gesture_procfs(struct device *dev)
+{
+	char gesture_node[256];
+	const char *path;
+	struct proc_dir_entry *entry;
+
+	path = kobject_get_path(&dev->kobj, GFP_KERNEL);
+	if (!path) {
+		FTS_ERROR("failed to get kobj path");
+		return -ENOMEM;
+	}
+
+	snprintf(gesture_node, sizeof(gesture_node), "/sys%s/fts_gesture_mode",
+		 path);
+
+	entry = proc_symlink("tp_gesture", NULL, gesture_node);
+	if (!entry) {
+		FTS_ERROR("failed to create proc symlink");
+		kfree(path);
+		return -ENOMEM;
+	}
+
+	kfree(path);
+	return 0;
+}
+
 static void fts_gesture_report(struct fts_ts_data *ts_data,struct input_dev *input_dev, int gesture_id)
 {
     int gesture;
@@ -552,6 +578,7 @@ int fts_gesture_init(struct fts_ts_data *ts_data)
     __set_bit(KEY_GESTURE_FINGER, input_dev->keybit);
 
     fts_create_gesture_sysfs(ts_data->dev);
+    fts_create_gesture_procfs(ts_data->dev);
 
     memset(&fts_gesture_data, 0, sizeof(struct fts_gesture_st));
     ts_data->gesture_bmode = GESTURE_BM_REG;
