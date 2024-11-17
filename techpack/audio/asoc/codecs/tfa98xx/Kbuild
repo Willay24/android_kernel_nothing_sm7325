@@ -44,12 +44,16 @@ endif
 
 ############ UAPI ############
 UAPI_DIR :=	uapi/audio
-UAPI_INC :=	-I$(AUDIO_ROOT)/include/$(UAPI_DIR)
+UAPI_INC :=	-I$(AUDIO_ROOT)/include/uapi/audio
 
 ############ COMMON ############
 COMMON_DIR :=	include
-COMMON_INC :=	-I$(AUDIO_ROOT)/$(COMMON_DIR)
+COMMON_INC :=	-I$(AUDIO_ROOT)/include
 TFA_INC    :=   -I$(AUDIO_ROOT)/asoc/codecs/tfa98xx/inc
+COMMON_INC :=	-I$(AUDIO_ROOT)/include
+
+############ TFA98XX ############
+PRIV_INC := -I$(AUDIO_ROOT)/asoc/codecs/tfa98xx/inc
 
 # for TFA98XX Amplifer
 ifdef CONFIG_SND_SOC_TFA98XX
@@ -64,7 +68,8 @@ LINUX_INC += -Iinclude/linux
 
 INCS +=	$(COMMON_INC) \
 	$(UAPI_INC) \
-	$(TFA_INC)
+	$(TFA_INC) \
+	$(PRIV_INC)
 
 EXTRA_CFLAGS += $(INCS)
 
@@ -110,3 +115,6 @@ endif
 # Module information used by KBuild framework
 obj-$(CONFIG_SND_SOC_TFA98XX)    += tfa98xx_dlkm.o
 tfa98xx_dlkm-y := $(TFA98XX_OBJS)
+
+# inject some build related information
+DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"
