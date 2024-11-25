@@ -50,8 +50,6 @@
 #include <asm/mach/arch.h>
 #include <asm/mpu.h>
 
-#include <soc/qcom/lpm_levels.h>
-
 #define CREATE_TRACE_POINTS
 #include <trace/events/ipi.h>
 
@@ -767,7 +765,6 @@ void __init set_smp_ipi_range(int ipi_base, int n)
 
 void smp_send_reschedule(int cpu)
 {
-	update_ipi_history(cpu);
 	smp_cross_call(cpumask_of(cpu), IPI_RESCHEDULE);
 }
 
