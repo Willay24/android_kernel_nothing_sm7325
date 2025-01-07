@@ -116,9 +116,23 @@ int gf_power_on(struct gf_dev *gf_dev)
 {
 	int rc = 0;
 
-	gpio_direction_output(gf_dev->pwr_gpio, 1);
+	if (gf_dev->power_on_tag == 0) {
+		if (gpio_is_valid(gf_dev->pwr_gpio)) {
+			rc = gpio_direction_output(gf_dev->pwr_gpio, 1);
+			if (rc) {
+				pr_err("%s : power gpio enable failed rc=%d power_tag = %d\n",
+					__func__, rc, gf_dev->power_on_tag);
+			} else {
+				gf_dev->power_on_tag = 1;
+				pr_info("%s success , power_tag = %d\n",
+					__func__, gf_dev->power_on_tag);
+			}
+		}
+	} else {
+		pr_info("%s no need to do , power_tag = %d\n",
+			__func__, gf_dev->power_on_tag);
+	}
 
-	/* TODO: add your power control here */
 	return rc;
 }
 
@@ -126,9 +140,19 @@ int gf_power_off(struct gf_dev *gf_dev)
 {
 	int rc = 0;
 
-	gpio_direction_output(gf_dev->pwr_gpio, 0);
-
-	/* TODO: add your power control here */
+	if (gf_dev->power_on_tag == 1) {
+		if (gpio_is_valid(gf_dev->pwr_gpio)) {
+			rc = gpio_direction_output(gf_dev->pwr_gpio, 0);
+			if (rc) {
+				pr_err("%s : power gpio disable failed rc=%d power_tag = %d\n",
+					__func__, rc, gf_dev->power_on_tag);
+			} else {
+				gf_dev->power_on_tag = 0;
+				pr_info("%s success , power_tag = %d\n",
+					__func__, gf_dev->power_on_tag);
+			}
+		}
+	}
 
 	return rc;
 }
