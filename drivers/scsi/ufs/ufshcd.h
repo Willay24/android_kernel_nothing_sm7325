@@ -1165,7 +1165,6 @@ void ufshcd_scsi_unblock_requests(struct ufs_hba *hba);
 int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba, u64 wait_timeout_us);
 #endif
 int ufshcd_alloc_host(struct device *, struct ufs_hba **);
-void ufshcd_dealloc_host(struct ufs_hba *);
 int ufshcd_hba_enable(struct ufs_hba *hba);
 int ufshcd_init(struct ufs_hba * , void __iomem * , unsigned int);
 int ufshcd_link_recovery(struct ufs_hba *hba);
