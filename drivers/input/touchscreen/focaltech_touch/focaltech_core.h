@@ -190,6 +190,12 @@ struct fts_ts_data {
     struct work_struct fwupg_work;
     struct delayed_work esdcheck_work;
     struct delayed_work prc_work;
+    /* power supply options */
+    struct power_supply *battery_psy;
+    struct work_struct power_supply_work;
+    struct notifier_block power_supply_notifier;
+    int charger_status;
+    /* power supply options end */
     struct delayed_work gesture_work;
     struct work_struct resume_work;
     struct work_struct suspend_work;
@@ -360,4 +366,9 @@ int fts_ex_mode_recovery(struct fts_ts_data *ts_data);
 
 void fts_irq_disable(void);
 void fts_irq_enable(void);
+
+/* power supply functions*/
+extern int power_supply_reg_notifier(struct notifier_block *nb);
+extern int power_supply_is_system_supplied(void);
+/* power supply functions end*/
 #endif /* __LINUX_FOCALTECH_CORE_H__ */

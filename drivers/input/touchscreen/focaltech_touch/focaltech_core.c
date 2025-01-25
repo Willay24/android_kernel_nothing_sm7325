@@ -37,9 +37,11 @@
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
+#include <linux/power_supply.h>
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
 #endif
+#include <linux/power_supply.h>
 #include "focaltech_core.h"
 
 /*****************************************************************************
@@ -67,6 +69,7 @@ struct fts_ts_data *fts_data;
 *****************************************************************************/
 static int fts_ts_suspend(struct device *dev);
 static int fts_ts_resume(struct device *dev);
+static void fts_power_supply_work(struct work_struct *work);
 
 int fts_check_cid(struct fts_ts_data *ts_data, u8 id_h)
 {
@@ -1534,6 +1537,115 @@ static void fts_suspend_work(struct work_struct *work)
     fts_ts_suspend(ts_data->dev);
 }
 
+static int fts_get_charging_status(void)
+{
+	struct power_supply *usb_psy;
+	struct power_supply *dc_psy;
+	union power_supply_propval val;
+	int ret = 0;
+
+	dc_psy = power_supply_get_by_name("wireless");
+	if (dc_psy) {
+		ret = power_supply_get_property(dc_psy,
+						POWER_SUPPLY_PROP_ONLINE, &val);
+		if (ret < 0)
+			FTS_ERROR("Couldn't get DC online status, rc=%d\n",
+				  ret);
+		else if (val.intval == 1)
+			return 1;
+	}
+
+	usb_psy = power_supply_get_by_name("usb");
+	if (usb_psy) {
+		ret = power_supply_get_property(usb_psy,
+						POWER_SUPPLY_PROP_ONLINE, &val);
+		if (ret < 0)
+			FTS_ERROR("Couldn't get usb online status, rc=%d\n",
+				  ret);
+		else if (val.intval == 1)
+			return 1;
+	}
+
+	return 0;
+}
+
+/**
+ * @brief Write 1/0 to Touch IC 0x8B register depending on whether it is in charge state
+ */
+static void fts_power_supply_work(struct work_struct *work)
+{
+	int ret = 0;
+	struct fts_ts_data *ts_data =
+		container_of(work, struct fts_ts_data, power_supply_work);
+	int charger_status = -1;
+
+	if (ts_data == NULL)
+		return;
+#if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
+	if (ts_data->pm_suspend) {
+		FTS_ERROR("TP is in suspend mode, don't set usb status!");
+		return;
+	}
+#endif
+	pm_stay_awake(ts_data->dev);
+
+	charger_status = !!fts_get_charging_status();
+	if (charger_status != ts_data->charger_status ||
+	    ts_data->charger_status < 0) {
+		ts_data->charger_status = charger_status;
+		if (charger_status) {
+			FTS_INFO("charger usb in");
+			ret = fts_write_reg(FTS_REG_CHARGER_MODE_EN, true);
+			if (ret < 0) {
+				FTS_ERROR(
+					"failed to set power supply status:%d",
+					ts_data->charger_status);
+			} else {
+				FTS_INFO(
+					"success to set power supply status:%d",
+					ts_data->charger_status);
+			}
+		} else {
+			FTS_INFO("charger usb out");
+			ret = fts_write_reg(FTS_REG_CHARGER_MODE_EN, false);
+			if (ret < 0) {
+				FTS_ERROR(
+					"failed to set power supply status:%d",
+					ts_data->charger_status);
+			} else {
+				FTS_INFO(
+					"success to set power supply status:%d",
+					ts_data->charger_status);
+			}
+		}
+	}
+	pm_relax(ts_data->dev);
+}
+/**
+ * @brief Charge mode callback function
+ *
+ * @param nb - Notification chain structure pointer
+ * @param event - useless on here,Parameters passed in the notification side
+ * @param ptr - useless on here,The pointer passed in on the notification side
+ * @return int
+ */
+static int fts_power_supply_callback(struct notifier_block *nb,
+				     unsigned long event, void *ptr)
+{
+	/*
+ * Find the first address of the variable of type struct fts_ts_data
+ * through the power_supply notifier member of the structure nb
+ */
+	struct fts_ts_data *ts_data =
+		container_of(nb, struct fts_ts_data, power_supply_notifier);
+	/* If the ts_data structure is found, insert the work into the work queue */
+
+	if (ts_data)
+		queue_work(ts_data->ts_workqueue, &ts_data->power_supply_work);
+
+	return 0;
+}
+
 #ifdef CONFIG_DRM_PANEL
 static struct drm_panel *active_panel;
 
@@ -1742,12 +1854,18 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
     if (ts_data->ts_workqueue) {
         INIT_WORK(&ts_data->resume_work, fts_resume_work);
         INIT_WORK(&ts_data->suspend_work, fts_suspend_work);
+	INIT_WORK(&ts_data->power_supply_work, fts_power_supply_work);
     }
 
 #if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
     init_completion(&ts_data->pm_completion);
     ts_data->pm_suspend = false;
 #endif
+
+	ts_data->power_supply_notifier.notifier_call = fts_power_supply_callback;
+	ret = power_supply_reg_notifier(&ts_data->power_supply_notifier);
+	if (ret)
+		FTS_ERROR("get battery psy failed, don't register callback for charger mode");
 
 #ifdef CONFIG_DRM_PANEL
     ts_data->drm_notifier.notifier_call = drm_notifier_callback;
@@ -1812,6 +1930,8 @@ static int fts_ts_remove_entry(struct fts_ts_data *ts_data)
     fts_gesture_exit(ts_data);
 
     free_irq(ts_data->irq, ts_data);
+
+    power_supply_unreg_notifier(&ts_data->power_supply_notifier);
 
     fts_bus_exit(ts_data);
 
