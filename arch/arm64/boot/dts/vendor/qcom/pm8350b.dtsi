@@ -174,7 +174,7 @@
 			};
 
 			effect_7 {
-				/* FIFO sample only */
+					/* FIFO sample only */
 				qcom,effect-id = <7>;
 				qcom,wf-vmax-mv = <10000>;
 				qcom,wf-fifo-data = [
@@ -189,8 +189,7 @@
 							81 82 83 85 88 8e 97 a8
 							c5 f8 2e 4c 5e 67 6a 69
 							62 53 39 21 13 0b 06 03
-							02 01 00
-						];
+							02 01 00  ];
 				qcom,wf-fifo-period = <S_PERIOD_F_8KHZ>;
 				qcom,wf-brake-disable;
 				qcom,wf-auto-res-disable;
