@@ -3094,6 +3094,7 @@ end:
 	return rc;
 }
 
+#ifdef CONFIG_DEBUG_KERNEL
 /**
  * __cam_req_mgr_dev_handle_to_name()
  *
@@ -3118,6 +3119,7 @@ static const char *__cam_req_mgr_dev_handle_to_name(
 
 	return "Invalid dev_hdl";
 }
+#endif
 
 /* Linked devices' Callback section */
 
