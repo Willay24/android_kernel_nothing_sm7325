@@ -122,6 +122,7 @@ void cam_debug_trace(unsigned int tag, unsigned int module_id,
  */
 const char *cam_get_module_name(unsigned int module_id);
 
+#ifdef CONFIG_DEBUG_KERNEL
 /*
  * CAM_TRACE
  * @brief    :  This Macro will print logs in ftrace
@@ -198,6 +199,7 @@ const char *cam_get_module_name(unsigned int module_id);
 #define CAM_ERR_RATE_LIMIT(__module, fmt, args...)                             \
 	cam_debug_log(__module, __func__, __LINE__, fmt, ##args)
 /*
+
  * CAM_WARN_RATE_LIMIT
  * @brief    :  This Macro will print warning logs with ratelimit
  *
@@ -243,6 +245,22 @@ const char *cam_get_module_name(unsigned int module_id);
  * @args     :  Arguments which needs to be print in log
  */
 #define CAM_ERR_RATE_LIMIT_CUSTOM(__module, interval, burst, fmt, args...)
+
+#else
+
+#define CAM_TRACE(__module, fmt, args...) ((void)0)
+#define CAM_ERR(__module, fmt, args...) ((void)0)
+#define CAM_WARN(__module, fmt, args...) ((void)0)
+#define CAM_INFO(__module, fmt, args...) ((void)0)
+#define CAM_INFO_RATE_LIMIT(__module, fmt, args...) ((void)0)
+#define CAM_DBG(__module, fmt, args...) ((void)0)
+#define CAM_ERR_RATE_LIMIT(__module, fmt, args...) ((void)0)
+#define CAM_WARN_RATE_LIMIT(__module, fmt, args...) ((void)0)
+#define CAM_WARN_RATE_LIMIT_CUSTOM(__module, interval, burst, fmt, args...) ((void)0)
+#define CAM_INFO_RATE_LIMIT_CUSTOM(__module, interval, burst, fmt, args...) ((void)0)
+#define CAM_ERR_RATE_LIMIT_CUSTOM(__module, interval, burst, fmt, args...) ((void)0)
+
+#endif /* CONFIG_DEBUG_KERNEL */
 
 /**
  * @brief : API to get camera debug settings
