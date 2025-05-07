@@ -1359,8 +1359,6 @@ static const struct power_supply_desc batt_psy_desc = {
 	.property_is_writeable	= battery_psy_prop_is_writeable,
 };
 
-#include "qti_power_meter.c"
-
 static int battery_chg_init_psy(struct battery_chg_dev *bcdev)
 {
 	struct power_supply_config psy_cfg = {};
@@ -2624,6 +2622,7 @@ static int battery_chg_notify(struct notifier_block *self, unsigned long event,
 	return NOTIFY_OK;
 }
 #endif
+int qtipm_init_module(void);
 
 static int battery_chg_probe(struct platform_device *pdev)
 {
@@ -2768,6 +2767,8 @@ static int battery_chg_probe(struct platform_device *pdev)
 
 	schedule_work(&bcdev->usb_type_work);
 
+	qtipm_init_module();
+
 	return 0;
 error:
 	cancel_delayed_work_sync(&bcdev->nt_update_status_work);
@@ -2831,3 +2832,5 @@ module_platform_driver(battery_chg_driver);
 
 MODULE_DESCRIPTION("QTI Glink battery charger driver");
 MODULE_LICENSE("GPL v2");
+
+#include "qti_power_meter.c"
