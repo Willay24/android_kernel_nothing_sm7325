@@ -40,27 +40,22 @@ static bool completed;
  * You can also use this as an ignorelist.
  */
 static const __initconst char * const blacklist[] = {
-	// Custom load order
-	"hdcp",
-
 	// Disabled
-	"f_fs_ipc_log",
+	"kiwi",
+	"lzo",
+	"lzo_rle",
 	"mem_offline",
 	"msm_show_resume_irq",
-	"phy_qcom_ufs_qmp_v4_anarok",
-	"phy_qcom_ufs_qmp_v4_diwali",
-	"phy_qcom_ufs_qmp_v4_lahaina",
-	"phy_qcom_ufs_qmp_v4_parrot",
-	"phy_qcom_ufs_qmp_v4_waipio",
+	"qbt_handler",
 	"qca6490",
-	"qcom_ipc_logging",
+	"qca6750",
 	"qcom_logbuf_vendor_hooks",
-	"rimps_log",
+	"shared_rail_scmi",
+	"shared_rail_vendor",
 	"wcd937x_dlkm",
 	"wcd937x_slave_dlkm",
-
-	// Renamed
-	"hdcp_qseecom",
+	"zram",
+	"zsmalloc",
 
 	NULL
 };
