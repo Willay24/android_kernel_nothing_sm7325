@@ -282,18 +282,13 @@ static unsigned int rfx_get_next_freq(struct rfx_policy *rfx_pol,
 {
 	struct cpufreq_policy *policy = rfx_pol->policy;
 	unsigned int freq, idx, l_freq, h_freq;
-	unsigned long next_freq = 0;
 
 	if (arch_scale_freq_invariant())
 		freq = policy->cpuinfo.max_freq;
 	else
 		freq = policy->cur + (policy->cur >> 2);
 
-	trace_android_vh_map_util_freq(util, freq, max, &next_freq);
-	if (next_freq)
-		freq = next_freq;
-	else
-		freq = map_util_freq(util, freq, max);
+	freq = map_util_freq(util, freq, max);
 
 	if (freq == rfx_pol->cached_raw_freq && !rfx_pol->need_freq_update)
 		return rfx_pol->next_freq;
