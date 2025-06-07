@@ -424,7 +424,7 @@ static const struct file_operations cnss_utils_mac_fops = {
 	.llseek		= seq_lseek,
 };
 
-static int cnss_utils_debugfs_create(struct cnss_utils_priv *priv)
+static int __maybe_unused cnss_utils_debugfs_create(struct cnss_utils_priv *priv)
 {
 	int ret = 0;
 	struct dentry *root_dentry;
@@ -443,7 +443,7 @@ out:
 	return ret;
 }
 #else
-static int cnss_utils_debugfs_create(struct cnss_utils_priv *priv)
+static int __maybe_unused cnss_utils_debugfs_create(struct cnss_utils_priv *priv)
 {
 	return 0;
 }
