@@ -9,7 +9,7 @@ endif
 ifeq ($(KERNEL_BUILD), 1)
 	# These are configurable via Kconfig for kernel-based builds
 	# Need to explicitly configure for Android-based builds
-	AUDIO_BLD_DIR := $(srctree)
+	AUDIO_BLD_DIR := $(shell pwd)/kernel/msm-5.4
 	AUDIO_ROOT := $(AUDIO_BLD_DIR)/techpack/audio
 endif
 
@@ -40,7 +40,7 @@ ifeq ($(CONFIG_SND_SOC_AUTO), y)
 		INCS    +=  -include $(AUDIO_ROOT)/config/sa8295gvmautoconf.h
 	endif
 else
-	ifeq (0, 0)
+	ifeq ($(KERNEL_BUILD), 0)
 		ifeq ($(CONFIG_ARCH_SM6150), y)
 			ifdef CONFIG_SND_SOC_SA6155
 				include $(AUDIO_ROOT)/config/sa6155auto.conf
@@ -264,7 +264,7 @@ CHIP_NAME ?= $(MODNAME)
 CDEFINES += -DMULTI_IF_NAME=\"$(CHIP_NAME)\"
 endif
 
-ifeq (0, 0)
+ifeq ($(KERNEL_BUILD), 0)
 KBUILD_EXTRA_SYMBOLS +=$(OUT)/obj/vendor/qcom/opensource/audio-kernel/ipc/Module.symvers
 endif
 
@@ -289,3 +289,6 @@ q6_pdr_dlkm-y := $(QDSP6_PDR_OBJS)
 
 obj-$(CONFIG_MSM_QDSP6_NOTIFIER) += q6_notifier_dlkm.o
 q6_notifier_dlkm-y := $(QDSP6_NOTIFIER_OBJS)
+
+# inject some build related information
+DEFINES += -DBUILD_TIMESTAMP=\"$(shell date -u +'%Y-%m-%dT%H:%M:%SZ')\"
