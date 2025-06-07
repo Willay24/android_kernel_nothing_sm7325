@@ -20,6 +20,10 @@
 
 void poly1305_init_arm(void *state, const u8 *key);
 void poly1305_blocks_arm(void *state, const u8 *src, u32 len, u32 hibit);
+<<<<<<< HEAD
+=======
+void poly1305_blocks_neon(void *state, const u8 *src, u32 len, u32 hibit);
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 void poly1305_emit_arm(void *state, u8 *digest, const u32 *nonce);
 
 void __weak poly1305_blocks_neon(void *state, const u8 *src, u32 len, u32 hibit)

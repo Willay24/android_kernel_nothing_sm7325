@@ -23,7 +23,11 @@
 asmlinkage void chacha_block_xor_neon(const u32 *state, u8 *dst, const u8 *src,
 				      int nrounds);
 asmlinkage void chacha_4block_xor_neon(const u32 *state, u8 *dst, const u8 *src,
+<<<<<<< HEAD
 				       int nrounds);
+=======
+				       int nrounds, unsigned int nbytes);
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 asmlinkage void hchacha_block_arm(const u32 *state, u32 *out, int nrounds);
 asmlinkage void hchacha_block_neon(const u32 *state, u32 *out, int nrounds);
 
@@ -42,6 +46,7 @@ static void chacha_doneon(u32 *state, u8 *dst, const u8 *src,
 {
 	u8 buf[CHACHA_BLOCK_SIZE];
 
+<<<<<<< HEAD
 	while (bytes >= CHACHA_BLOCK_SIZE * 4) {
 		chacha_4block_xor_neon(state, dst, src, nrounds);
 		bytes -= CHACHA_BLOCK_SIZE * 4;
@@ -60,6 +65,27 @@ static void chacha_doneon(u32 *state, u8 *dst, const u8 *src,
 		memcpy(buf, src, bytes);
 		chacha_block_xor_neon(state, buf, buf, nrounds);
 		memcpy(dst, buf, bytes);
+=======
+	while (bytes > CHACHA_BLOCK_SIZE) {
+		unsigned int l = min(bytes, CHACHA_BLOCK_SIZE * 4U);
+
+		chacha_4block_xor_neon(state, dst, src, nrounds, l);
+		bytes -= l;
+		src += l;
+		dst += l;
+		state[12] += DIV_ROUND_UP(l, CHACHA_BLOCK_SIZE);
+	}
+	if (bytes) {
+		const u8 *s = src;
+		u8 *d = dst;
+
+		if (bytes != CHACHA_BLOCK_SIZE)
+			s = d = memcpy(buf, src, bytes);
+		chacha_block_xor_neon(state, d, s, nrounds);
+		if (d != dst)
+			memcpy(dst, buf, bytes);
+		state[12]++;
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 	}
 }
 

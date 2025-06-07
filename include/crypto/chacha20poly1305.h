@@ -45,4 +45,9 @@ bool chacha20poly1305_decrypt_sg_inplace(struct scatterlist *src, size_t src_len
 					 const u64 nonce,
 					 const u8 key[CHACHA20POLY1305_KEY_SIZE]);
 
+<<<<<<< HEAD
+=======
+bool chacha20poly1305_selftest(void);
+
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 #endif /* __CHACHA20POLY1305_H */
