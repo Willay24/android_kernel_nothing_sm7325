@@ -52,7 +52,11 @@ static void neon_poly1305_blocks(struct poly1305_desc_ctx *dctx, const u8 *src,
 {
 	if (unlikely(!dctx->sset)) {
 		if (!dctx->rset) {
+<<<<<<< HEAD
 			poly1305_init_arm64(&dctx->h, src);
+=======
+			poly1305_init_arch(dctx, src);
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 			src += POLY1305_BLOCK_SIZE;
 			len -= POLY1305_BLOCK_SIZE;
 			dctx->rset = 1;

@@ -11,6 +11,10 @@
 #include <linux/jump_label.h>
 #include <linux/kernel.h>
 #include <linux/module.h>
+<<<<<<< HEAD
+=======
+#include <linux/scatterlist.h>
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 #include <asm/cpufeature.h>
 #include <asm/processor.h>
@@ -45,11 +49,19 @@ static inline u64 add_scalar(u64 *out, const u64 *f1, u64 f2)
 
 	asm volatile(
 		/* Clear registers to propagate the carry bit */
+<<<<<<< HEAD
 		"  xor %%r8, %%r8;"
 		"  xor %%r9, %%r9;"
 		"  xor %%r10, %%r10;"
 		"  xor %%r11, %%r11;"
 		"  xor %1, %1;"
+=======
+		"  xor %%r8d, %%r8d;"
+		"  xor %%r9d, %%r9d;"
+		"  xor %%r10d, %%r10d;"
+		"  xor %%r11d, %%r11d;"
+		"  xor %k1, %k1;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Begin addition chain */
 		"  addq 0(%3), %0;"
@@ -63,10 +75,16 @@ static inline u64 add_scalar(u64 *out, const u64 *f1, u64 f2)
 
 		/* Return the carry bit in a register */
 		"  adcx %%r11, %1;"
+<<<<<<< HEAD
 	: "+&r" (f2), "=&r" (carry_r)
 	: "r" (out), "r" (f1)
 	: "%r8", "%r9", "%r10", "%r11", "memory", "cc"
 	);
+=======
+		: "+&r"(f2), "=&r"(carry_r)
+		: "r"(out), "r"(f1)
+		: "%r8", "%r9", "%r10", "%r11", "memory", "cc");
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 	return carry_r;
 }
@@ -93,7 +111,11 @@ static inline void fadd(u64 *out, const u64 *f1, const u64 *f2)
 		"  cmovc %0, %%rax;"
 
 		/* Step 2: Add carry*38 to the original sum */
+<<<<<<< HEAD
 		"  xor %%rcx, %%rcx;"
+=======
+		"  xor %%ecx, %%ecx;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  add %%rax, %%r8;"
 		"  adcx %%rcx, %%r9;"
 		"  movq %%r9, 8(%1);"
@@ -107,6 +129,7 @@ static inline void fadd(u64 *out, const u64 *f1, const u64 *f2)
 		"  cmovc %0, %%rax;"
 		"  add %%rax, %%r8;"
 		"  movq %%r8, 0(%1);"
+<<<<<<< HEAD
 	: "+&r" (f2)
 	: "r" (out), "r" (f1)
 	: "%rax", "%rcx", "%r8", "%r9", "%r10", "%r11", "memory", "cc"
@@ -118,6 +141,18 @@ static inline void fsub(u64 *out, const u64 *f1, const u64 *f2)
 {
 	asm volatile(
 		/* Compute the raw substraction of f1-f2 */
+=======
+		: "+&r"(f2)
+		: "r"(out), "r"(f1)
+		: "%rax", "%rcx", "%r8", "%r9", "%r10", "%r11", "memory", "cc");
+}
+
+/* Computes the field subtraction of two field elements */
+static inline void fsub(u64 *out, const u64 *f1, const u64 *f2)
+{
+	asm volatile(
+		/* Compute the raw subtraction of f1-f2 */
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  movq 0(%1), %%r8;"
 		"  subq 0(%2), %%r8;"
 		"  movq 8(%1), %%r9;"
@@ -134,7 +169,11 @@ static inline void fsub(u64 *out, const u64 *f1, const u64 *f2)
 		"  mov $38, %%rcx;"
 		"  cmovc %%rcx, %%rax;"
 
+<<<<<<< HEAD
 		/* Step 2: Substract carry*38 from the original difference */
+=======
+		/* Step 2: Subtract carry*38 from the original difference */
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  sub %%rax, %%r8;"
 		"  sbb $0, %%r9;"
 		"  sbb $0, %%r10;"
@@ -150,10 +189,16 @@ static inline void fsub(u64 *out, const u64 *f1, const u64 *f2)
 		"  movq %%r9, 8(%0);"
 		"  movq %%r10, 16(%0);"
 		"  movq %%r11, 24(%0);"
+<<<<<<< HEAD
 	:
 	: "r" (out), "r" (f1), "r" (f2)
 	: "%rax", "%rcx", "%r8", "%r9", "%r10", "%r11", "memory", "cc"
 	);
+=======
+		:
+		: "r"(out), "r"(f1), "r"(f2)
+		: "%rax", "%rcx", "%r8", "%r9", "%r10", "%r11", "memory", "cc");
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 }
 
 /* Computes a field multiplication: out <- f1 * f2
@@ -161,6 +206,7 @@ static inline void fsub(u64 *out, const u64 *f1, const u64 *f2)
 static inline void fmul(u64 *out, const u64 *f1, const u64 *f2, u64 *tmp)
 {
 	asm volatile(
+<<<<<<< HEAD
 		/* Compute the raw multiplication: tmp <- src1 * src2 */
 
 		/* Compute src1[0] * src2 */
@@ -194,11 +240,101 @@ static inline void fmul(u64 *out, const u64 *f1, const u64 *f2, u64 *tmp)
 		/* Line up pointers */
 		"  mov %0, %1;"
 		"  mov %2, %0;"
+=======
+
+		/* Compute the raw multiplication: tmp <- src1 * src2 */
+
+		/* Compute src1[0] * src2 */
+		"  movq 0(%0), %%rdx;"
+		"  mulxq 0(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  movq %%r8, 0(%2);"
+		"  mulxq 8(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  movq %%r10, 8(%2);"
+		"  mulxq 16(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  mulxq 24(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+
+		/* Compute src1[1] * src2 */
+		"  movq 8(%0), %%rdx;"
+		"  mulxq 0(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  adcxq 8(%2), %%r8;"
+		"  movq %%r8, 8(%2);"
+		"  mulxq 8(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  adcx %%rbx, %%r10;"
+		"  movq %%r10, 16(%2);"
+		"  mulxq 16(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  adcx %%r14, %%rbx;"
+		"  mov $0, %%r8;"
+		"  mulxq 24(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  adcx %%rax, %%r14;"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+		"  adcx %%r8, %%rax;"
+
+		/* Compute src1[2] * src2 */
+		"  movq 16(%0), %%rdx;"
+		"  mulxq 0(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  adcxq 16(%2), %%r8;"
+		"  movq %%r8, 16(%2);"
+		"  mulxq 8(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  adcx %%rbx, %%r10;"
+		"  movq %%r10, 24(%2);"
+		"  mulxq 16(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  adcx %%r14, %%rbx;"
+		"  mov $0, %%r8;"
+		"  mulxq 24(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  adcx %%rax, %%r14;"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+		"  adcx %%r8, %%rax;"
+
+		/* Compute src1[3] * src2 */
+		"  movq 24(%0), %%rdx;"
+		"  mulxq 0(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  adcxq 24(%2), %%r8;"
+		"  movq %%r8, 24(%2);"
+		"  mulxq 8(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  adcx %%rbx, %%r10;"
+		"  movq %%r10, 32(%2);"
+		"  mulxq 16(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  adcx %%r14, %%rbx;"
+		"  movq %%rbx, 40(%2);"
+		"  mov $0, %%r8;"
+		"  mulxq 24(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  adcx %%rax, %%r14;"
+		"  movq %%r14, 48(%2);"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+		"  adcx %%r8, %%rax;"
+		"  movq %%rax, 56(%2);"
+
+		/* Line up pointers */
+		"  mov %2, %0;"
+		"  mov %3, %2;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Wrap the result back into the field */
 
 		/* Step 1: Compute dst + carry == tmp_hi * 38 + tmp_lo */
 		"  mov $38, %%rdx;"
+<<<<<<< HEAD
 		"  mulxq 32(%1), %%r8, %%r13;"
 		"  xor %3, %3;"
 		"  adoxq 0(%1), %%r8;"
@@ -213,21 +349,47 @@ static inline void fmul(u64 *out, const u64 *f1, const u64 *f2, u64 *tmp)
 		"  adoxq 24(%1), %%r11;"
 		"  adcx %3, %%rax;"
 		"  adox %3, %%rax;"
+=======
+		"  mulxq 32(%0), %%r8, %%r13;"
+		"  xor %k1, %k1;"
+		"  adoxq 0(%0), %%r8;"
+		"  mulxq 40(%0), %%r9, %%rbx;"
+		"  adcx %%r13, %%r9;"
+		"  adoxq 8(%0), %%r9;"
+		"  mulxq 48(%0), %%r10, %%r13;"
+		"  adcx %%rbx, %%r10;"
+		"  adoxq 16(%0), %%r10;"
+		"  mulxq 56(%0), %%r11, %%rax;"
+		"  adcx %%r13, %%r11;"
+		"  adoxq 24(%0), %%r11;"
+		"  adcx %1, %%rax;"
+		"  adox %1, %%rax;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  imul %%rdx, %%rax;"
 
 		/* Step 2: Fold the carry back into dst */
 		"  add %%rax, %%r8;"
+<<<<<<< HEAD
 		"  adcx %3, %%r9;"
 		"  movq %%r9, 8(%0);"
 		"  adcx %3, %%r10;"
 		"  movq %%r10, 16(%0);"
 		"  adcx %3, %%r11;"
 		"  movq %%r11, 24(%0);"
+=======
+		"  adcx %1, %%r9;"
+		"  movq %%r9, 8(%2);"
+		"  adcx %1, %%r10;"
+		"  movq %%r10, 16(%2);"
+		"  adcx %1, %%r11;"
+		"  movq %%r11, 24(%2);"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Step 3: Fold the carry bit back in; guaranteed not to carry at this point */
 		"  mov $0, %%rax;"
 		"  cmovc %%rdx, %%rax;"
 		"  add %%rax, %%r8;"
+<<<<<<< HEAD
 		"  movq %%r8, 0(%0);"
 	: "+&r" (tmp), "+&r" (f1), "+&r" (out), "+&r" (f2)
 	:
@@ -272,10 +434,110 @@ static inline void fmul2(u64 *out, const u64 *f1, const u64 *f2, u64 *tmp)
 		"  mulxq 16(%3), %%rbx, %%r13;"    "  adox %%r11, %%rbx;"    "  adcx %%r14, %%rbx;"    "  movq %%rbx, 40(%0);"    "  mov $0, %%r8;"
 		"  mulxq 24(%3), %%r14, %%rdx;"    "  adox %%r13, %%r14;"    "  adcx %%rax, %%r14;"    "  movq %%r14, 48(%0);"    "  mov $0, %%rax;"
 		                                   "  adox %%rdx, %%rax;"    "  adcx %%r8, %%rax;"     "  movq %%rax, 56(%0);"
+=======
+		"  movq %%r8, 0(%2);"
+		: "+&r"(f1), "+&r"(f2), "+&r"(tmp)
+		: "r"(out)
+		: "%rax", "%rbx", "%rdx", "%r8", "%r9", "%r10", "%r11", "%r13",
+		  "%r14", "memory", "cc");
+}
+
+/* Computes two field multiplications:
+ *   out[0] <- f1[0] * f2[0]
+ *   out[1] <- f1[1] * f2[1]
+ * Uses the 16-element buffer tmp for intermediate results: */
+static inline void fmul2(u64 *out, const u64 *f1, const u64 *f2, u64 *tmp)
+{
+	asm volatile(
+
+		/* Compute the raw multiplication tmp[0] <- f1[0] * f2[0] */
+
+		/* Compute src1[0] * src2 */
+		"  movq 0(%0), %%rdx;"
+		"  mulxq 0(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  movq %%r8, 0(%2);"
+		"  mulxq 8(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  movq %%r10, 8(%2);"
+		"  mulxq 16(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  mulxq 24(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+
+		/* Compute src1[1] * src2 */
+		"  movq 8(%0), %%rdx;"
+		"  mulxq 0(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  adcxq 8(%2), %%r8;"
+		"  movq %%r8, 8(%2);"
+		"  mulxq 8(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  adcx %%rbx, %%r10;"
+		"  movq %%r10, 16(%2);"
+		"  mulxq 16(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  adcx %%r14, %%rbx;"
+		"  mov $0, %%r8;"
+		"  mulxq 24(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  adcx %%rax, %%r14;"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+		"  adcx %%r8, %%rax;"
+
+		/* Compute src1[2] * src2 */
+		"  movq 16(%0), %%rdx;"
+		"  mulxq 0(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  adcxq 16(%2), %%r8;"
+		"  movq %%r8, 16(%2);"
+		"  mulxq 8(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  adcx %%rbx, %%r10;"
+		"  movq %%r10, 24(%2);"
+		"  mulxq 16(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  adcx %%r14, %%rbx;"
+		"  mov $0, %%r8;"
+		"  mulxq 24(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  adcx %%rax, %%r14;"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+		"  adcx %%r8, %%rax;"
+
+		/* Compute src1[3] * src2 */
+		"  movq 24(%0), %%rdx;"
+		"  mulxq 0(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  adcxq 24(%2), %%r8;"
+		"  movq %%r8, 24(%2);"
+		"  mulxq 8(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  adcx %%rbx, %%r10;"
+		"  movq %%r10, 32(%2);"
+		"  mulxq 16(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  adcx %%r14, %%rbx;"
+		"  movq %%rbx, 40(%2);"
+		"  mov $0, %%r8;"
+		"  mulxq 24(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  adcx %%rax, %%r14;"
+		"  movq %%r14, 48(%2);"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+		"  adcx %%r8, %%rax;"
+		"  movq %%rax, 56(%2);"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Compute the raw multiplication tmp[1] <- f1[1] * f2[1] */
 
 		/* Compute src1[0] * src2 */
+<<<<<<< HEAD
 		"  movq 32(%1), %%rdx;"
 		"  mulxq 32(%3), %%r8, %%r9;"       "  xor %%r10, %%r10;"     "  movq %%r8, 64(%0);"
 		"  mulxq 40(%3), %%r10, %%r11;"     "  adox %%r9, %%r10;"     "  movq %%r10, 72(%0);"
@@ -306,11 +568,97 @@ static inline void fmul2(u64 *out, const u64 *f1, const u64 *f2, u64 *tmp)
 		/* Line up pointers */
 		"  mov %0, %1;"
 		"  mov %2, %0;"
+=======
+		"  movq 32(%0), %%rdx;"
+		"  mulxq 32(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  movq %%r8, 64(%2);"
+		"  mulxq 40(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  movq %%r10, 72(%2);"
+		"  mulxq 48(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  mulxq 56(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+
+		/* Compute src1[1] * src2 */
+		"  movq 40(%0), %%rdx;"
+		"  mulxq 32(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  adcxq 72(%2), %%r8;"
+		"  movq %%r8, 72(%2);"
+		"  mulxq 40(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  adcx %%rbx, %%r10;"
+		"  movq %%r10, 80(%2);"
+		"  mulxq 48(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  adcx %%r14, %%rbx;"
+		"  mov $0, %%r8;"
+		"  mulxq 56(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  adcx %%rax, %%r14;"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+		"  adcx %%r8, %%rax;"
+
+		/* Compute src1[2] * src2 */
+		"  movq 48(%0), %%rdx;"
+		"  mulxq 32(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  adcxq 80(%2), %%r8;"
+		"  movq %%r8, 80(%2);"
+		"  mulxq 40(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  adcx %%rbx, %%r10;"
+		"  movq %%r10, 88(%2);"
+		"  mulxq 48(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  adcx %%r14, %%rbx;"
+		"  mov $0, %%r8;"
+		"  mulxq 56(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  adcx %%rax, %%r14;"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+		"  adcx %%r8, %%rax;"
+
+		/* Compute src1[3] * src2 */
+		"  movq 56(%0), %%rdx;"
+		"  mulxq 32(%1), %%r8, %%r9;"
+		"  xor %%r10d, %%r10d;"
+		"  adcxq 88(%2), %%r8;"
+		"  movq %%r8, 88(%2);"
+		"  mulxq 40(%1), %%r10, %%r11;"
+		"  adox %%r9, %%r10;"
+		"  adcx %%rbx, %%r10;"
+		"  movq %%r10, 96(%2);"
+		"  mulxq 48(%1), %%rbx, %%r13;"
+		"  adox %%r11, %%rbx;"
+		"  adcx %%r14, %%rbx;"
+		"  movq %%rbx, 104(%2);"
+		"  mov $0, %%r8;"
+		"  mulxq 56(%1), %%r14, %%rdx;"
+		"  adox %%r13, %%r14;"
+		"  adcx %%rax, %%r14;"
+		"  movq %%r14, 112(%2);"
+		"  mov $0, %%rax;"
+		"  adox %%rdx, %%rax;"
+		"  adcx %%r8, %%rax;"
+		"  movq %%rax, 120(%2);"
+
+		/* Line up pointers */
+		"  mov %2, %0;"
+		"  mov %3, %2;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Wrap the results back into the field */
 
 		/* Step 1: Compute dst + carry == tmp_hi * 38 + tmp_lo */
 		"  mov $38, %%rdx;"
+<<<<<<< HEAD
 		"  mulxq 32(%1), %%r8, %%r13;"
 		"  xor %3, %3;"
 		"  adoxq 0(%1), %%r8;"
@@ -325,21 +673,47 @@ static inline void fmul2(u64 *out, const u64 *f1, const u64 *f2, u64 *tmp)
 		"  adoxq 24(%1), %%r11;"
 		"  adcx %3, %%rax;"
 		"  adox %3, %%rax;"
+=======
+		"  mulxq 32(%0), %%r8, %%r13;"
+		"  xor %k1, %k1;"
+		"  adoxq 0(%0), %%r8;"
+		"  mulxq 40(%0), %%r9, %%rbx;"
+		"  adcx %%r13, %%r9;"
+		"  adoxq 8(%0), %%r9;"
+		"  mulxq 48(%0), %%r10, %%r13;"
+		"  adcx %%rbx, %%r10;"
+		"  adoxq 16(%0), %%r10;"
+		"  mulxq 56(%0), %%r11, %%rax;"
+		"  adcx %%r13, %%r11;"
+		"  adoxq 24(%0), %%r11;"
+		"  adcx %1, %%rax;"
+		"  adox %1, %%rax;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  imul %%rdx, %%rax;"
 
 		/* Step 2: Fold the carry back into dst */
 		"  add %%rax, %%r8;"
+<<<<<<< HEAD
 		"  adcx %3, %%r9;"
 		"  movq %%r9, 8(%0);"
 		"  adcx %3, %%r10;"
 		"  movq %%r10, 16(%0);"
 		"  adcx %3, %%r11;"
 		"  movq %%r11, 24(%0);"
+=======
+		"  adcx %1, %%r9;"
+		"  movq %%r9, 8(%2);"
+		"  adcx %1, %%r10;"
+		"  movq %%r10, 16(%2);"
+		"  adcx %1, %%r11;"
+		"  movq %%r11, 24(%2);"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Step 3: Fold the carry bit back in; guaranteed not to carry at this point */
 		"  mov $0, %%rax;"
 		"  cmovc %%rdx, %%rax;"
 		"  add %%rax, %%r8;"
+<<<<<<< HEAD
 		"  movq %%r8, 0(%0);"
 
 		/* Step 1: Compute dst + carry == tmp_hi * 38 + tmp_lo */
@@ -358,21 +732,51 @@ static inline void fmul2(u64 *out, const u64 *f1, const u64 *f2, u64 *tmp)
 		"  adoxq 88(%1), %%r11;"
 		"  adcx %3, %%rax;"
 		"  adox %3, %%rax;"
+=======
+		"  movq %%r8, 0(%2);"
+
+		/* Step 1: Compute dst + carry == tmp_hi * 38 + tmp_lo */
+		"  mov $38, %%rdx;"
+		"  mulxq 96(%0), %%r8, %%r13;"
+		"  xor %k1, %k1;"
+		"  adoxq 64(%0), %%r8;"
+		"  mulxq 104(%0), %%r9, %%rbx;"
+		"  adcx %%r13, %%r9;"
+		"  adoxq 72(%0), %%r9;"
+		"  mulxq 112(%0), %%r10, %%r13;"
+		"  adcx %%rbx, %%r10;"
+		"  adoxq 80(%0), %%r10;"
+		"  mulxq 120(%0), %%r11, %%rax;"
+		"  adcx %%r13, %%r11;"
+		"  adoxq 88(%0), %%r11;"
+		"  adcx %1, %%rax;"
+		"  adox %1, %%rax;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  imul %%rdx, %%rax;"
 
 		/* Step 2: Fold the carry back into dst */
 		"  add %%rax, %%r8;"
+<<<<<<< HEAD
 		"  adcx %3, %%r9;"
 		"  movq %%r9, 40(%0);"
 		"  adcx %3, %%r10;"
 		"  movq %%r10, 48(%0);"
 		"  adcx %3, %%r11;"
 		"  movq %%r11, 56(%0);"
+=======
+		"  adcx %1, %%r9;"
+		"  movq %%r9, 40(%2);"
+		"  adcx %1, %%r10;"
+		"  movq %%r10, 48(%2);"
+		"  adcx %1, %%r11;"
+		"  movq %%r11, 56(%2);"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Step 3: Fold the carry bit back in; guaranteed not to carry at this point */
 		"  mov $0, %%rax;"
 		"  cmovc %%rdx, %%rax;"
 		"  add %%rax, %%r8;"
+<<<<<<< HEAD
 		"  movq %%r8, 32(%0);"
 	: "+&r" (tmp), "+&r" (f1), "+&r" (out), "+&r" (f2)
 	:
@@ -381,12 +785,24 @@ static inline void fmul2(u64 *out, const u64 *f1, const u64 *f2, u64 *tmp)
 }
 
 /* Computes the field multiplication of four-element f1 with value in f2 */
+=======
+		"  movq %%r8, 32(%2);"
+		: "+&r"(f1), "+&r"(f2), "+&r"(tmp)
+		: "r"(out)
+		: "%rax", "%rbx", "%rdx", "%r8", "%r9", "%r10", "%r11", "%r13",
+		  "%r14", "memory", "cc");
+}
+
+/* Computes the field multiplication of four-element f1 with value in f2
+ * Requires f2 to be smaller than 2^17 */
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 static inline void fmul_scalar(u64 *out, const u64 *f1, u64 f2)
 {
 	register u64 f2_r asm("rdx") = f2;
 
 	asm volatile(
 		/* Compute the raw multiplication of f1*f2 */
+<<<<<<< HEAD
 		"  mulxq 0(%2), %%r8, %%rcx;"      /* f1[0]*f2 */
 		"  mulxq 8(%2), %%r9, %%rbx;"      /* f1[1]*f2 */
 		"  add %%rcx, %%r9;"
@@ -394,6 +810,15 @@ static inline void fmul_scalar(u64 *out, const u64 *f1, u64 f2)
 		"  mulxq 16(%2), %%r10, %%r13;"    /* f1[2]*f2 */
 		"  adcx %%rbx, %%r10;"
 		"  mulxq 24(%2), %%r11, %%rax;"    /* f1[3]*f2 */
+=======
+		"  mulxq 0(%2), %%r8, %%rcx;" /* f1[0]*f2 */
+		"  mulxq 8(%2), %%r9, %%rbx;" /* f1[1]*f2 */
+		"  add %%rcx, %%r9;"
+		"  mov $0, %%rcx;"
+		"  mulxq 16(%2), %%r10, %%r13;" /* f1[2]*f2 */
+		"  adcx %%rbx, %%r10;"
+		"  mulxq 24(%2), %%r11, %%rax;" /* f1[3]*f2 */
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  adcx %%r13, %%r11;"
 		"  adcx %%rcx, %%rax;"
 
@@ -417,17 +842,28 @@ static inline void fmul_scalar(u64 *out, const u64 *f1, u64 f2)
 		"  cmovc %%rdx, %%rax;"
 		"  add %%rax, %%r8;"
 		"  movq %%r8, 0(%1);"
+<<<<<<< HEAD
 	: "+&r" (f2_r)
 	: "r" (out), "r" (f1)
 	: "%rax", "%rcx", "%r8", "%r9", "%r10", "%r11", "%rbx", "%r13", "memory", "cc"
 	);
+=======
+		: "+&r"(f2_r)
+		: "r"(out), "r"(f1)
+		: "%rax", "%rbx", "%rcx", "%r8", "%r9", "%r10", "%r11", "%r13",
+		  "memory", "cc");
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 }
 
 /* Computes p1 <- bit ? p2 : p1 in constant time */
 static inline void cswap2(u64 bit, const u64 *p1, const u64 *p2)
 {
 	asm volatile(
+<<<<<<< HEAD
 		/* Invert the polarity of bit to match cmov expectations */
+=======
+		/* Transfer bit into CF flag */
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  add $18446744073709551615, %0;"
 
 		/* cswap p1[0], p2[0] */
@@ -501,10 +937,16 @@ static inline void cswap2(u64 bit, const u64 *p1, const u64 *p2)
 		"  cmovc %%r10, %%r9;"
 		"  movq %%r8, 56(%1);"
 		"  movq %%r9, 56(%2);"
+<<<<<<< HEAD
 	: "+&r" (bit)
 	: "r" (p1), "r" (p2)
 	: "%r8", "%r9", "%r10", "memory", "cc"
 	);
+=======
+		: "+&r"(bit)
+		: "r"(p1), "r"(p2)
+		: "%r8", "%r9", "%r10", "memory", "cc");
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 }
 
 /* Computes the square of a field element: out <- f * f
@@ -515,6 +957,7 @@ static inline void fsqr(u64 *out, const u64 *f, u64 *tmp)
 		/* Compute the raw multiplication: tmp <- f * f */
 
 		/* Step 1: Compute all partial products */
+<<<<<<< HEAD
 		"  movq 0(%1), %%rdx;"                                       /* f[0] */
 		"  mulxq 8(%1), %%r8, %%r14;"      "  xor %%r15, %%r15;"     /* f[1]*f[0] */
 		"  mulxq 16(%1), %%r9, %%r10;"     "  adcx %%r14, %%r9;"     /* f[2]*f[0] */
@@ -527,6 +970,27 @@ static inline void fsqr(u64 *out, const u64 *f, u64 *tmp)
 
 		/* Step 2: Compute two parallel carry chains */
 		"  xor %%r15, %%r15;"
+=======
+		"  movq 0(%0), %%rdx;" /* f[0] */
+		"  mulxq 8(%0), %%r8, %%r14;"
+		"  xor %%r15d, %%r15d;" /* f[1]*f[0] */
+		"  mulxq 16(%0), %%r9, %%r10;"
+		"  adcx %%r14, %%r9;" /* f[2]*f[0] */
+		"  mulxq 24(%0), %%rax, %%rcx;"
+		"  adcx %%rax, %%r10;" /* f[3]*f[0] */
+		"  movq 24(%0), %%rdx;" /* f[3] */
+		"  mulxq 8(%0), %%r11, %%rbx;"
+		"  adcx %%rcx, %%r11;" /* f[1]*f[3] */
+		"  mulxq 16(%0), %%rax, %%r13;"
+		"  adcx %%rax, %%rbx;" /* f[2]*f[3] */
+		"  movq 8(%0), %%rdx;"
+		"  adcx %%r15, %%r13;" /* f1 */
+		"  mulxq 16(%0), %%rax, %%rcx;"
+		"  mov $0, %%r14;" /* f[2]*f[1] */
+
+		/* Step 2: Compute two parallel carry chains */
+		"  xor %%r15d, %%r15d;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  adox %%rax, %%r10;"
 		"  adcx %%r8, %%r8;"
 		"  adox %%rcx, %%r11;"
@@ -541,6 +1005,7 @@ static inline void fsqr(u64 *out, const u64 *f, u64 *tmp)
 		"  adcx %%r14, %%r14;"
 
 		/* Step 3: Compute intermediate squares */
+<<<<<<< HEAD
 		"  movq 0(%1), %%rdx;"     "  mulx %%rdx, %%rax, %%rcx;"    /* f[0]^2 */
 		                           "  movq %%rax, 0(%0);"
 		"  add %%rcx, %%r8;"       "  movq %%r8, 8(%0);"
@@ -557,11 +1022,41 @@ static inline void fsqr(u64 *out, const u64 *f, u64 *tmp)
 		/* Line up pointers */
 		"  mov %0, %1;"
 		"  mov %2, %0;"
+=======
+		"  movq 0(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[0]^2 */
+		"  movq %%rax, 0(%1);"
+		"  add %%rcx, %%r8;"
+		"  movq %%r8, 8(%1);"
+		"  movq 8(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[1]^2 */
+		"  adcx %%rax, %%r9;"
+		"  movq %%r9, 16(%1);"
+		"  adcx %%rcx, %%r10;"
+		"  movq %%r10, 24(%1);"
+		"  movq 16(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[2]^2 */
+		"  adcx %%rax, %%r11;"
+		"  movq %%r11, 32(%1);"
+		"  adcx %%rcx, %%rbx;"
+		"  movq %%rbx, 40(%1);"
+		"  movq 24(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[3]^2 */
+		"  adcx %%rax, %%r13;"
+		"  movq %%r13, 48(%1);"
+		"  adcx %%rcx, %%r14;"
+		"  movq %%r14, 56(%1);"
+
+		/* Line up pointers */
+		"  mov %1, %0;"
+		"  mov %2, %1;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Wrap the result back into the field */
 
 		/* Step 1: Compute dst + carry == tmp_hi * 38 + tmp_lo */
 		"  mov $38, %%rdx;"
+<<<<<<< HEAD
 		"  mulxq 32(%1), %%r8, %%r13;"
 		"  xor %%rcx, %%rcx;"
 		"  adoxq 0(%1), %%r8;"
@@ -574,6 +1069,20 @@ static inline void fsqr(u64 *out, const u64 *f, u64 *tmp)
 		"  mulxq 56(%1), %%r11, %%rax;"
 		"  adcx %%r13, %%r11;"
 		"  adoxq 24(%1), %%r11;"
+=======
+		"  mulxq 32(%0), %%r8, %%r13;"
+		"  xor %%ecx, %%ecx;"
+		"  adoxq 0(%0), %%r8;"
+		"  mulxq 40(%0), %%r9, %%rbx;"
+		"  adcx %%r13, %%r9;"
+		"  adoxq 8(%0), %%r9;"
+		"  mulxq 48(%0), %%r10, %%r13;"
+		"  adcx %%rbx, %%r10;"
+		"  adoxq 16(%0), %%r10;"
+		"  mulxq 56(%0), %%r11, %%rax;"
+		"  adcx %%r13, %%r11;"
+		"  adoxq 24(%0), %%r11;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  adcx %%rcx, %%rax;"
 		"  adox %%rcx, %%rax;"
 		"  imul %%rdx, %%rax;"
@@ -581,16 +1090,25 @@ static inline void fsqr(u64 *out, const u64 *f, u64 *tmp)
 		/* Step 2: Fold the carry back into dst */
 		"  add %%rax, %%r8;"
 		"  adcx %%rcx, %%r9;"
+<<<<<<< HEAD
 		"  movq %%r9, 8(%0);"
 		"  adcx %%rcx, %%r10;"
 		"  movq %%r10, 16(%0);"
 		"  adcx %%rcx, %%r11;"
 		"  movq %%r11, 24(%0);"
+=======
+		"  movq %%r9, 8(%1);"
+		"  adcx %%rcx, %%r10;"
+		"  movq %%r10, 16(%1);"
+		"  adcx %%rcx, %%r11;"
+		"  movq %%r11, 24(%1);"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Step 3: Fold the carry bit back in; guaranteed not to carry at this point */
 		"  mov $0, %%rax;"
 		"  cmovc %%rdx, %%rax;"
 		"  add %%rax, %%r8;"
+<<<<<<< HEAD
 		"  movq %%r8, 0(%0);"
 	: "+&r" (tmp), "+&r" (f), "+&r" (out)
 	:
@@ -601,11 +1119,24 @@ static inline void fsqr(u64 *out, const u64 *f, u64 *tmp)
 /* Computes two field squarings:
  * out[0] <- f[0] * f[0]
  * out[1] <- f[1] * f[1]
+=======
+		"  movq %%r8, 0(%1);"
+		: "+&r"(f), "+&r"(tmp)
+		: "r"(out)
+		: "%rax", "%rbx", "%rcx", "%rdx", "%r8", "%r9", "%r10", "%r11",
+		  "%r13", "%r14", "%r15", "memory", "cc");
+}
+
+/* Computes two field squarings:
+ *   out[0] <- f[0] * f[0]
+ *   out[1] <- f[1] * f[1]
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
  * Uses the 16-element buffer tmp for intermediate results */
 static inline void fsqr2(u64 *out, const u64 *f, u64 *tmp)
 {
 	asm volatile(
 		/* Step 1: Compute all partial products */
+<<<<<<< HEAD
 		"  movq 0(%1), %%rdx;"                                       /* f[0] */
 		"  mulxq 8(%1), %%r8, %%r14;"      "  xor %%r15, %%r15;"     /* f[1]*f[0] */
 		"  mulxq 16(%1), %%r9, %%r10;"     "  adcx %%r14, %%r9;"     /* f[2]*f[0] */
@@ -618,6 +1149,27 @@ static inline void fsqr2(u64 *out, const u64 *f, u64 *tmp)
 
 		/* Step 2: Compute two parallel carry chains */
 		"  xor %%r15, %%r15;"
+=======
+		"  movq 0(%0), %%rdx;" /* f[0] */
+		"  mulxq 8(%0), %%r8, %%r14;"
+		"  xor %%r15d, %%r15d;" /* f[1]*f[0] */
+		"  mulxq 16(%0), %%r9, %%r10;"
+		"  adcx %%r14, %%r9;" /* f[2]*f[0] */
+		"  mulxq 24(%0), %%rax, %%rcx;"
+		"  adcx %%rax, %%r10;" /* f[3]*f[0] */
+		"  movq 24(%0), %%rdx;" /* f[3] */
+		"  mulxq 8(%0), %%r11, %%rbx;"
+		"  adcx %%rcx, %%r11;" /* f[1]*f[3] */
+		"  mulxq 16(%0), %%rax, %%r13;"
+		"  adcx %%rax, %%rbx;" /* f[2]*f[3] */
+		"  movq 8(%0), %%rdx;"
+		"  adcx %%r15, %%r13;" /* f1 */
+		"  mulxq 16(%0), %%rax, %%rcx;"
+		"  mov $0, %%r14;" /* f[2]*f[1] */
+
+		/* Step 2: Compute two parallel carry chains */
+		"  xor %%r15d, %%r15d;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  adox %%rax, %%r10;"
 		"  adcx %%r8, %%r8;"
 		"  adox %%rcx, %%r11;"
@@ -632,6 +1184,7 @@ static inline void fsqr2(u64 *out, const u64 *f, u64 *tmp)
 		"  adcx %%r14, %%r14;"
 
 		/* Step 3: Compute intermediate squares */
+<<<<<<< HEAD
 		"  movq 0(%1), %%rdx;"     "  mulx %%rdx, %%rax, %%rcx;"    /* f[0]^2 */
 		                           "  movq %%rax, 0(%0);"
 		"  add %%rcx, %%r8;"       "  movq %%r8, 8(%0);"
@@ -658,6 +1211,52 @@ static inline void fsqr2(u64 *out, const u64 *f, u64 *tmp)
 
 		/* Step 2: Compute two parallel carry chains */
 		"  xor %%r15, %%r15;"
+=======
+		"  movq 0(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[0]^2 */
+		"  movq %%rax, 0(%1);"
+		"  add %%rcx, %%r8;"
+		"  movq %%r8, 8(%1);"
+		"  movq 8(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[1]^2 */
+		"  adcx %%rax, %%r9;"
+		"  movq %%r9, 16(%1);"
+		"  adcx %%rcx, %%r10;"
+		"  movq %%r10, 24(%1);"
+		"  movq 16(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[2]^2 */
+		"  adcx %%rax, %%r11;"
+		"  movq %%r11, 32(%1);"
+		"  adcx %%rcx, %%rbx;"
+		"  movq %%rbx, 40(%1);"
+		"  movq 24(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[3]^2 */
+		"  adcx %%rax, %%r13;"
+		"  movq %%r13, 48(%1);"
+		"  adcx %%rcx, %%r14;"
+		"  movq %%r14, 56(%1);"
+
+		/* Step 1: Compute all partial products */
+		"  movq 32(%0), %%rdx;" /* f[0] */
+		"  mulxq 40(%0), %%r8, %%r14;"
+		"  xor %%r15d, %%r15d;" /* f[1]*f[0] */
+		"  mulxq 48(%0), %%r9, %%r10;"
+		"  adcx %%r14, %%r9;" /* f[2]*f[0] */
+		"  mulxq 56(%0), %%rax, %%rcx;"
+		"  adcx %%rax, %%r10;" /* f[3]*f[0] */
+		"  movq 56(%0), %%rdx;" /* f[3] */
+		"  mulxq 40(%0), %%r11, %%rbx;"
+		"  adcx %%rcx, %%r11;" /* f[1]*f[3] */
+		"  mulxq 48(%0), %%rax, %%r13;"
+		"  adcx %%rax, %%rbx;" /* f[2]*f[3] */
+		"  movq 40(%0), %%rdx;"
+		"  adcx %%r15, %%r13;" /* f1 */
+		"  mulxq 48(%0), %%rax, %%rcx;"
+		"  mov $0, %%r14;" /* f[2]*f[1] */
+
+		/* Step 2: Compute two parallel carry chains */
+		"  xor %%r15d, %%r15d;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  adox %%rax, %%r10;"
 		"  adcx %%r8, %%r8;"
 		"  adox %%rcx, %%r11;"
@@ -672,6 +1271,7 @@ static inline void fsqr2(u64 *out, const u64 *f, u64 *tmp)
 		"  adcx %%r14, %%r14;"
 
 		/* Step 3: Compute intermediate squares */
+<<<<<<< HEAD
 		"  movq 32(%1), %%rdx;"     "  mulx %%rdx, %%rax, %%rcx;"    /* f[0]^2 */
 		                           "  movq %%rax, 64(%0);"
 		"  add %%rcx, %%r8;"       "  movq %%r8, 72(%0);"
@@ -703,6 +1303,50 @@ static inline void fsqr2(u64 *out, const u64 *f, u64 *tmp)
 		"  mulxq 56(%1), %%r11, %%rax;"
 		"  adcx %%r13, %%r11;"
 		"  adoxq 24(%1), %%r11;"
+=======
+		"  movq 32(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[0]^2 */
+		"  movq %%rax, 64(%1);"
+		"  add %%rcx, %%r8;"
+		"  movq %%r8, 72(%1);"
+		"  movq 40(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[1]^2 */
+		"  adcx %%rax, %%r9;"
+		"  movq %%r9, 80(%1);"
+		"  adcx %%rcx, %%r10;"
+		"  movq %%r10, 88(%1);"
+		"  movq 48(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[2]^2 */
+		"  adcx %%rax, %%r11;"
+		"  movq %%r11, 96(%1);"
+		"  adcx %%rcx, %%rbx;"
+		"  movq %%rbx, 104(%1);"
+		"  movq 56(%0), %%rdx;"
+		"  mulx %%rdx, %%rax, %%rcx;" /* f[3]^2 */
+		"  adcx %%rax, %%r13;"
+		"  movq %%r13, 112(%1);"
+		"  adcx %%rcx, %%r14;"
+		"  movq %%r14, 120(%1);"
+
+		/* Line up pointers */
+		"  mov %1, %0;"
+		"  mov %2, %1;"
+
+		/* Step 1: Compute dst + carry == tmp_hi * 38 + tmp_lo */
+		"  mov $38, %%rdx;"
+		"  mulxq 32(%0), %%r8, %%r13;"
+		"  xor %%ecx, %%ecx;"
+		"  adoxq 0(%0), %%r8;"
+		"  mulxq 40(%0), %%r9, %%rbx;"
+		"  adcx %%r13, %%r9;"
+		"  adoxq 8(%0), %%r9;"
+		"  mulxq 48(%0), %%r10, %%r13;"
+		"  adcx %%rbx, %%r10;"
+		"  adoxq 16(%0), %%r10;"
+		"  mulxq 56(%0), %%r11, %%rax;"
+		"  adcx %%r13, %%r11;"
+		"  adoxq 24(%0), %%r11;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  adcx %%rcx, %%rax;"
 		"  adox %%rcx, %%rax;"
 		"  imul %%rdx, %%rax;"
@@ -710,16 +1354,25 @@ static inline void fsqr2(u64 *out, const u64 *f, u64 *tmp)
 		/* Step 2: Fold the carry back into dst */
 		"  add %%rax, %%r8;"
 		"  adcx %%rcx, %%r9;"
+<<<<<<< HEAD
 		"  movq %%r9, 8(%0);"
 		"  adcx %%rcx, %%r10;"
 		"  movq %%r10, 16(%0);"
 		"  adcx %%rcx, %%r11;"
 		"  movq %%r11, 24(%0);"
+=======
+		"  movq %%r9, 8(%1);"
+		"  adcx %%rcx, %%r10;"
+		"  movq %%r10, 16(%1);"
+		"  adcx %%rcx, %%r11;"
+		"  movq %%r11, 24(%1);"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Step 3: Fold the carry bit back in; guaranteed not to carry at this point */
 		"  mov $0, %%rax;"
 		"  cmovc %%rdx, %%rax;"
 		"  add %%rax, %%r8;"
+<<<<<<< HEAD
 		"  movq %%r8, 0(%0);"
 
 		/* Step 1: Compute dst + carry == tmp_hi * 38 + tmp_lo */
@@ -736,6 +1389,24 @@ static inline void fsqr2(u64 *out, const u64 *f, u64 *tmp)
 		"  mulxq 120(%1), %%r11, %%rax;"
 		"  adcx %%r13, %%r11;"
 		"  adoxq 88(%1), %%r11;"
+=======
+		"  movq %%r8, 0(%1);"
+
+		/* Step 1: Compute dst + carry == tmp_hi * 38 + tmp_lo */
+		"  mov $38, %%rdx;"
+		"  mulxq 96(%0), %%r8, %%r13;"
+		"  xor %%ecx, %%ecx;"
+		"  adoxq 64(%0), %%r8;"
+		"  mulxq 104(%0), %%r9, %%rbx;"
+		"  adcx %%r13, %%r9;"
+		"  adoxq 72(%0), %%r9;"
+		"  mulxq 112(%0), %%r10, %%r13;"
+		"  adcx %%rbx, %%r10;"
+		"  adoxq 80(%0), %%r10;"
+		"  mulxq 120(%0), %%r11, %%rax;"
+		"  adcx %%r13, %%r11;"
+		"  adoxq 88(%0), %%r11;"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		"  adcx %%rcx, %%rax;"
 		"  adox %%rcx, %%rax;"
 		"  imul %%rdx, %%rax;"
@@ -743,21 +1414,37 @@ static inline void fsqr2(u64 *out, const u64 *f, u64 *tmp)
 		/* Step 2: Fold the carry back into dst */
 		"  add %%rax, %%r8;"
 		"  adcx %%rcx, %%r9;"
+<<<<<<< HEAD
 		"  movq %%r9, 40(%0);"
 		"  adcx %%rcx, %%r10;"
 		"  movq %%r10, 48(%0);"
 		"  adcx %%rcx, %%r11;"
 		"  movq %%r11, 56(%0);"
+=======
+		"  movq %%r9, 40(%1);"
+		"  adcx %%rcx, %%r10;"
+		"  movq %%r10, 48(%1);"
+		"  adcx %%rcx, %%r11;"
+		"  movq %%r11, 56(%1);"
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 
 		/* Step 3: Fold the carry bit back in; guaranteed not to carry at this point */
 		"  mov $0, %%rax;"
 		"  cmovc %%rdx, %%rax;"
 		"  add %%rax, %%r8;"
+<<<<<<< HEAD
 		"  movq %%r8, 32(%0);"
 	: "+&r" (tmp), "+&r" (f), "+&r" (out)
 	:
 	: "%rax", "%rcx", "%rdx", "%r8", "%r9", "%r10", "%r11", "%rbx", "%r13", "%r14", "%r15", "memory", "cc"
 	);
+=======
+		"  movq %%r8, 32(%1);"
+		: "+&r"(f), "+&r"(tmp)
+		: "r"(out)
+		: "%rax", "%rbx", "%rcx", "%rdx", "%r8", "%r9", "%r10", "%r11",
+		  "%r13", "%r14", "%r15", "memory", "cc");
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 }
 
 static void point_add_and_double(u64 *q, u64 *p01_tmp1, u64 *tmp2)
@@ -948,10 +1635,15 @@ static void store_felem(u64 *b, u64 *f)
 {
 	u64 f30 = f[3U];
 	u64 top_bit0 = f30 >> (u32)63U;
+<<<<<<< HEAD
 	u64 carry0;
 	u64 f31;
 	u64 top_bit;
 	u64 carry;
+=======
+	u64 f31;
+	u64 top_bit;
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 	u64 f0;
 	u64 f1;
 	u64 f2;
@@ -970,11 +1662,19 @@ static void store_felem(u64 *b, u64 *f)
 	u64 o2;
 	u64 o3;
 	f[3U] = f30 & (u64)0x7fffffffffffffffU;
+<<<<<<< HEAD
 	carry0 = add_scalar(f, f, (u64)19U * top_bit0);
 	f31 = f[3U];
 	top_bit = f31 >> (u32)63U;
 	f[3U] = f31 & (u64)0x7fffffffffffffffU;
 	carry = add_scalar(f, f, (u64)19U * top_bit);
+=======
+	add_scalar(f, f, (u64)19U * top_bit0);
+	f31 = f[3U];
+	top_bit = f31 >> (u32)63U;
+	f[3U] = f31 & (u64)0x7fffffffffffffffU;
+	add_scalar(f, f, (u64)19U * top_bit);
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 	f0 = f[0U];
 	f1 = f[1U];
 	f2 = f[2U];
@@ -1501,7 +2201,11 @@ static int __init curve25519_mod_init(void)
 static void __exit curve25519_mod_exit(void)
 {
 	if (IS_REACHABLE(CONFIG_CRYPTO_KPP) &&
+<<<<<<< HEAD
 	    (boot_cpu_has(X86_FEATURE_BMI2) || boot_cpu_has(X86_FEATURE_ADX)))
+=======
+	    static_branch_likely(&curve25519_use_bmi2_adx))
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 		crypto_unregister_kpp(&curve25519_alg);
 }
 

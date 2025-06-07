@@ -16,6 +16,10 @@
 #include <linux/module.h>
 #include <linux/init.h>
 #include <linux/jump_label.h>
+<<<<<<< HEAD
+=======
+#include <linux/scatterlist.h>
+>>>>>>> 1cfee383d9008 (wireguard: Merge branch `backport-5.4.y` of wireguard-linux)
 #include <crypto/curve25519.h>
 
 asmlinkage void curve25519_neon(u8 mypublic[CURVE25519_KEY_SIZE],
