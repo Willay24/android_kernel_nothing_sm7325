@@ -3,6 +3,10 @@
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
  */
 
+#ifdef CONFIG_DEBUG_FS
+#define CREATE_TRACE_POINTS
+#endif
+
 #include <linux/module.h>
 #include <linux/of_platform.h>
 #include "msm_vidc.h"
