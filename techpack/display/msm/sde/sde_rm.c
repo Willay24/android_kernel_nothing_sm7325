@@ -924,7 +924,7 @@ static bool _sde_rm_reserve_pp(
 		struct sde_rm_hw_blk **pp)
 {
 	struct sde_rm_hw_iter iter;
-	const struct sde_pingpong_cfg *pp_cfg;
+	const struct sde_pingpong_cfg *pp_cfg = NULL;
 
 	sde_rm_init_hw_iter(&iter, 0, SDE_HW_BLK_PINGPONG);
 	while (_sde_rm_get_hw_locked(rm, &iter)) {
