@@ -107,7 +107,7 @@
  * Idle state exit latency threshold used for deciding whether or not to check
  * the time till the closest expected timer event.
  */
-#define LATENCY_THRESHOLD_NS	(RESIDENCY_THRESHOLD_NS / 2)
+#define LATENCY_THRESHOLD_US	(RESIDENCY_THRESHOLD_US / 2)
 
 /*
  * The PULSE value is added to metrics when they grow and the DECAY_SHIFT value
@@ -159,7 +159,7 @@ static DEFINE_PER_CPU(struct teo_cpu, teo_cpus);
  */
 static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 {
-	struct teo_cpu *cpu_data = per_cpu_ptr(&teo_cpus, dev->cpu);
+	struct teo_cpu *cpu_data = this_cpu_ptr(&teo_cpus);
 	s64 sleep_length_us = ktime_to_us(cpu_data->sleep_length_ns);
 	int i, idx_timer = 0, idx_duration = 0;
 	unsigned int target_residency_us;
@@ -275,7 +275,7 @@ static int teo_find_shallower_state(struct cpuidle_driver *drv,
 static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		      bool *stop_tick)
 {
-	struct teo_cpu *cpu_data = per_cpu_ptr(&teo_cpus, dev->cpu);
+	struct teo_cpu *cpu_data = this_cpu_ptr(&teo_cpus);
 	int latency_req = cpuidle_governor_latency_req(dev->cpu);
 	ktime_t delta_tick = TICK_NSEC / 2;
 	unsigned int idx_intercept_sum = 0;
@@ -511,7 +511,7 @@ out_tick:
  */
 static void teo_reflect(struct cpuidle_device *dev, int state)
 {
-	struct teo_cpu *cpu_data = per_cpu_ptr(&teo_cpus, dev->cpu);
+	struct teo_cpu *cpu_data = this_cpu_ptr(&teo_cpus);
 
 	dev->last_state_idx = state;
 	if (dev->poll_time_limit ||
