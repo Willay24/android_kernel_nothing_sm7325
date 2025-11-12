@@ -246,17 +246,15 @@ static bool teo_state_ok(int i, struct cpuidle_driver *drv)
  * @dev: Target CPU.
  * @state_idx: Index of the capping idle state.
  * @duration_us: Idle duration value to match.
- * @no_poll: Don't consider polling states.
  */
 static int teo_find_shallower_state(struct cpuidle_driver *drv,
 				    struct cpuidle_device *dev, int state_idx,
-				    s64 duration_us, bool no_poll)
+				    s64 duration_us)
 {
 	int i;
 
 	for (i = state_idx - 1; i >= 0; i--) {
-		if (dev->states_usage[i].disable ||
-				(no_poll && drv->states[i].flags & CPUIDLE_FLAG_POLLING))
+		if (dev->states_usage[i].disable)
 			continue;
 
 		state_idx = i;
@@ -466,7 +464,7 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	 * candidate state, a shallower one needs to be found.
 	 */
 	if (drv->states[idx].target_residency > duration_us)
-		idx = teo_find_shallower_state(drv, dev, idx, duration_us, false);
+		idx = teo_find_shallower_state(drv, dev, idx, duration_us);
 
 	/*
 	 * If the selected state's target residency is below the tick length
@@ -494,7 +492,7 @@ end:
 	if (idx > idx0 &&
 	    drv->states[idx].target_residency > ktime_to_us(delta_tick))
 		idx = teo_find_shallower_state(drv, dev, idx,
-					       ktime_to_us(delta_tick), false);
+					       ktime_to_us(delta_tick));
 
 out_tick:
 	*stop_tick = false;
