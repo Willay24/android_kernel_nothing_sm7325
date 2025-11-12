@@ -152,6 +152,16 @@ struct teo_cpu {
 
 static DEFINE_PER_CPU(struct teo_cpu, teo_cpus);
 
+static void teo_decay(unsigned int *metric)
+{
+	unsigned int delta = *metric >> DECAY_SHIFT;
+
+	if (delta)
+		*metric -= delta;
+	else
+		*metric = 0;
+}
+
 /**
  * teo_update - Update CPU metrics after wakeup.
  * @drv: cpuidle driver containing state data.
@@ -163,8 +173,9 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 	s64 sleep_length_us = ktime_to_us(cpu_data->sleep_length_ns);
 	int i, idx_timer = 0, idx_duration = 0;
 	s64 target_residency_us, measured_us;
+	unsigned int total = 0;
 
-	cpu_data->short_idles -= cpu_data->short_idles >> DECAY_SHIFT;
+	teo_decay(&cpu_data->short_idles);
 
 	if (cpu_data->artificial_wakeup) {
 		/*
@@ -202,8 +213,10 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 	for (i = 0; i < drv->state_count; i++) {
 		struct teo_bin *bin = &cpu_data->state_bins[i];
 
-		bin->hits -= bin->hits >> DECAY_SHIFT;
-		bin->intercepts -= bin->intercepts >> DECAY_SHIFT;
+		teo_decay(&bin->hits);
+		total += bin->hits;
+		teo_decay(&bin->intercepts);
+		total += bin->intercepts;
 
 		target_residency_us = drv->states[i].target_residency;
 
@@ -214,7 +227,9 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 		}
 	}
 
-	cpu_data->tick_intercepts -= cpu_data->tick_intercepts >> DECAY_SHIFT;
+	cpu_data->total = total + PULSE;
+
+	teo_decay(&cpu_data->tick_intercepts);
 	/*
 	 * If the measured idle duration falls into the same bin as the sleep
 	 * length, this is a "hit", so update the "hits" metric for that bin.
@@ -228,9 +243,6 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 		if (TICK_USEC <= measured_us)
 			cpu_data->tick_intercepts += PULSE;
 	}
-
-	cpu_data->total -= cpu_data->total >> DECAY_SHIFT;
-	cpu_data->total += PULSE;
 }
 
 static bool teo_state_ok(int i, struct cpuidle_driver *drv)
