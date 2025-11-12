@@ -168,8 +168,7 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 	struct teo_cpu *cpu_data = this_cpu_ptr(&teo_cpus);
 	unsigned int sleep_length_us = ktime_to_us(cpu_data->sleep_length_ns);
 	int i, idx_timer = 0, idx_duration = 0;
-	int target_residency;
-	unsigned int measured_us;
+	s64 target_residency_ns, measured_ns;
 
 	cpu_data->short_idles -= cpu_data->short_idles >> DECAY_SHIFT;
 
@@ -178,11 +177,11 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 		 * If one of the safety nets has triggered, assume that this
 		 * might have been a long sleep.
 		 */
-		measured_us = UINT_MAX;
+		measured_ns = S64_MAX;
 	} else {
 		unsigned int lat;
 
-		lat = drv->states[dev->last_state_idx].exit_latency;
+		s64 lat_ns = drv->states[dev->last_state_idx].exit_latency_ns;
 
 		measured_us = dev->last_residency;
 
