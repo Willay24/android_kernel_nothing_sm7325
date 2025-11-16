@@ -258,7 +258,7 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 		cpu_data->state_bins[idx_timer].hits += PULSE;
 	} else {
 		cpu_data->state_bins[idx_duration].intercepts += PULSE;
-		if (TICK_USEC <= measured_us)
+		if (measured_us <= TICK_USEC)
 			cpu_data->tick_intercepts += PULSE;
 	}
 }
