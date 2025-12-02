@@ -24,6 +24,7 @@ obj-$(CONFIG_MQ_IOSCHED_DEADLINE)	+= mq-deadline.o
 mq-deadline-y += mq-deadline-main.o
 mq-deadline-$(CONFIG_MQ_IOSCHED_DEADLINE_CGROUP)+= mq-deadline-cgroup.o
 obj-$(CONFIG_MQ_IOSCHED_KYBER)	+= kyber-iosched.o
+obj-$(CONFIG_MQ_IOSCHED_CPQ)	+= cpq-iosched.o
 obj-$(CONFIG_MQ_IOSCHED_ADIOS)	+= adios.o
 CFLAGS_adios.o := -Wno-gcc-compat -Wno-declaration-after-statement
 ssg-$(CONFIG_MQ_IOSCHED_SSG)	:= ssg-iosched.o
