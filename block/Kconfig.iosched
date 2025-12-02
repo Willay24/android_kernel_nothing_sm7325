@@ -31,6 +31,15 @@ config MQ_IOSCHED_ADIOS
 	  The Adaptive Deadline I/O Scheduler (ADIOS) is a multi-queue I/O
 	  scheduler with learning-based adaptive latency control.
 
+config MQ_IOSCHED_CPQ
+	tristate "CPQ I/O scheduler"
+	default y
+	---help---
+	  CPQ (Custom Priority Queue) I/O scheduler for the blk-mq
+	  framework. Adds foreground/background group scheduling on top
+	  of RT/BE/IDLE priority levels with deadline-style dispatch and
+	  priority aging.
+
 config MQ_IOSCHED_SSG
 	tristate "SamSung Generic I/O scheduler"
 	default n
