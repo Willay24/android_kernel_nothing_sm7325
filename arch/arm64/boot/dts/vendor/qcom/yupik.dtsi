@@ -35,7 +35,7 @@
 	#size-cells = <2>;
 
 	chosen {
-		bootargs = "log_buf_len=256K rcupdate.rcu_expedited=1 rcu_nocbs=0-7 kpti=off";
+		bootargs = "log_buf_len=1M rcupdate.rcu_expedited=1 rcu_nocbs=0-7 kpti=off ignore_loglevel printk.devkmsg=on";
 	};
 
 	memory { device_type = "memory"; reg = <0 0 0 0>; };
@@ -74,7 +74,7 @@
 			reg = <0x0 0x0>;
 			enable-method = "psci";
 			cpu-idle-states = <&SLVR_OFF &SLVR_RAIL_OFF>;
-			capacity-dmips-mhz = <406>;
+			capacity-dmips-mhz = <1024>;
 			dynamic-power-coefficient = <100>;
 			qcom,freq-domain = <&cpufreq_hw 0 4>;
 			next-level-cache = <&L2_0>;
@@ -97,7 +97,7 @@
 			reg = <0x0 0x100>;
 			enable-method = "psci";
 			cpu-idle-states = <&SLVR_OFF &SLVR_RAIL_OFF>;
-			capacity-dmips-mhz = <406>;
+			capacity-dmips-mhz = <1024>;
 			dynamic-power-coefficient = <100>;
 			qcom,freq-domain = <&cpufreq_hw 0 4>;
 			next-level-cache = <&L2_1>;
@@ -115,7 +115,7 @@
 			reg = <0x0 0x200>;
 			enable-method = "psci";
 			cpu-idle-states = <&SLVR_OFF &SLVR_RAIL_OFF>;
-			capacity-dmips-mhz = <406>;
+			capacity-dmips-mhz = <1024>;
 			dynamic-power-coefficient = <100>;
 			qcom,freq-domain = <&cpufreq_hw 0 4>;
 			next-level-cache = <&L2_2>;
@@ -133,7 +133,7 @@
 			reg = <0x0 0x300>;
 			enable-method = "psci";
 			cpu-idle-states = <&SLVR_OFF &SLVR_RAIL_OFF>;
-			capacity-dmips-mhz = <406>;
+			capacity-dmips-mhz = <1024>;
 			dynamic-power-coefficient = <100>;
 			qcom,freq-domain = <&cpufreq_hw 0 4>;
 			next-level-cache = <&L2_3>;
@@ -151,7 +151,7 @@
 			reg = <0x0 0x400>;
 			enable-method = "psci";
 			cpu-idle-states = <&GOLD_OFF &GOLD_RAIL_OFF>;
-			capacity-dmips-mhz = <1023>;
+			capacity-dmips-mhz = <1946>;
 			dynamic-power-coefficient = <520>;
 			qcom,freq-domain = <&cpufreq_hw 1 4>;
 			next-level-cache = <&L2_4>;
@@ -169,7 +169,7 @@
 			reg = <0x0 0x500>;
 			enable-method = "psci";
 			cpu-idle-states = <&GOLD_OFF &GOLD_RAIL_OFF>;
-			capacity-dmips-mhz = <1023>;
+			capacity-dmips-mhz = <1946>;
 			dynamic-power-coefficient = <520>;
 			qcom,freq-domain = <&cpufreq_hw 1 4>;
 			next-level-cache = <&L2_5>;
@@ -187,7 +187,7 @@
 			reg = <0x0 0x600>;
 			enable-method = "psci";
 			cpu-idle-states = <&GOLD_OFF &GOLD_RAIL_OFF>;
-			capacity-dmips-mhz = <1023>;
+			capacity-dmips-mhz = <1946>;
 			dynamic-power-coefficient = <520>;
 			qcom,freq-domain = <&cpufreq_hw 1 4>;
 			next-level-cache = <&L2_6>;
@@ -205,7 +205,7 @@
 			reg = <0x0 0x700>;
 			enable-method = "psci";
 			cpu-idle-states = <&GOLD_OFF &GOLD_RAIL_OFF>;
-			capacity-dmips-mhz = <1024>;
+			capacity-dmips-mhz = <1985>;
 			dynamic-power-coefficient = <552>;
 			qcom,freq-domain = <&cpufreq_hw 2 4>;
 			next-level-cache = <&L2_7>;
@@ -234,20 +234,25 @@
 				core3 {
 					cpu = <&CPU3>;
 				};
+			};
 
-				core4 {
+			cluster1 {
+				core0 {
 					cpu = <&CPU4>;
 				};
 
-				core5 {
+				core1 {
 					cpu = <&CPU5>;
 				};
 
-				core6 {
+				core2 {
 					cpu = <&CPU6>;
 				};
+			};
 
-				core7 {
+			cluster2 {
+
+				core0 {
 					cpu = <&CPU7>;
 				};
 			};
@@ -482,9 +487,8 @@
 	qcom: ramoops {
 		compatible = "ramoops";
 		reg = <0x0 0xa9000000 0x0 0x200000>;
-		record-size = <0x200000>;
 		pmsg-size = <0x200000>;
-		max-reason = <4>;
+		mem-type = <2>;
 	};
 
 	/* global autoconfigured region for contiguous allocations */
@@ -495,6 +499,13 @@
 		alignment = <0x0 0x400000>;
 		size = <0x0 0x2000000>;
 		linux,cma-default;
+	};
+
+	dump_mem: mem_dump_region {
+		compatible = "shared-dma-pool";
+		alloc-ranges = <0x0 0x00000000 0x0 0xffffffff>;
+		reusable;
+		size = <0 0x2c00000>;
 	};
 
 	audio_cma_mem: audio_cma_region {
@@ -2365,6 +2376,12 @@
 			reg = <0x65c 0x4>;
 		};
 
+		restart_info@e0{
+			compatible ="nothing,msm-imem-restart_info";
+			reg = <0xe0 0x64>;
+			info_size = <0x64>;
+		};
+
 		dload_type@1c {
 			compatible = "qcom,msm-imem-dload-type";
 			reg = <0x1c 0x4>;
@@ -2693,7 +2710,6 @@
 		clock-names = "xo", "alternate";
 
 		qcom,lut-row-size = <4>;
-		qcom,no-accumulative-counter;
 		qcom,skip-enable-check;
 
 		interrupts = <GIC_SPI 30 IRQ_TYPE_LEVEL_HIGH>,
@@ -2861,10 +2877,10 @@
 
 		/* max voltage are set to regulator max voltage supported */
 		qcom,bt-vdd-io-config = <1800000 2000000 0 1>;
-		qcom,bt-vdd-aon-config = <824000 1120000 0 1>;
-		qcom,bt-vdd-dig-config = <824000 1120000 0 1>;
-		qcom,bt-vdd-rfacmn-config  = <824000 1120000 0 1>;
-		qcom,bt-vdd-rfa-0p8-config  = <824000 1120000 0 1>;
+		qcom,bt-vdd-aon-config = <824000 1120000 0 0>;
+		qcom,bt-vdd-dig-config = <824000 1120000 0 0>;
+		qcom,bt-vdd-rfacmn-config  = <824000 1120000 0 0>;
+		qcom,bt-vdd-rfa-0p8-config  = <824000 1120000 0 0>;
 		qcom,bt-vdd-rfa1-config = <1872000 2040000 0 1>;
 		qcom,bt-vdd-rfa2-config = <1256000 1500000 0 1>;
 		qcom,bt-vdd-ipa-2p2-config = <2200000 2210000 0 1>;
@@ -4673,7 +4689,7 @@
 
 	mem_dump {
 		compatible = "qcom,mem-dump";
-		status = "disabled";
+		memory-region = <&dump_mem>;
 
 		c0_context {
 			qcom,dump-size = <0x800>;
@@ -5047,6 +5063,10 @@
 		gpu_model_bin: gpu_model_bin@1e9 {
 			reg = <0x1e9 0x2>;
 			bits = <5 8>;
+		};
+
+		tsens_chipinfo: tsens_chipinfo@4180 {
+			reg = <0x4180 0x4>;
 		};
 
 		feat_conf_m7: feat_conf_m7@6020 {
