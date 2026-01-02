@@ -457,6 +457,7 @@ int ipa_smmu_free_sgt(struct sg_table **out_sgt_ptr)
 }
 EXPORT_SYMBOL(ipa_smmu_free_sgt);
 
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 /**
  * ipa_pm_notify() - PM notify to listen suspend events
  *
@@ -469,7 +470,6 @@ EXPORT_SYMBOL(ipa_smmu_free_sgt);
 static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 {
 	IPADBG("Entry\n");
-#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 	switch (event) {
 		case PM_POST_SUSPEND:
 			if (mem_sleep_current == PM_SUSPEND_MEM && ipa3_ctx->deepsleep) {
@@ -487,15 +487,14 @@ static int ipa_pm_notify(struct notifier_block *b, unsigned long event, void *p)
 			}
 			break;
 	}
-#endif
 	IPADBG("Exit\n");
 	return NOTIFY_DONE;
 }
 
-
 static struct notifier_block ipa_pm_notifier = {
 	.notifier_call = ipa_pm_notify,
 };
+#endif
 
 static const struct dev_pm_ops ipa_pm_ops = {
 	.suspend_late = ipa3_ap_suspend,
@@ -709,7 +708,7 @@ static int ipa3_active_clients_log_init(void)
 			GFP_KERNEL);
 	active_clients_table_buf = kzalloc(sizeof(
 			char[IPA3_ACTIVE_CLIENTS_TABLE_BUF_SIZE]), GFP_KERNEL);
-	if (ipa3_ctx->ipa3_active_clients_logging.log_buffer == NULL) {
+	if (ipa3_ctx->ipa3_active_clients_logging.log_buffer[0] == NULL) {
 		pr_err("Active Clients Logging memory allocation failed\n");
 		goto bail;
 	}
@@ -3719,7 +3718,7 @@ static int ipa3_q6_clean_q6_flt_tbls(enum ipa_ip_type ip,
 	u32 lcl_hdr_sz;
 	struct ipa_mem_buffer mem;
 	struct ipahal_reg_valmask valmask;
-	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	struct ipahal_imm_cmd_register_write reg_write_coal_close = { 0 };
 	int coal_ep = IPA_EP_NOT_ALLOCATED;
 
 	IPADBG("Entry\n");
@@ -3877,7 +3876,7 @@ static int ipa3_q6_clean_q6_rt_tbls(enum ipa_ip_type ip,
 	u32 lcl_hdr_sz;
 	struct ipa_mem_buffer mem;
 	struct ipahal_reg_valmask valmask;
-	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	struct ipahal_imm_cmd_register_write reg_write_coal_close = { 0 };
 	int i;
 
 	IPADBG("Entry\n");
@@ -4005,7 +4004,7 @@ static int ipa3_q6_clean_q6_tables(void)
 	int num_cmds = 0;
 	struct ipahal_reg_fltrt_hash_flush flush;
 	struct ipahal_reg_valmask valmask;
-	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	struct ipahal_imm_cmd_register_write reg_write_coal_close = { 0 };
 	int i;
 
 	IPADBG("Entry\n");
@@ -4128,11 +4127,11 @@ static int ipa3_q6_set_ex_path_to_apps(void)
 	struct ipa3_desc *desc;
 	int num_descs = 0;
 	int index;
-	struct ipahal_imm_cmd_register_write reg_write;
+	struct ipahal_imm_cmd_register_write reg_write = { 0 };
 	struct ipahal_imm_cmd_pyld *cmd_pyld;
 	int retval;
 	struct ipahal_reg_valmask valmask;
-	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	struct ipahal_imm_cmd_register_write reg_write_coal_close = { 0 };
 	int i;
 
 	desc = kcalloc(ipa3_ctx->ipa_num_pipes + 1, sizeof(struct ipa3_desc),
@@ -4520,7 +4519,7 @@ int _ipa_init_hdr_v3_0(void)
 	struct ipahal_imm_cmd_pyld *cmd_pyld[2];
 	struct ipahal_imm_cmd_dma_shared_mem dma_cmd = { 0 };
 	struct ipahal_reg_valmask valmask;
-	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	struct ipahal_imm_cmd_register_write reg_write_coal_close = { 0 };
 	int num_cmds = 0;
 	int i;
 
@@ -10242,7 +10241,10 @@ static int __init ipa_module_init(void)
 		return pci_register_driver(&ipa_pci_driver);
 	}
 
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 	register_pm_notifier(&ipa_pm_notifier);
+#endif
+
 	/* Register as a platform device driver */
 	return platform_driver_register(&ipa_plat_drv);
 }
@@ -10253,7 +10255,9 @@ static void __exit ipa_module_exit(void)
 	if (running_emulation)
 		pci_unregister_driver(&ipa_pci_driver);
 	platform_driver_unregister(&ipa_plat_drv);
+#if IS_ENABLED(CONFIG_DEEPSLEEP) || IS_ENABLED(CONFIG_HIBERNATION)
 	unregister_pm_notifier(&ipa_pm_notifier);
+#endif
 	kfree(ipa3_ctx);
 	ipa3_ctx = NULL;
 }

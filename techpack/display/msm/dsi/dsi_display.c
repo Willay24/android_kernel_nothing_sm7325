@@ -43,8 +43,6 @@
 
 struct dsi_display *primary_display;
 
-struct dsi_display *primary_display;
-
 u8 dbgfs_tx_cmd_buf[SZ_4K];
 static char dsi_display_primary[MAX_CMDLINE_PARAM_LEN];
 static char dsi_display_secondary[MAX_CMDLINE_PARAM_LEN];

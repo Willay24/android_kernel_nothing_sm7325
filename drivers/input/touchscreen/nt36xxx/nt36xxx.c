@@ -925,14 +925,12 @@ static int nvt_ts_vm_mem_lend(struct nvt_ts_data *ts)
 	acl_desc = nvt_ts_vm_get_acl(HH_TRUSTED_VM);
 	if (IS_ERR(acl_desc)) {
 		pr_err("Failed to get acl of IO memories for Trusted touch\n");
-		PTR_ERR(acl_desc);
 		return -EINVAL;
 	}
 
 	sgl_desc = nvt_ts_vm_get_sgl(ts->vm_info);
 	if (IS_ERR(sgl_desc)) {
 		pr_err("Failed to get sgl of IO memories for Trusted touch\n");
-		PTR_ERR(sgl_desc);
 		rc = -EINVAL;
 		goto sgl_error;
 	}
@@ -1727,10 +1725,10 @@ static int32_t nvt_flash_close(struct inode *inode, struct file *file)
 	return 0;
 }
 
-static const struct file_operations nvt_flash_fops = {
-	.open = nvt_flash_open,
-	.release = nvt_flash_close,
-	.read = nvt_flash_read,
+static const struct proc_ops nvt_flash_fops = {
+	.proc_open = nvt_flash_open,
+	.proc_release = nvt_flash_close,
+	.proc_read = nvt_flash_read,
 };
 
 /*******************************************************

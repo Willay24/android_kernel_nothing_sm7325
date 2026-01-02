@@ -139,6 +139,7 @@ static const struct mhi_device_id mhi_driver_match_table[] = {
 	{ .chan = "IP_HW_MHIP_0" }, /* for rndis/Wifi teth pipes */
 	{ .chan = "IP_HW_MHIP_1" }, /* for MHIP rmnet */
 	{ .chan = "IP_HW_ADPL" }, /* ADPL/ODL DL pipe */
+	{},
 };
 
 static const char *ipa_mpm_mhip_chan_str[IPA_MPM_MHIP_CH_ID_MAX] = {
@@ -479,7 +480,7 @@ static int ipa_mpm_set_dma_mode(enum ipa_client_type src_pipe,
 	enum ipa_client_type dst_pipe, bool reset)
 {
 	struct ipahal_imm_cmd_pyld *cmd_pyld[IPA_MPM_NUM_OF_INIT_CMD_DESC];
-	struct ipahal_imm_cmd_register_write reg_write_coal_close;
+	struct ipahal_imm_cmd_register_write reg_write_coal_close = { 0 };
 	struct ipahal_reg_valmask valmask;
 	struct ipa3_desc desc[IPA_MPM_NUM_OF_INIT_CMD_DESC];
 	int i, num_cmd = 0, result = 0;
@@ -1649,7 +1650,7 @@ static enum mhip_status_type ipa_mpm_start_stop_mhip_chan(
 	int probe_id,
 	enum ipa_mpm_start_stop_type start_stop)
 {
-	int ipa_ep_idx;
+	int ipa_ep_idx = 0;
 	struct ipa3_ep_context *ep;
 	bool is_start;
 	enum ipa_client_type ul_chan, dl_chan;
@@ -2724,7 +2725,7 @@ int ipa_mpm_mhip_xdci_pipe_enable(enum ipa_usb_teth_prot xdci_teth_prot)
 	int probe_id = IPA_MPM_MHIP_CH_ID_MAX;
 	int i;
 	enum ipa_mpm_mhip_client_type mhip_client;
-	enum mhip_status_type status;
+	enum mhip_status_type status = 0;
 	int pipe_idx;
 	bool is_acted = true;
 	int ret = 0;

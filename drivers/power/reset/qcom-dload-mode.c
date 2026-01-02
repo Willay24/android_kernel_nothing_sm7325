@@ -41,11 +41,7 @@ struct qcom_dload {
 static bool enable_dump =
 	IS_ENABLED(CONFIG_POWER_RESET_QCOM_DOWNLOAD_MODE_DEFAULT);
 static enum qcom_download_mode current_download_mode = QCOM_DOWNLOAD_NODUMP;
-#ifndef CONFIG_MACH_XIAOMI
 static enum qcom_download_mode dump_mode = QCOM_DOWNLOAD_FULLDUMP;
-#else
-static enum qcom_download_mode dump_mode = QCOM_DOWNLOAD_BOTHDUMP;
-#endif
 static bool early_pcie_init_enable;
 
 static int set_download_mode(enum qcom_download_mode mode)
@@ -335,13 +331,13 @@ static void __iomem *map_prop_mem(const char *propname)
 	void __iomem *addr;
 
 	if (!np) {
-		pr_debug("Unable to find DT property: %s\n", propname);
+		pr_err("Unable to find DT property: %s\n", propname);
 		return NULL;
 	}
 
 	addr = of_iomap(np, 0);
 	if (!addr)
-		pr_debug("Unable to map memory for DT property: %s\n", propname);
+		pr_err("Unable to map memory for DT property: %s\n", propname);
 	return addr;
 }
 
@@ -374,7 +370,7 @@ static void check_pci_edl(struct device_node *np)
 
 	mem = of_iomap(np, 0);
 	if (!mem) {
-		pr_debug("Unable to map memory for DT property: %s\n", np->name);
+		pr_info("Unable to map memory for DT property: %s\n", np->name);
 		return;
 	}
 
@@ -447,6 +443,11 @@ static int qcom_dload_probe(struct platform_device *pdev)
 	register_restart_handler(&poweroff->restart_nb);
 
 	platform_set_drvdata(pdev, poweroff);
+
+// Let emmc_dload default to QCOM_DOWNLOAD_DEST_EMMC for user.
+	if (poweroff->dload_dest_addr) {
+		set_download_dest(poweroff, QCOM_DOWNLOAD_DEST_EMMC);
+	}
 
 	return 0;
 }

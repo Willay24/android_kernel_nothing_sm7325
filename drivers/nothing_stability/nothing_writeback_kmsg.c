@@ -62,8 +62,8 @@ pr_err("[NT_reserve_kernel_log] "fmt, ##arg)
 #define NT_PAGE_SIZE 4096
 
 
-#define BOOT_LOG_SIZE (512 * NT_K_MULT) //per boot log size
-#define MAX_BOOT_LOG_COUNT 16 // The boot log can record 16 kmsg logs.
+#define BOOT_LOG_SIZE (2048 * NT_K_MULT) //per boot log size
+#define MAX_BOOT_LOG_COUNT 8 // The boot log can record 16 kmsg logs.
 #define BOOT_LOG_PAGES (BOOT_LOG_SIZE / NT_PAGE_SIZE) //per boot log size
 #define BOOT_LOG_SIZE_OF_LINE 2048
 #define COMPUTE_BOOT_LOG_OFFSET(x) ((NT_BOOT_KMSG_LOG_OFFSET)+(((x)%(MAX_BOOT_LOG_COUNT))*(BOOT_LOG_SIZE)))
@@ -105,7 +105,7 @@ typedef struct
 	unsigned char last_reboot_is_panic;
 	unsigned char last_boot_is_fail;
 	unsigned char bootloader_count;
-	unsigned char vbmeta_flag;
+	unsigned char vbmeta_flag;  /* Verify vbmeta magic retry mechsniasm */
 } NT_reserve_kernel_log_header; //need align Bootloaderlogging dxe.
 
 typedef enum {
@@ -362,6 +362,10 @@ out:
 	if(buf) {
 		vfree(buf);
 		buf = NULL;
+	}
+	if(line_buf) {
+		vfree(line_buf);
+		line_buf = NULL;
 	}
 	NT_rkl_err_print("%s end!\n", __func__);
 }

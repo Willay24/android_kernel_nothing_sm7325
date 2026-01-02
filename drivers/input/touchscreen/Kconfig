@@ -1315,6 +1315,8 @@ source "drivers/input/touchscreen/st/Kconfig"
 
 source "drivers/input/touchscreen/focaltech_touch/Kconfig"
 
+source "drivers/input/touchscreen/focaltech_nothing/Kconfig"
+
 source "drivers/input/touchscreen/synaptics_tcm/Kconfig"
 
 config TOUCHSCREEN_SYNAPTICS_DSX
@@ -1332,5 +1334,7 @@ config TOUCHSCREEN_SYNAPTICS_DSX
 source "drivers/input/touchscreen/synaptics_dsx/Kconfig"
 
 source "drivers/input/touchscreen/nt36xxx/Kconfig"
+
+source "drivers/input/touchscreen/goodix_berlin_driver/Kconfig"
 
 endif

@@ -299,7 +299,7 @@ struct fts_ts_data {
     struct pinctrl_state *pins_release;
 #endif
 #ifdef CONFIG_DRM_PANEL
-    void *notifier_cookie;
+    struct notifier_block drm_notifier;
 #endif
     int single_tap_pressed;
 #ifdef FTS_NOTHING_TOUCHFEATURE
