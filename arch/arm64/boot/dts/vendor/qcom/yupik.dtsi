@@ -35,7 +35,7 @@
 	#size-cells = <2>;
 
 	chosen {
-		bootargs = "log_buf_len=256K earlycon=msm_geni_serial,0x994000 rcupdate.rcu_expedited=1 rcu_nocbs=0-7 kpti=off";
+		bootargs = "log_buf_len=1M rcupdate.rcu_expedited=1 rcu_nocbs=0-7 kpti=off ignore_loglevel printk.devkmsg=on";
 	};
 
 	memory { device_type = "memory"; reg = <0 0 0 0>; };
@@ -2376,6 +2376,12 @@
 			reg = <0x65c 0x4>;
 		};
 
+		restart_info@e0{
+			compatible ="nothing,msm-imem-restart_info";
+			reg = <0xe0 0x64>;
+			info_size = <0x64>;
+		};
+
 		dload_type@1c {
 			compatible = "qcom,msm-imem-dload-type";
 			reg = <0x1c 0x4>;
@@ -2704,7 +2710,6 @@
 		clock-names = "xo", "alternate";
 
 		qcom,lut-row-size = <4>;
-		qcom,no-accumulative-counter;
 		qcom,skip-enable-check;
 
 		interrupts = <GIC_SPI 30 IRQ_TYPE_LEVEL_HIGH>,
@@ -2872,10 +2877,10 @@
 
 		/* max voltage are set to regulator max voltage supported */
 		qcom,bt-vdd-io-config = <1800000 2000000 0 1>;
-		qcom,bt-vdd-aon-config = <824000 1120000 0 1>;
-		qcom,bt-vdd-dig-config = <824000 1120000 0 1>;
-		qcom,bt-vdd-rfacmn-config  = <824000 1120000 0 1>;
-		qcom,bt-vdd-rfa-0p8-config  = <824000 1120000 0 1>;
+		qcom,bt-vdd-aon-config = <824000 1120000 0 0>;
+		qcom,bt-vdd-dig-config = <824000 1120000 0 0>;
+		qcom,bt-vdd-rfacmn-config  = <824000 1120000 0 0>;
+		qcom,bt-vdd-rfa-0p8-config  = <824000 1120000 0 0>;
 		qcom,bt-vdd-rfa1-config = <1872000 2040000 0 1>;
 		qcom,bt-vdd-rfa2-config = <1256000 1500000 0 1>;
 		qcom,bt-vdd-ipa-2p2-config = <2200000 2210000 0 1>;
@@ -4102,6 +4107,8 @@
 				qcom,intents = <0x800  5
 						0x2000 3
 						0x4400 2>;
+				qcom,non-wake-svc = <0x51
+						0x190>;
 			};
 
 			qcom,adsp_glink_ssr {
@@ -5056,6 +5063,10 @@
 		gpu_model_bin: gpu_model_bin@1e9 {
 			reg = <0x1e9 0x2>;
 			bits = <5 8>;
+		};
+
+		tsens_chipinfo: tsens_chipinfo@4180 {
+			reg = <0x4180 0x4>;
 		};
 
 		feat_conf_m7: feat_conf_m7@6020 {
