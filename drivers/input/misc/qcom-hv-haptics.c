@@ -34,7 +34,7 @@
 #include <linux/mman.h>
 #define RICHTAP_NAME "aw8697_haptic"
 #undef dev_dbg
-#define dev_dbg dev_err
+#define dev_dbg(dev, fmt, ...) do { } while (0)
 #endif //RICHTAP_FOR_PMIC_ENABLE
 
 /* status register definitions in HAPTICS_CFG module */
