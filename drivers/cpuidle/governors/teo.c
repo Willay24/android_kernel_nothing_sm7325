@@ -499,7 +499,7 @@ constraint:
 	 * total wakeup events, do not stop the tick.
 	 */
 	if (drv->states[idx].target_residency < TICK_USEC &&
-	    cpu_data->tick_intercepts > cpu_data->total / 2 + cpu_data->total / 8)
+	     3 * cpu_data->tick_intercepts >= 2 * cpu_data->total)
 		duration_us = TICK_USEC / 2;
 
 end:
