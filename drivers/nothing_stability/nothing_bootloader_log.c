@@ -29,9 +29,9 @@ static int bootloader_logger_proc_open(struct inode *inode, struct file *file)
 }
 
 static struct proc_ops bootloader_logger_proc_fops = {
-	.proc_open	= bootloader_logger_proc_open,
-	.proc_read	= seq_read,
-	.proc_lseek	= seq_lseek,
+	.proc_open		= bootloader_logger_proc_open,
+	.proc_read		= seq_read,
+	.proc_lseek		= seq_lseek,
 	.proc_release	= single_release,
 };
 
