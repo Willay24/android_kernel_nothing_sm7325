@@ -972,6 +972,26 @@ config QCOM_SYSMON_SUBSYSTEM_STATS
 	  by the respective subsystem. Power stats gets updated after
 	  DSP clock change event.
 
+config NOTHING_POWERINFO_RPMH
+	bool "RPMH move to sysfs"
+	default n
+	help
+		This option move d/qcom_sleep_stats to sys/module/soc_sleep_sleep
+
+config NOTHING_POWERINFO_STANDBY
+	bool "powerinfo standby debug"
+	default n
+	help
+		This option open powerinfo standby debug
+
+config QCOM_PRIME_CORE_ONLINE_HELPER
+	tristate "Enable Qcom Prime Online Helper"
+	depends on ARCH_QCOM
+	default n
+	help
+	  This enables the Qcom Prime Online Helper to trigger defer probe
+	  pending device.
+
 config QCOM_WDT_CORE
 	tristate "Qualcomm Technologies, Inc. Watchdog Support"
 	depends on ARCH_QCOM
