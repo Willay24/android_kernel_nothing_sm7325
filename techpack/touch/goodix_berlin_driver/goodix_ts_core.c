@@ -1,4 +1,4 @@
- /*
+/*
   * Goodix Touchscreen Driver
   * Copyright (C) 2020 - 2021 Goodix, Inc.
   *
@@ -21,6 +21,7 @@
 #include <linux/uaccess.h>
 #include <linux/input/mt.h>
 #include <linux/power_supply.h>
+#include <linux/pm_wakeup.h>
 
 #include "goodix_ts_core.h"
 
@@ -857,6 +858,217 @@ static ssize_t goodix_report_rate_store(struct device *dev,
 	return count;
 }
 
+int game_flag = 0;
+extern int brl_send_cmd(struct goodix_ts_core *cd,
+	struct goodix_ts_cmd *cmd);
+static ssize_t goodix_ts_game_mode_store(struct device  *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct goodix_ts_core *cd = dev_get_drvdata(dev);
+	struct goodix_ts_cmd temp_cmd;
+
+	if (!buf || count <= 0)
+		return -EINVAL;
+
+	if (buf[0] != '0') {
+		temp_cmd.cmd = 0xC2;
+		temp_cmd.data[0] = 0x01;
+		temp_cmd.len = 5;
+		brl_send_cmd(cd, &temp_cmd);
+		ts_info("game mode enable");
+		game_flag = 1;
+	} else {
+		temp_cmd.cmd = 0xC2;
+		temp_cmd.data[0] = 0x00;
+		temp_cmd.len = 5;
+		brl_send_cmd(cd, &temp_cmd);
+		ts_info("game mode disable");
+		game_flag = 0;
+	}
+	return count;
+}
+
+int edge_mode_value = 4;
+static ssize_t goodix_edge_mode_show(struct device  *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int count = 0;
+
+	count = snprintf (buf + count, PAGE_SIZE, "Edge Mode:%s\n",
+	(edge_mode_value) ? "enabled" : "disabled");
+	count += snprintf (buf + count, PAGE_SIZE, "Edge value:%d\n", edge_mode_value);
+	return count;
+}
+
+static ssize_t goodix_ts_edge_mode_store(struct device  *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct goodix_ts_core *cd = dev_get_drvdata(dev);
+	struct goodix_ts_cmd temp_cmd;
+	int ret = 0;
+	if (!buf || count <= 0)
+		return -EINVAL;
+	if (buf[0] != '0'){
+		if (game_flag) {
+			ts_info("into game mode edge suppression");
+			if (buf[0] == '1') {//portrait edge suppression
+				temp_cmd.cmd = 0x17;
+				temp_cmd.data[0] = 0x1C;
+				temp_cmd.data[1] = 0x40;
+				temp_cmd.len = 6;
+				ret = brl_send_cmd(cd, &temp_cmd);
+				if (ret < 0) {
+					ts_err("send cmd portrait edge suppression error");
+					return count;
+				}
+				ts_info("portrait edge suppression enable");
+				edge_mode_value = 1;
+			} else if (buf[0] == '2') {//usb in left
+				temp_cmd.cmd = 0x17;
+				temp_cmd.data[0] = 0x9C;
+				temp_cmd.data[1] = 0x40;
+				temp_cmd.len = 6;
+				ret = brl_send_cmd(cd, &temp_cmd);
+				if (ret < 0) {
+					ts_err("send cmd in left error");
+					return count;
+				}
+				ts_info("edge suppression in left enable");
+				edge_mode_value = 2;
+			} else if (buf[0] == '3') {//usb in right
+				temp_cmd.cmd = 0x17;
+				temp_cmd.data[0] = 0x5C;
+				temp_cmd.data[1] = 0x40;
+				temp_cmd.len = 6;
+				ret = brl_send_cmd(cd, &temp_cmd);
+				if (ret < 0) {
+					ts_err("send cmd in right error");
+					return count;
+				}
+				ts_info("edge suppression in right enable");
+				edge_mode_value = 3;
+			} else {
+				ts_info("invalid edge suppression cmd");
+			}
+		}else {
+			ts_info("into no game mode edge suppression");
+			if (buf[0] == '1') {//portrait edge suppression
+				temp_cmd.cmd = 0x18;
+				temp_cmd.data[0] = 0x1C;
+				temp_cmd.data[1] = 0x40;
+				temp_cmd.len = 6;
+				ret = brl_send_cmd(cd, &temp_cmd);
+				if (ret < 0) {
+					ts_err("send cmd portrait edge suppression error");
+					return count;
+				}
+				ts_info("portrait edge suppression enable");
+				edge_mode_value = 4;
+			} else if (buf[0] == '2') {//usb in left
+				temp_cmd.cmd = 0x18;
+				temp_cmd.data[0] = 0x9C;
+				temp_cmd.data[1] = 0x40;
+				temp_cmd.len = 6;
+				ret = brl_send_cmd(cd, &temp_cmd);
+				if (ret < 0) {
+					ts_err("send cmd in left error");
+					return count;
+				}
+				ts_info("edge suppression in left enable");
+				edge_mode_value = 5;
+			} else if (buf[0] == '3') {//usb in right
+				temp_cmd.cmd = 0x18;
+				temp_cmd.data[0] = 0x5C;
+				temp_cmd.data[1] = 0x40;
+				temp_cmd.len = 6;
+				ret = brl_send_cmd(cd, &temp_cmd);
+				if (ret < 0) {
+					ts_err("send cmd in right error");
+					return count;
+				}
+				ts_info("edge suppression in right enable");
+				edge_mode_value = 6;
+			} else {
+				ts_info("invalid edge suppression cmd");
+			}
+
+		}
+	} else {
+		temp_cmd.cmd = 0x18;
+		temp_cmd.data[0] = 0x1C;
+		temp_cmd.data[1] = 0x40;
+		temp_cmd.len = 6;
+		ret = brl_send_cmd(cd, &temp_cmd);
+		if (ret < 0) {
+			ts_err("send cmd disable error");
+			return count;
+		}
+		ts_info("edge suppression disable");
+		edge_mode_value = 0;
+	}
+	return count;
+}
+
+static ssize_t goodix_bin_info_show(struct device  *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct goodix_ts_core *cd = dev_get_drvdata(dev);
+	int ret = 0;
+
+	ret = snprintf(buf, PAGE_SIZE, "active firmware version:%*ph\n", 4, cd->fw_vid);
+
+	return ret;
+}
+
+static int pocket_data = 0;
+static ssize_t goodix_pocket_mode_show(struct device  *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int ret = 0;
+
+	ret = snprintf(buf, PAGE_SIZE, "pocket_mode:%s\n",
+		(pocket_data) ? "enabled" : "disabled");
+
+	return ret;
+}
+
+static ssize_t goodix_pocket_mode_store(struct device  *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct goodix_ts_core *cd = dev_get_drvdata(dev);
+	struct goodix_ts_cmd temp_cmd;
+	int ret = 0;
+
+	if (!buf || count <= 0)
+		return -EINVAL;
+	if (buf[0] != '0'){
+		ts_info("into pocket mode");
+		temp_cmd.cmd = 0x9F;
+		temp_cmd.data[0] = 0x03;
+		temp_cmd.len = 5;
+		ret = brl_send_cmd(cd, &temp_cmd);
+		if (ret < 0) {
+			ts_err("send cmd pocket mode error");
+			return count;
+		}
+		ts_info("pocket mode enable");
+		pocket_data = 1;
+	} else {
+		ts_info("out pocket mode");
+		temp_cmd.cmd = 0x9F;
+		temp_cmd.data[0] = 0x00;
+		temp_cmd.len = 5;
+		ret = brl_send_cmd(cd, &temp_cmd);
+		if (ret < 0) {
+			ts_err("send cmd pocket mode error");
+			return count;
+		}
+		ts_info("pocket mode disable");
+		pocket_data = 0;
+	}
+	return count;
+}
+
 static DEVICE_ATTR(driver_info, 0440, driver_info_show, NULL);
 static DEVICE_ATTR(chip_info, 0440, chip_info_show, NULL);
 static DEVICE_ATTR(reset, 0220, NULL, goodix_ts_reset_store);
@@ -870,6 +1082,14 @@ static DEVICE_ATTR(die_info, 0440, die_info_show, NULL);
 static DEVICE_ATTR(double_tap_enable, 0664, goodix_ts_double_tap_show, goodix_ts_double_tap_store);
 static DEVICE_ATTR(aod_enable, 0664, goodix_ts_aod_show, goodix_ts_aod_store);
 static DEVICE_ATTR(switch_report_rate, 0664, goodix_report_rate_show, goodix_report_rate_store);
+static DEVICE_ATTR(game_mode, 0664,
+		NULL, goodix_ts_game_mode_store);
+static DEVICE_ATTR(edge_mode, 0664,
+		goodix_edge_mode_show, goodix_ts_edge_mode_store);
+static DEVICE_ATTR(power_off_bin_info, 0440,
+		goodix_bin_info_show, NULL);
+static DEVICE_ATTR(pocket_mode, 0664,
+		goodix_pocket_mode_show, goodix_pocket_mode_store);
 
 static struct attribute *sysfs_attrs[] = {
 	&dev_attr_driver_info.attr,
@@ -885,6 +1105,10 @@ static struct attribute *sysfs_attrs[] = {
 	&dev_attr_double_tap_enable.attr,
 	&dev_attr_aod_enable.attr,
 	&dev_attr_switch_report_rate.attr,
+	&dev_attr_game_mode.attr,
+	&dev_attr_edge_mode.attr,
+	&dev_attr_power_off_bin_info.attr,
+	&dev_attr_pocket_mode.attr,
 	NULL,
 };
 
@@ -1248,16 +1472,31 @@ static void goodix_ts_report_pen(struct input_dev *dev,
 	mutex_unlock(&dev->mutex);
 }
 
+static int finger_down_flag = 1;
+static int finger_up_flag = 1;
+static int com =0;
 static void goodix_ts_report_finger(struct input_dev *dev,
 		struct goodix_touch_data *touch_data)
 {
 	unsigned int touch_num = touch_data->touch_num;
 	int i;
-
 	mutex_lock(&dev->mutex);
 
 	for (i = 0; i < GOODIX_MAX_TOUCH; i++) {
 		if (touch_data->coords[i].status == TS_TOUCH) {
+			if (com != touch_num) {
+				finger_down_flag = 1;
+			} else {
+				finger_down_flag = 0;
+			}
+			if (touch_num && finger_down_flag) {
+				ts_info("ACTION_DOWN:%d, %d, id[%d], x %d, y %d, w %d", finger_down_flag, touch_num, i,
+					touch_data->coords[i].x,
+					touch_data->coords[i].y,
+					touch_data->coords[i].w);
+				com = touch_num;
+				finger_up_flag = 0;
+			}
 			input_mt_slot(dev, i);
 			input_mt_report_slot_state(dev, MT_TOOL_FINGER, true);
 			input_report_abs(dev, ABS_MT_POSITION_X, touch_data->coords[i].x);
@@ -1269,6 +1508,12 @@ static void goodix_ts_report_finger(struct input_dev *dev,
 		}
 	}
 
+	if (!touch_num && !finger_up_flag) {
+		ts_info("ACTION_UP");
+		finger_up_flag = 1;
+		finger_down_flag = 1;
+		com = 0;
+	}
 	input_report_key(dev, BTN_TOUCH, touch_num > 0 ? 1 : 0);
 
 	if (global_spi_parent_device != NULL) {
@@ -1307,6 +1552,31 @@ static int goodix_ts_request_handle(struct goodix_ts_core *cd,
 	return ret;
 }
 
+/*
+ * goodix irq wakeup source func
+ *
+ * Keeping system awake during irq occur and giving a bit
+ * more time for bus runtime status in screen off case
+ *
+ */
+static void goodix_wakeup_held(struct goodix_ts_core *ts_data, bool lock)
+{
+	if (!ts_data)
+		return;
+
+	if (lock) {
+		pr_debug("%s(): block s2idle\n", __func__);
+		pm_stay_awake(&ts_data->input_dev->dev);
+	}
+	else {
+		pr_debug("%s(): allow s2idle\n", __func__);
+		if (atomic_read(&ts_data->suspended))
+			pm_wakeup_dev_event(&ts_data->input_dev->dev, 100, true);
+		else
+			pm_relax(&ts_data->input_dev->dev);
+	}
+}
+
 /**
  * goodix_ts_threadirq_func - Bottom half of interrupt
  * This functions is excuted in thread context,
@@ -1324,6 +1594,8 @@ static irqreturn_t goodix_ts_threadirq_func(int irq, void *data)
 	struct goodix_ts_esd *ts_esd = &core_data->ts_esd;
 	int ret;
 
+
+	goodix_wakeup_held(core_data, true);
 	ts_esd->irq_status = true;
 	core_data->irq_trig_cnt++;
 
@@ -1348,6 +1620,7 @@ static irqreturn_t goodix_ts_threadirq_func(int irq, void *data)
 		ret = ext_module->funcs->irq_event(core_data, ext_module);
 		if (ret == EVT_CANCEL_IRQEVT) {
 			mutex_unlock(&goodix_modules.mutex);
+			goodix_wakeup_held(core_data, false);
 			return IRQ_HANDLED;
 		}
 	}
@@ -1370,8 +1643,7 @@ static irqreturn_t goodix_ts_threadirq_func(int irq, void *data)
 			goodix_ts_request_handle(core_data, ts_event);
 	}
 
-	pm_relax(core_data->bus->dev);
-
+	goodix_wakeup_held(core_data, false);
 	return IRQ_HANDLED;
 }
 
@@ -1420,7 +1692,8 @@ static int goodix_ts_power_init(struct goodix_ts_core *core_data)
 
 	ts_info("Power init");
 	if (strlen(ts_bdata->avdd_name)) {
-		core_data->avdd = devm_regulator_get(dev, ts_bdata->avdd_name);
+		core_data->avdd = devm_regulator_get(dev,
+				 ts_bdata->avdd_name);
 		if (IS_ERR_OR_NULL(core_data->avdd)) {
 			ret = PTR_ERR(core_data->avdd);
 			ts_err("Failed to get regulator avdd:%d", ret);
@@ -1583,6 +1856,7 @@ static int goodix_ts_input_dev_config(struct goodix_ts_core *core_data)
 	set_bit(BTN_TOUCH, input_dev->keybit);
 	set_bit(BTN_TOOL_FINGER, input_dev->keybit);
 	set_bit(INPUT_PROP_DIRECT, input_dev->propbit);
+	set_bit(KEY_FINGER, input_dev->keybit);
 
 	/* set input parameters */
 	input_set_abs_params(input_dev, ABS_MT_POSITION_X,
@@ -1596,6 +1870,7 @@ static int goodix_ts_input_dev_config(struct goodix_ts_core *core_data)
 	input_set_capability(input_dev, EV_KEY, KEY_POWER);
 	input_set_capability(input_dev, EV_KEY, KEY_WAKEUP);
 	input_set_capability(input_dev, EV_KEY, KEY_GOTO);
+	input_set_capability(input_dev, EV_KEY, KEY_FINGER);
 
 	r = input_register_device(input_dev);
 	if (r < 0) {
@@ -1907,6 +2182,8 @@ static int goodix_ts_resume(struct goodix_ts_core *core_data)
 {
 	struct goodix_ext_module *ext_module, *next;
 	struct goodix_ts_hw_ops *hw_ops = core_data->hw_ops;
+	struct goodix_ts_core *cd = core_data;
+	struct goodix_ts_cmd temp_cmd;
 	int ret;
 
 	if (core_data->init_stage < CORE_INIT_STAGE2 ||
@@ -1968,6 +2245,25 @@ out:
 	hw_ops->irq_enable(core_data, true);
 	/* open esd */
 	goodix_ts_blocking_notify(NOTIFY_RESUME, NULL);
+	if (cd->gesture_up_flag) {
+		ts_info("fingerprint success and didn't have up tap");
+		input_report_key(cd->input_dev, KEY_FINGER, 0);
+		input_sync(cd->input_dev);
+		cd->gesture_up_flag = 0;
+	}
+	if (pocket_data == 1) {
+		ts_info("resume out pocket mode");
+		temp_cmd.cmd = 0x74;
+		temp_cmd.data[0] = 0x00;
+		temp_cmd.len = 5;
+		ret = brl_send_cmd(cd, &temp_cmd);
+		if (ret < 0) {
+			ts_err("send cmd pocket mode error");
+			return 0;
+		}
+		ts_info("pocket mode disable");
+		pocket_data = 0;
+	}
 	ts_info("Resume end");
 	return 0;
 }
@@ -2226,6 +2522,9 @@ int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 	/* create procfs files */
 	goodix_ts_procfs_init(cd);
 
+	/* esd protector */
+	goodix_ts_esd_init(cd);
+
 	/* gesture init */
 	gesture_module_init();
 
@@ -2286,7 +2585,6 @@ static int goodix_later_init_thread(void *data)
 	if (ret < 0) {
 		ts_err("failed to get version info, try to upgrade");
 		update_flag |= UPDATE_MODE_FORCE;
-		goto upgrade;
 	}
 
 	/* step 2: get config data from config bin */
@@ -2296,7 +2594,6 @@ static int goodix_later_init_thread(void *data)
 	else
 		ts_info("success get valid ic config");
 
-upgrade:
 	/* step 3: init fw struct add try do fw upgrade */
 	ret = goodix_fw_update_init(cd);
 	if (ret) {
@@ -2339,6 +2636,7 @@ upgrade:
 	}
 	cd->init_stage = CORE_INIT_STAGE2;
 
+	device_init_wakeup(&cd->input_dev->dev, true);
 	return 0;
 
 uninit_fw:
@@ -2690,6 +2988,132 @@ static int goodix_check_dt(struct device_node *np)
 }
 #endif
 
+static u8 charger_flag = '1';
+
+static int TP_charger_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "TP charger flag:%c\n", charger_flag);
+	return 0;
+}
+
+static int TP_charger_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, TP_charger_show, inode->i_private);
+}
+
+static ssize_t TP_charger_write(struct file *file, const char __user *buff,
+		size_t count, loff_t *ppos)
+{
+	struct goodix_ts_core *cd = PDE_DATA(file_inode(file));
+	struct goodix_ts_cmd temp_cmd;
+	u8 *wiredbuf = NULL;
+	int buflen = count;
+	int ret = 0;
+
+	if (buflen < 0) {
+		ts_err("proc count fail:%d", buflen);
+		return -EINVAL;
+	} else {
+		wiredbuf = (u8 *)kzalloc(buflen * sizeof(u8), GFP_KERNEL);
+		if (wiredbuf == NULL) {
+			ts_err("proc write buf zalloc fail");
+			return -ENOMEM;
+		}
+	}
+
+	if (copy_from_user(wiredbuf,buff,buflen)) {
+		ts_err("proc write charger states fail");
+		goto exit;
+	}
+
+	charger_flag = *wiredbuf;
+	ts_info("write charger state:%c\n", charger_flag);
+	if (charger_flag == '2') {
+		temp_cmd.cmd = 0xAF;
+		temp_cmd.data[0] = 0x01;
+		temp_cmd.data[1] = 0xB5;
+		temp_cmd.len = 5;
+		ret = brl_send_cmd(cd, &temp_cmd);
+		if (ret < 0) {
+		ts_err("send wired charger enable cmd error");
+			goto exit;
+		}
+	} else if (charger_flag == '0') {
+		temp_cmd.cmd = 0xAF;
+		temp_cmd.data[0] = 0x00;
+		temp_cmd.data[1] = 0xB4;
+		temp_cmd.len = 5;
+		ret = brl_send_cmd(cd, &temp_cmd);
+		if (ret < 0) {
+			ts_err("send wired charger disable cmd error");
+			goto exit;
+		}
+		ts_info("clear wired charger flag");
+		temp_cmd.cmd = 0xC6;
+		temp_cmd.data[0] = 0x00;
+		temp_cmd.data[1] = 0xCB;
+		temp_cmd.len = 5;
+		ret = brl_send_cmd(cd, &temp_cmd);
+		if (ret < 0) {
+			ts_err("send wireless charger disable cmd error");
+			goto exit;
+		}
+		ts_info("clear wireless charger flag");
+	} else if (charger_flag == '3') {
+		temp_cmd.cmd = 0xC6;
+		temp_cmd.data[0] = 0x01;
+		temp_cmd.data[1] = 0xCC;
+		temp_cmd.len = 5;
+		ret = brl_send_cmd(cd, &temp_cmd);
+		if (ret < 0) {
+		ts_err("send wireless charger enable cmd error");
+			goto exit;
+		}
+	} else if (charger_flag == '4') {
+		temp_cmd.cmd = 0xC6;
+		temp_cmd.data[0] = 0x02;
+		temp_cmd.data[1] = 0xCD;
+		temp_cmd.len = 5;
+		ts_info("send wireless reverse charger enable cmd");
+		ret = brl_send_cmd(cd, &temp_cmd);
+		if (ret < 0) {
+			ts_err("send wireless reverse charger enable cmd error");
+			goto exit;
+		}
+	} else {
+		ts_info("invalid charger cmd:%c", charger_flag);
+		goto exit;
+	}
+
+	ts_info("write charger states success");
+
+exit:
+	kfree(wiredbuf);
+	wiredbuf = NULL;
+	return buflen;
+}
+
+static const struct proc_ops TP_charger_proc_ops = {
+	.proc_open		= TP_charger_open,
+	.proc_read		= seq_read,
+	.proc_write		= TP_charger_write,
+	.proc_release		= single_release,
+};
+
+static int create_TP_node_proc_file(struct goodix_ts_core *cd)
+{
+	struct proc_dir_entry *dir;
+
+	dir = NULL;
+	dir = proc_create_data("TP_charger_flags", 0666, NULL, &TP_charger_proc_ops, cd);
+	if (!dir) {
+		ts_err("unable to create /proc/TP_charger_flags");
+		return -EPERM;
+	}
+
+	return 0;
+}
+
 /**
  * goodix_ts_probe - called by kernel when Goodix touch
  *  platform driver is added.
@@ -2832,6 +3256,8 @@ static int goodix_ts_probe(struct platform_device *pdev)
 	core_data->charger_status = -1;
 	core_data->report_rate = 240;
 
+	create_TP_node_proc_file(core_data);
+
 	ts_info("goodix_ts_core probe success");
 	return 0;
 
@@ -2844,6 +3270,11 @@ err_out:
 	core_module_prob_sate = CORE_MODULE_PROB_FAILED;
 	ts_err("goodix_ts_core failed, ret:%d", ret);
 	return ret;
+}
+
+static void goodix_charger_proc_exit(struct goodix_ts_core *core_data)
+{
+	remove_proc_entry("TP_charger_flags", NULL);
 }
 
 static int goodix_ts_remove(struct platform_device *pdev)
@@ -2883,6 +3314,7 @@ static int goodix_ts_remove(struct platform_device *pdev)
 		core_data->game_wq = NULL;
 	}
 #endif
+	goodix_charger_proc_exit(core_data);
 	goodix_tools_exit();
 	goodix_ts_unregister_notifier(&core_data->ts_notifier);
 	goodix_ts_power_off(core_data);

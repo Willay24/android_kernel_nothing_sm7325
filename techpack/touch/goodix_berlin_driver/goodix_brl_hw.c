@@ -1,4 +1,4 @@
- /*
+/*
   * Goodix Touchscreen Driver
   * Copyright (C) 2020 - 2021 Goodix, Inc.
   *
@@ -277,23 +277,15 @@ int brl_resume(struct goodix_ts_core *cd)
 int brl_gesture(struct goodix_ts_core *cd, int gesture_type)
 {
 	struct goodix_ts_cmd cmd;
+	u32 type = ~(cd->gesture_type);
 
 	if (cd->bus->ic_type == IC_TYPE_BERLIN_A)
 		cmd.cmd = GOODIX_GESTURE_CMD_BA;
 	else
 		cmd.cmd = GOODIX_GESTURE_CMD;
-	cmd.len = 5;
-
-	if (cd->double_wakeup)
-		cmd.data[0] = 0x00;
-	else
-		cmd.data[0] = 0x80;
-
-	if (cd->aod_status)
-		cmd.data[1] = 0x00;
-	else
-		cmd.data[1] = 0x10;
-
+	cmd.len = 6;
+	cmd.data[0] = type & 0xFF;
+	cmd.data[1] = (type >> 8) & 0xFF;
 	if (cd->hw_ops->send_cmd(cd, &cmd))
 		ts_err("failed send gesture cmd");
 
@@ -367,7 +359,7 @@ static int brl_write(struct goodix_ts_core *cd, unsigned int addr,
 
 #define GOODIX_CMD_RETRY 6
 static DEFINE_MUTEX(cmd_mutex);
-static int brl_send_cmd(struct goodix_ts_core *cd,
+int brl_send_cmd(struct goodix_ts_core *cd,
 	struct goodix_ts_cmd *cmd)
 {
 	int ret, retry, i;
@@ -803,6 +795,7 @@ static int brl_read_version(struct goodix_ts_core *cd,
 	ts_info("vid:%*ph", (int)sizeof(version->patch_vid),
 		version->patch_vid);
 	ts_info("sensor_id:%d", version->sensor_id);
+	memcpy(cd->fw_vid, cd->fw_version.patch_vid, 4);
 #endif
 
 	return 0;
@@ -928,6 +921,7 @@ static int convert_ic_info(struct goodix_ic_info *info, const u8 *data)
 	LE32_TO_CPU(misc->iq_refdata_addr);
 	LE32_TO_CPU(misc->im_rawdata_addr);
 	LE16_TO_CPU(misc->im_readata_len);
+	LE16_TO_CPU(misc->im_rawdata_len);
 	LE32_TO_CPU(misc->noise_rawdata_addr);
 	LE16_TO_CPU(misc->noise_rawdata_len);
 	LE32_TO_CPU(misc->stylus_rawdata_addr);
@@ -1629,7 +1623,7 @@ static int brl_palm_on(struct goodix_ts_core *cd, bool on)
 
 #ifdef GOODIX_NOTHING_TOUCHFEATURE
 #define GOODIX_GAME_CMD		0x17
-#define GOODIX_NORMAL_CMD		0x18
+#define GOODIX_NORMAL_CMD	0x18
 static int brl_game(struct goodix_ts_core *cd, u8 data0, u8 data1, bool on)
 {
 	struct goodix_ts_cmd cmd;

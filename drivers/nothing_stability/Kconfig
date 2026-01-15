@@ -30,3 +30,9 @@ config NOTHING_TASK_MEMINFO
 	default n
 	help
 		cat /proc/nt_meminfo/show_all_tasks will show all task meminfo
+
+config NOTHING_SECURE_ELEMENT
+	tristate "Nothing secure state"
+	default n
+	help
+		This driver getting secure info from hw which setting up in early stage.
