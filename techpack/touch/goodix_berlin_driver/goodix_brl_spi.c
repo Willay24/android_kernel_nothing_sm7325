@@ -1,4 +1,4 @@
- /*
+/*
   * Goodix Touchscreen Driver
   * Copyright (C) 2020 - 2021 Goodix, Inc.
   *
@@ -126,6 +126,7 @@ static int goodix_spi_read(struct device *dev, unsigned int addr,
 	struct spi_message spi_msg;
 	int ret = 0;
 	int buf_len = SPI_READ_PREFIX_LEN - 1 + len;
+	int i = 0;
 
 	mutex_lock(&goodix_spi_bus.mutex);
 
@@ -167,8 +168,17 @@ static int goodix_spi_read(struct device *dev, unsigned int addr,
 	xfers.rx_buf = rx_buf;
 	xfers.len = buf_len;
 	xfers.cs_change = 0;
-	spi_message_add_tail(&xfers, &spi_msg);
-	ret = spi_sync(spi, &spi_msg);
+	for (i = 0; i < 5; i++) {
+		spi_message_init(&spi_msg);
+		spi_message_add_tail(&xfers, &spi_msg);
+		ret = spi_sync(spi, &spi_msg);
+		if (ret < 0) {
+			ts_err("spi transfer error:%d,retry:%d", ret, i);
+			udelay(150);
+			continue;
+		} else
+			break;
+	}
 	if (ret < 0) {
 		ts_err("spi transfer error:%d", ret);
 		goto err_spi_transfer;
@@ -203,6 +213,7 @@ static int goodix_spi_write(struct device *dev, unsigned int addr,
 	struct spi_message spi_msg;
 	int ret = 0;
 	int buf_len = SPI_WRITE_PREFIX_LEN + len;
+	int i = 0;
 
 	if (buf_len <= SPI_PREALLOC_TX_BUF_SIZE) {
 		tx_buf = goodix_spi_bus.tx_buf;
@@ -228,8 +239,17 @@ static int goodix_spi_write(struct device *dev, unsigned int addr,
 	xfers.tx_buf = tx_buf;
 	xfers.len = buf_len;
 	xfers.cs_change = 0;
-	spi_message_add_tail(&xfers, &spi_msg);
-	ret = spi_sync(spi, &spi_msg);
+	for (i = 0; i < 5; i++) {
+		spi_message_init(&spi_msg);
+		spi_message_add_tail(&xfers, &spi_msg);
+		ret = spi_sync(spi, &spi_msg);
+		if (ret < 0) {
+			ts_err("spi transfer error:%d,retry:%d", ret, i);
+			udelay(150);
+			continue;
+		} else
+			break;
+	}
 
 	mutex_unlock(&goodix_spi_bus.mutex);
 
