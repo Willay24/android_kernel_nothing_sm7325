@@ -246,6 +246,7 @@ static int goodix_get_reg_and_cfg(struct goodix_ts_core *cd, u8 sensor_id,
 	int i;
 	u8 cfg_type;
 	u32 cfg_len;
+	bool match_sensor_id = true;
 	struct goodix_cfg_package *cfg_pkg;
 
 	if (!cfg_bin->head.pkg_num || !cfg_bin->cfg_pkgs) {
@@ -255,9 +256,10 @@ static int goodix_get_reg_and_cfg(struct goodix_ts_core *cd, u8 sensor_id,
 	}
 
 	/* find cfg packages with same sensor_id */
+refind_cfg:
 	for (i = 0; i < cfg_bin->head.pkg_num; i++) {
 		cfg_pkg = &cfg_bin->cfg_pkgs[i];
-		if (sensor_id != cfg_pkg->cnst_info.sensor_id) {
+		if (match_sensor_id && (sensor_id != cfg_pkg->cnst_info.sensor_id)) {
 			ts_info("pkg:%d, sensor id contrast FAILED, bin %d != %d",
 			       i, cfg_pkg->cnst_info.sensor_id, sensor_id);
 			continue;
@@ -291,6 +293,18 @@ static int goodix_get_reg_and_cfg(struct goodix_ts_core *cd, u8 sensor_id,
 		ts_info("get config type %d, len %d, for sensor id %d",
 			cfg_type, cfg_len, sensor_id);
 	}
+
+	if (cd->ic_configs[CONFIG_TYPE_NORMAL] == NULL) {
+		if (match_sensor_id) {
+			ts_info("no cfg match sensor_id[%d], don't match sensor_id, try again.", sensor_id);
+			match_sensor_id = false;
+			goto refind_cfg;
+		} else {
+			ts_err("can't find normal config");
+			goto err_out;
+		}
+	}
+
 	return 0;
 
 err_out:
