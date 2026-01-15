@@ -86,6 +86,11 @@ struct clk_debug_mux {
 extern const struct clk_ops clk_debug_mux_ops;
 
 int clk_debug_measure_register(struct clk_hw *hw);
+#ifdef CONFIG_NOTHING_POWERINFO_STANDBY
+void nothing_clk_proc_add(struct clk_hw *hw);
+#else
+static inline void nothing_clk_proc_add(struct clk_hw *hw) { }
+#endif
 void clk_debug_measure_add(struct clk_hw *hw, struct dentry *dentry);
 int map_debug_bases(struct platform_device *pdev, const char *base,
 		    struct clk_debug_mux *mux);
