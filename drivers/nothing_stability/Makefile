@@ -7,3 +7,4 @@ obj-$(CONFIG_NOTHING_STABILITY_TEST)    += test/
 
 obj-$(CONFIG_NOTHING_RESTART_HANDLER) += nothing_restart_handler.o
 obj-$(CONFIG_NOTHING_TASK_MEMINFO)    += nothing_task_meminfo.o
+obj-$(CONFIG_NOTHING_SECURE_ELEMENT)    += nothing_secure_element.o
