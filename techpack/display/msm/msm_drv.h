@@ -176,6 +176,10 @@ enum msm_mdp_crtc_property {
 	CRTC_PROP_CACHE_STATE,
 	CRTC_PROP_VM_REQ_STATE,
 
+#ifdef CONFIG_DRM_SDE_EXPO
+	CRTC_PROP_DIM_LAYER_EXPO,
+#endif
+
 	/* total # of properties */
 	CRTC_PROP_COUNT
 };
@@ -213,6 +217,7 @@ enum msm_mdp_conn_property {
 	CONNECTOR_PROP_FB_TRANSLATION_MODE,
 	CONNECTOR_PROP_QSYNC_MODE,
 	CONNECTOR_PROP_CMD_FRAME_TRIGGER_MODE,
+	CONNECTOR_PROP_FINGER_FLAG,
 
 	/* total # of properties */
 	CONNECTOR_PROP_COUNT

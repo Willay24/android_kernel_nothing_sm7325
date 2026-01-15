@@ -99,6 +99,8 @@ msm_drm-$(CONFIG_DRM_SDE_RSC) += sde_rsc.o \
 	sde_rsc_hw.o \
 	sde_rsc_hw_v3.o
 
+msm_drm-$(CONFIG_DRM_SDE_EXPO) += sde/sde_expo_dim_layer.o
+
 msm_drm-$(CONFIG_DRM_MSM_DSI) += dsi/dsi_phy.o \
 	dsi/dsi_pwr.o \
 	dsi/dsi_phy.o \
@@ -118,7 +120,8 @@ msm_drm-$(CONFIG_DRM_MSM_DSI) += dsi/dsi_phy.o \
 	dsi/dsi_display.o \
 	dsi/dsi_panel.o \
 	dsi/dsi_clk_manager.o \
-	dsi/dsi_display_test.o
+	dsi/dsi_display_test.o \
+	dsi/nt_display.o
 
 msm_drm-$(CONFIG_DSI_PARSER) += dsi/dsi_parser.o
 

@@ -27,6 +27,34 @@
 #define MAX_SV_BL_SCALE_LEVEL 65535
 #define DSI_CMD_PPS_SIZE 135
 
+/* Phone (2) LTPO panel (NOS A065 code base): has skip-frame/LTPO commands */
+#define NT_PANEL_NAME "nt37705 amoled fhd+ 120hz cmd mode dsi visionox panel"
+/* Phone (1) panel (spacewar): fixed 60/90/120Hz, no skip-frame */
+#define NT_PANEL_NAME_RM692E5 "rm692e5 amoled fhd+ 120hz cmd mode dsi visionox panel"
+
+enum dsi_cmd_sfm_set_type {
+	DSI_CMD_SET_FRAME = 0,
+	DSI_CMD_DISABLE_SKIP_FRAME_MODE,
+	DSI_CMD_GET_REG2F,
+	DSI_CMD_GET_REG6D,
+	DSI_CMD_TE_NOTFOLLOW_SOURCE,
+	DSI_CMD_TE_FOLLOW_SOURCE,
+	DSI_CMD_30HZ_DIMMING,
+	DSI_CMD_10HZ_DIMMING,
+	DSI_CMD_1HZ_DIMMING,
+	DSI_CMD_60HZ_NODIMMING,
+	DSI_CMD_30HZ_NODIMMING,
+	DSI_CMD_24HZ_NODIMMING,
+	DSI_CMD_10HZ_NODIMMING,
+	DSI_CMD_1HZ_NODIMMING,
+	DSI_CMD_SFM_MAX
+};
+
+struct dsi_display_refresh_rate_cmd_set {
+	char *cmds;
+	u32 count;
+};
+
 #define DSI_CMD_PPS_HDR_SIZE 7
 #define DSI_MODE_MAX 32
 
@@ -52,6 +80,12 @@ enum dsi_backlight_type {
 	DSI_BACKLIGHT_EXTERNAL,
 	DSI_BACKLIGHT_UNKNOWN,
 	DSI_BACKLIGHT_MAX,
+};
+
+enum dsi_doze_type {
+	DSI_DOZE_OFF,
+	DSI_DOZE_HBM,
+	DSI_DOZE_LBM,
 };
 
 enum bl_update_flag {
@@ -123,7 +157,9 @@ struct dsi_backlight_config {
 	u32 bl_max_level;
 	u32 bl_hbm_level;
 	u32 brightness_max_level;
+	u32 brightness_init_level;
 	u32 bl_level;
+	u32 bl_level_nodim;
 	u32 bl_scale;
 	u32 bl_scale_sv;
 	bool bl_inverted_dbv;
@@ -284,6 +320,15 @@ struct dsi_panel {
 	u8 fod_dim_alpha;
 	bool fod_hbm_enabled;
 	bool fod_ui;
+#ifdef CONFIG_DRM_SDE_EXPO
+	bool dimlayer_exposure;
+#endif
+	enum dsi_doze_type doze_status;
+	u32 doze_hbm_threshold;
+	u32 aod_nit_threshold[2];
+	enum dsi_cmd_set_type aod_tier_set;
+
+	struct dsi_display_refresh_rate_cmd_set nt_cmd_sets[DSI_CMD_SFM_MAX];
 };
 
 static inline bool dsi_panel_ulps_feature_enabled(struct dsi_panel *panel)
@@ -422,5 +467,12 @@ void dsi_panel_dealloc_cmd_packets(struct dsi_panel_cmd_set *set);
 bool dsi_panel_get_fod_ui(struct dsi_panel *panel);
 void dsi_panel_set_fod_ui(struct dsi_panel *panel, bool status);
 u8 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel);
+
+int nt_is_panel_detected(void);
+bool nt_panel_has_skip_frame(void);
+int nt_display_parse_switch_cmds(struct dsi_panel *panel);
+void nt_display_free_switch_cmds(struct dsi_panel *panel);
+
+extern int nt_cur_refresh_rate;
 
 #endif /* _DSI_PANEL_H_ */

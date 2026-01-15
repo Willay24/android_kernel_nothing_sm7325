@@ -651,13 +651,25 @@ u8 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel)
 	return alpha;
 }
 
+static int dsi_panel_set_doze(struct dsi_panel *panel, u32 bl_lvl);
+
 int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 {
 	int rc = 0;
 	struct dsi_backlight_config *bl = &panel->bl_config;
+	static unsigned long last_stored;
 
 	if (panel->host_config.ext_bridge_mode)
 		return 0;
+
+	/* The panel exits doze on any brightness changes */
+	if (panel->doze_status) {
+		if (bl_lvl) {
+			dsi_panel_set_doze(panel, bl_lvl);
+			bl->bl_level_nodim = bl_lvl;
+		}
+		return 0;
+	}
 
 	DSI_DEBUG("backlight type:%d lvl:%d\n", bl->type, bl_lvl);
 	switch (bl->type) {
@@ -675,6 +687,12 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 	default:
 		DSI_ERR("Backlight type(%d) not supported\n", bl->type);
 		rc = -ENOTSUPP;
+	}
+
+	/* Avoid using dimmed value when calculating doze mode */
+	if (bl_lvl && time_after(jiffies, last_stored + 6 * HZ)) {
+		last_stored = jiffies;
+		bl->bl_level_nodim = bl_lvl;
 	}
 
 	panel->fod_dim_alpha = dsi_panel_calc_fod_dim_alpha(panel, panel->bl_config.real_bl_level);
@@ -1209,6 +1227,23 @@ static int dsi_panel_parse_misc_host_config(struct dsi_host_common_cfg *host,
 
 	DSI_DEBUG("[%s] DMA scheduling parameters Line: %d Window: %d\n", name,
 			host->dma_sched_line, host->dma_sched_window);
+
+	rc = utils->read_u32(utils->data, "qcom,mdss-dsi-clk-strength", &val);
+	if (!rc)
+		host->clk_strength = val;
+	else
+		host->clk_strength = 0;
+
+	DSI_DEBUG("[%s] clk_strength = %d\n", name, val);
+
+	rc = utils->read_u32(utils->data, "qcom,mdss-dsi-phy-voltage", &val);
+	if (!rc)
+		host->phy_voltage = val;
+	else
+		host->phy_voltage = 0;
+
+	DSI_DEBUG("[%s] phy_voltage = %d\n", name, val);
+
 	return 0;
 }
 
@@ -1795,6 +1830,12 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,video-to-cmd-mode-switch-commands",
 	"qcom,video-to-cmd-mode-post-switch-commands",
 	"qcom,mdss-dsi-panel-status-command",
+	"qcom,mdss-dsi-aod-command-5nit",
+	"qcom,mdss-dsi-aod-command-30nit",
+	"qcom,mdss-dsi-aod-command-60nit",
+	"qcom,mdss-dsi-lp1-command-5nit",
+	"qcom,mdss-dsi-lp1-command-30nit",
+	"qcom,mdss-dsi-lp1-command-60nit",
 	"qcom,mdss-dsi-lp1-command",
 	"qcom,mdss-dsi-lp2-command",
 	"qcom,mdss-dsi-nolp-command",
@@ -1804,6 +1845,8 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-mode-switch-on-command",
 	"qcom,mdss-dsi-qsync-on-commands",
 	"qcom,mdss-dsi-qsync-off-commands",
+	"qcom,mdss-dsi-doze-hbm-command",
+	"qcom,mdss-dsi-doze-lbm-command",
 };
 
 const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
@@ -1821,6 +1864,12 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,video-to-cmd-mode-switch-commands-state",
 	"qcom,video-to-cmd-mode-post-switch-commands-state",
 	"qcom,mdss-dsi-panel-status-command-state",
+	"qcom,mdss-dsi-aod-command-5nit-state",
+	"qcom,mdss-dsi-aod-command-30nit-state",
+	"qcom,mdss-dsi-aod-command-60nit-state",
+	"qcom,mdss-dsi-lp1-command-5nit-state",
+	"qcom,mdss-dsi-lp1-command-30nit-state",
+	"qcom,mdss-dsi-lp1-command-60nit-state",
 	"qcom,mdss-dsi-lp1-command-state",
 	"qcom,mdss-dsi-lp2-command-state",
 	"qcom,mdss-dsi-nolp-command-state",
@@ -1830,6 +1879,8 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-post-mode-switch-on-command-state",
 	"qcom,mdss-dsi-qsync-on-commands-state",
 	"qcom,mdss-dsi-qsync-off-commands-state",
+	"qcom,mdss-dsi-doze-hbm-command-state",
+	"qcom,mdss-dsi-doze-lbm-command-state",
 };
 
 int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
@@ -2555,6 +2606,17 @@ static int dsi_panel_parse_bl_config(struct dsi_panel *panel)
 		panel->bl_config.brightness_max_level = val;
 	}
 
+	rc = utils->read_u32(utils->data, "qcom,mdss-brightness-init-level",
+		&val);
+	if (rc) {
+		DSI_DEBUG("[%s] brigheness-init-level unspecified, defaulting to 15% max level\n",
+			 panel->name);
+		panel->bl_config.brightness_init_level =
+			(panel->bl_config.brightness_max_level * 15) / 100;
+	} else {
+		panel->bl_config.brightness_init_level = val;
+	}
+
 	panel->bl_config.bl_inverted_dbv = utils->read_bool(utils->data,
 		"qcom,mdss-dsi-bl-inverted-dbv");
 
@@ -2651,6 +2713,7 @@ static int dsi_panel_parse_dsc_params(struct dsi_display_mode *mode,
 				struct dsi_parser_utils *utils)
 {
 	u32 data;
+	u64 dsc_panel_id;
 	int rc = -EINVAL;
 	int intf_width;
 	const char *compression;
@@ -2797,8 +2860,14 @@ static int dsi_panel_parse_dsc_params(struct dsi_display_mode *mode,
 	priv_info->dsc.config.slice_count = DIV_ROUND_UP(intf_width,
 		priv_info->dsc.config.slice_width);
 
-	rc = sde_dsc_populate_dsc_config(&priv_info->dsc.config,
-			priv_info->dsc.scr_rev);
+	rc = utils->read_u64(utils->data, "mi,mdss-dsc-panel-id", &dsc_panel_id);
+	if (rc) {
+		rc = sde_dsc_populate_dsc_config(&priv_info->dsc.config, priv_info->dsc.scr_rev);
+	} else {
+		rc = sde_dsc_populate_dsc_config_nt(&priv_info->dsc.config, priv_info->dsc.scr_rev, dsc_panel_id);
+		DSI_DEBUG("mi,mdss-dsc-panel-id is 0x%llx\n", dsc_panel_id);
+	}
+
 	if (rc) {
 		DSI_DEBUG("failed populating dsc params\n");
 		rc = -EINVAL;
@@ -3539,6 +3608,49 @@ error:
 	return rc;
 }
 
+struct dsi_panel *nt_panel;
+
+static bool nt_panel_name_supported(const char *name)
+{
+	return name && (!strcmp(name, NT_PANEL_NAME) ||
+			!strcmp(name, NT_PANEL_NAME_RM692E5));
+}
+
+int nt_is_panel_detected(void)
+{
+	return nt_panel && nt_panel_name_supported(nt_panel->name);
+}
+
+/* Skip-frame (LTPO) is only wired up on panels that supplied the commands */
+bool nt_panel_has_skip_frame(void)
+{
+	return nt_panel &&
+	       nt_panel->nt_cmd_sets[DSI_CMD_SET_FRAME].cmds &&
+	       nt_panel->nt_cmd_sets[DSI_CMD_GET_REG2F].cmds;
+}
+
+static int dsi_panel_parse_doze(struct dsi_panel *panel)
+{
+	int rc;
+	struct dsi_parser_utils *utils = &panel->utils;
+
+	rc = utils->read_u32(utils->data,
+			     "mi,mdss-dsi-doze-hbm-brightness-value",
+			     &panel->doze_hbm_threshold);
+	if (rc)
+		panel->doze_hbm_threshold = 200;
+
+	if (utils->read_u32(utils->data, "qcom,mdss-dsi-aod-30nit-threshold",
+			    &panel->aod_nit_threshold[0]))
+		panel->aod_nit_threshold[0] = 360;
+
+	if (utils->read_u32(utils->data, "qcom,mdss-dsi-aod-60nit-threshold",
+			    &panel->aod_nit_threshold[1]))
+		panel->aod_nit_threshold[1] = 1300;
+
+	return rc;
+}
+
 static void dsi_panel_update_util(struct dsi_panel *panel,
 				  struct device_node *parser_node)
 {
@@ -3744,6 +3856,20 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	if (rc)
 		DSI_DEBUG("failed to parse esd config, rc=%d\n", rc);
 
+	if (nt_panel_name_supported(panel->name)) {
+		nt_panel = panel;
+		/* LTPO skip-frame commands only exist on the NT37705 panel */
+		if (!strcmp(panel->name, NT_PANEL_NAME)) {
+			rc = nt_display_parse_switch_cmds(panel);
+			if (rc)
+				DSI_DEBUG("failed to parse switch cmds, rc=%d\n", rc);
+		}
+	}
+
+	rc = dsi_panel_parse_doze(panel);
+	if (rc)
+		DSI_DEBUG("failed to parse doze, rc=%d", rc);
+
 	rc = dsi_panel_vreg_get(panel);
 	if (rc) {
 		DSI_ERR("[%s] failed to get panel regulators, rc=%d\n",
@@ -3752,6 +3878,8 @@ struct dsi_panel *dsi_panel_get(struct device *parent,
 	}
 
 	panel->power_mode = SDE_MODE_DPMS_ON;
+	panel->doze_status = DSI_DOZE_OFF;
+	panel->aod_tier_set = DSI_CMD_SET_MAX;
 	drm_panel_init(&panel->drm_panel);
 	panel->drm_panel.dev = &panel->mipi_device.dev;
 	panel->mipi_device.dev.of_node = of_node;
@@ -3782,6 +3910,11 @@ void dsi_panel_put(struct dsi_panel *panel)
 
 	/* free resources allocated for ESD check */
 	dsi_panel_esd_config_deinit(&panel->esd_config);
+
+	if (nt_panel == panel) {
+		nt_display_free_switch_cmds(panel);
+		nt_panel = NULL;
+	}
 
 	kfree(panel);
 }
@@ -4426,9 +4559,86 @@ error:
 
 extern int finger_hbm_flag;
 
+static inline int dsi_panel_switch_doze(struct dsi_panel *panel,
+					enum dsi_doze_type mode)
+{
+	int rc = 0;
+
+	if (panel->doze_status == mode)
+		return rc;
+
+	panel->doze_status = mode;
+	switch (mode) {
+	case DSI_DOZE_OFF:
+		rc = dsi_panel_set_backlight(panel,
+					     panel->bl_config.bl_level_nodim);
+		break;
+	case DSI_DOZE_HBM:
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_DOZE_HBM);
+		break;
+	case DSI_DOZE_LBM:
+		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_DOZE_LBM);
+		break;
+	default:
+		break;
+	}
+
+	return rc;
+}
+
+static enum dsi_cmd_set_type dsi_panel_pick_aod_set(struct dsi_panel *panel,
+		u32 bl_lvl, enum dsi_cmd_set_type first,
+		enum dsi_cmd_set_type fallback)
+{
+	u32 tier;
+
+	/* NOS 3.0: bl_lvl == 0 selects the lowest tier ("brightness >= 0") */
+	if (!panel->cur_mode || !panel->cur_mode->priv_info)
+		return fallback;
+
+	if (bl_lvl < panel->aod_nit_threshold[0])
+		tier = 0;
+	else if (bl_lvl < panel->aod_nit_threshold[1])
+		tier = 1;
+	else
+		tier = 2;
+
+	if (!panel->cur_mode->priv_info->cmd_sets[first + tier].count)
+		return fallback;
+
+	return first + tier;
+}
+
+static int dsi_panel_set_doze(struct dsi_panel *panel, u32 bl_lvl)
+{
+	enum dsi_cmd_set_type set;
+	int rc;
+
+	rc = dsi_panel_switch_doze(panel, bl_lvl > panel->doze_hbm_threshold ?
+						   DSI_DOZE_HBM :
+						   DSI_DOZE_LBM);
+	if (rc)
+		return rc;
+
+	set = dsi_panel_pick_aod_set(panel, bl_lvl, DSI_CMD_SET_AOD_5NIT,
+				     DSI_CMD_SET_MAX);
+	if (set == DSI_CMD_SET_MAX || set == panel->aod_tier_set)
+		return 0;
+
+	rc = dsi_panel_tx_cmd_set(panel, set);
+	if (rc)
+		DSI_ERR("[%s] failed to send AOD cmd set %d, rc=%d\n",
+		       panel->name, set, rc);
+	else
+		panel->aod_tier_set = set;
+
+	return rc;
+}
+
 int dsi_panel_set_lp1(struct dsi_panel *panel)
 {
 	int rc = 0;
+	enum dsi_cmd_set_type lp1_set;
 
 	if (!panel) {
 		DSI_ERR("invalid params\n");
@@ -4450,10 +4660,17 @@ int dsi_panel_set_lp1(struct dsi_panel *panel)
 		panel->power_mode != SDE_MODE_DPMS_LP2)
 		dsi_pwr_panel_regulator_mode_set(&panel->power_info,
 			"ibb", REGULATOR_MODE_IDLE);
-	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_LP1);
+	panel->aod_tier_set = DSI_CMD_SET_MAX;
+	lp1_set = dsi_panel_pick_aod_set(panel, panel->bl_config.bl_level_nodim,
+					 DSI_CMD_SET_LP1_5NIT, DSI_CMD_SET_LP1);
+	rc = dsi_panel_tx_cmd_set(panel, lp1_set);
 	if (rc)
-		DSI_ERR("[%s] failed to send DSI_CMD_SET_LP1 cmd, rc=%d\n",
-		       panel->name, rc);
+		DSI_ERR("[%s] failed to send DSI_CMD_SET_LP1 cmd, set=%d rc=%d\n",
+		       panel->name, lp1_set, rc);
+
+	rc = dsi_panel_set_doze(panel, panel->bl_config.bl_level_nodim);
+	if (rc)
+		DSI_ERR("[%s] unable to set doze, rc=%d\n", panel->name, rc);
 
 	if (finger_hbm_flag == 1) {
 		finger_hbm_flag = 0;
@@ -4484,10 +4701,15 @@ int dsi_panel_set_lp2(struct dsi_panel *panel)
 		dsi_pwr_panel_regulator_mode_set(&panel->power_info,
 			"ibb", REGULATOR_MODE_IDLE);
 
+	panel->aod_tier_set = DSI_CMD_SET_MAX;
 	rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_LP2);
 	if (rc)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_LP2 cmd, rc=%d\n",
 		       panel->name, rc);
+
+	rc = dsi_panel_set_doze(panel, panel->bl_config.bl_level_nodim);
+	if (rc)
+		DSI_ERR("[%s] unable to set doze, rc=%d\n", panel->name, rc);
 
 	if (finger_hbm_flag == 1) {
 		finger_hbm_flag = 0;
@@ -4527,6 +4749,11 @@ int dsi_panel_set_nolp(struct dsi_panel *panel)
 	if (rc)
 		DSI_ERR("[%s] failed to send DSI_CMD_SET_NOLP cmd, rc=%d\n",
 		       panel->name, rc);
+
+	rc = dsi_panel_switch_doze(panel, DSI_DOZE_OFF);
+	if (rc)
+		DSI_ERR("[%s] unable to set doze, rc=%d\n", panel->name, rc);
+	panel->aod_tier_set = DSI_CMD_SET_MAX;
 exit:
 	mutex_unlock(&panel->panel_lock);
 	return rc;
@@ -4885,6 +5112,7 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	else
 		panel->panel_initialized = true;
 	mutex_unlock(&panel->panel_lock);
+
 	return rc;
 }
 
@@ -4977,6 +5205,8 @@ int dsi_panel_disable(struct dsi_panel *panel)
 	}
 	panel->panel_initialized = false;
 	panel->power_mode = SDE_MODE_DPMS_OFF;
+	panel->doze_status = DSI_DOZE_OFF;
+	panel->aod_tier_set = DSI_CMD_SET_MAX;
 
 	if (finger_hbm_flag == 1) {
 		finger_hbm_flag = 0;

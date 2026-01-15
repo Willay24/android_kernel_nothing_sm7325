@@ -43,7 +43,7 @@
 
 #define GOODIX_CORE_DRIVER_NAME			"goodix_ts"
 #define GOODIX_PEN_DRIVER_NAME			"goodix_ts,pen"
-#define GOODIX_DRIVER_VERSION			"v1.3.4"
+#define GOODIX_DRIVER_VERSION			"v1.3.5"
 #define GOODIX_MAX_TOUCH				10
 #define GOODIX_PEN_MAX_PRESSURE			4096
 #define GOODIX_MAX_PEN_KEY				2
@@ -80,9 +80,9 @@ enum PANEL_ORIENTATION {
 };
 
 enum GOODIX_GESTURE_TYP {
-	GESTURE_SINGLE_TAP = (1 << 0),
-	GESTURE_DOUBLE_TAP = (1 << 1),
-	GESTURE_FOD_PRESS  = (1 << 2)
+	GESTURE_SINGLE_TAP = (1 << 12),
+	GESTURE_DOUBLE_TAP = (1 << 7),
+	GESTURE_FOD_PRESS  = (1 << 13)
 };
 
 enum CORD_PROB_STA {
@@ -238,8 +238,8 @@ struct goodix_ic_info_misc { /* other data */
 	u32 touch_data_addr;
 	u16 touch_data_head_len;
 	u16 point_struct_len;
-	u16 reserved1;
-	u16 reserved2;
+	u16 screen_real_max_x;
+	u16 screen_real_max_y;
 	u32 mutual_rawdata_addr;
 	u32 mutual_diffdata_addr;
 	u32 mutual_refdata_addr;
@@ -250,6 +250,7 @@ struct goodix_ic_info_misc { /* other data */
 	u32 iq_refdata_addr;
 	u32 im_rawdata_addr;
 	u16 im_readata_len;
+	u16 im_rawdata_len;
 	u32 noise_rawdata_addr;
 	u16 noise_rawdata_len;
 	u32 stylus_rawdata_addr;
@@ -542,7 +543,11 @@ struct goodix_ts_core {
 	struct goodix_ic_config *ic_configs[GOODIX_MAX_CONFIG_GROUP];
 	struct regulator *avdd;
 	struct regulator *iovdd;
-	unsigned char gesture_type;
+	u32 gesture_type;
+	u32 gesture_up_flag;
+	u16 gesture_x;
+	u16 gesture_y;
+	u8 fw_vid[4];
 
 	int power_on;
 	int irq;

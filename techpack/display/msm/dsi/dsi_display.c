@@ -22,6 +22,18 @@
 #include "sde_dbg.h"
 #include "dsi_parser.h"
 #include <video/mipi_display.h>
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+#ifdef CONFIG_DRM_SDE_EXPO
+#include "sde_expo_dim_layer.h"
+#endif
+#ifdef CONFIG_DRM_PANEL
+extern int lpm_levels_register_panel(struct drm_panel *panel);
+static bool lpm_panel_registered;
+#ifdef CONFIG_NOTHING_THERMAL_INTERFACE
+extern int nothing_thermal_register_panel(struct drm_panel *panel);
+#endif
+#endif
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -54,6 +66,9 @@ static const struct of_device_id dsi_display_dt_match[] = {
 };
 
 static unsigned int cur_refresh_rate = 60;
+int nt_cur_refresh_rate = 120;
+static char panel_id_param[8];
+static struct proc_dir_entry *panel_id_entry;
 
 bool is_skip_op_required(struct dsi_display *display)
 {
@@ -246,6 +261,11 @@ int dsi_display_set_backlight(struct drm_connector *connector,
 		       dsi_display->name, rc);
 		goto error;
 	}
+
+#ifdef CONFIG_DRM_SDE_EXPO
+	if (panel->dimlayer_exposure)
+		bl_temp = expo_map_dim_level((u32)bl_temp, dsi_display);
+#endif
 
 	rc = dsi_panel_set_backlight(panel, (u32)bl_temp);
 	if (rc)
@@ -1241,6 +1261,46 @@ static void _dsi_display_setup_misr(struct dsi_display *display)
 	}
 }
 
+static u32 interpolated(uint32_t x, uint32_t xa, uint32_t xb,
+		uint32_t ya, uint32_t yb)
+{
+	return ya - (ya - yb) * (x - xa) / (xb - xa);
+}
+
+struct blbl {
+        u32 bl;
+        u32 aod_bl;
+};
+
+struct blbl aod_bl_lut[] = {
+	{0, 1},
+	{10, 1},
+	{40, 9},
+	{90, 30},
+	{120, 40},
+};
+
+u32 dsi_panel_get_aod_bl(struct dsi_display *display)
+{
+        u32 cur_bl = display->panel->bl_config.bl_level;
+	int i;
+
+	for (i = 0; i < 5; i++)
+                if (aod_bl_lut[i].bl >= cur_bl)
+                        break;
+        if (i == 0)
+                return aod_bl_lut[i].aod_bl;
+
+        if (i == 4)
+                return aod_bl_lut[i - 1].aod_bl;
+
+        return interpolated(cur_bl,
+                           aod_bl_lut[i - 1].bl,
+                           aod_bl_lut[i].bl,
+                           aod_bl_lut[i - 1].aod_bl,
+                           aod_bl_lut[i].aod_bl);
+}
+
 int dsi_display_set_power(struct drm_connector *connector,
 		int power_mode, void *disp)
 {
@@ -1257,6 +1317,8 @@ int dsi_display_set_power(struct drm_connector *connector,
 		rc = dsi_panel_set_lp1(display->panel);
 		break;
 	case SDE_MODE_DPMS_LP2:
+		dsi_panel_set_backlight(display->panel, dsi_panel_get_aod_bl(display));
+		usleep_range(20000, 30000);
 		rc = dsi_panel_set_lp2(display->panel);
 		break;
 	case SDE_MODE_DPMS_ON:
@@ -5632,6 +5694,100 @@ static int dsi_display_pre_acquire(void *data)
 	return 0;
 }
 
+#ifdef CONFIG_DRM_SDE_EXPO
+static ssize_t sysfs_dimlayer_exposure_read(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct dsi_display *display;
+	struct dsi_panel *panel;
+	bool status;
+
+	display = dev_get_drvdata(dev);
+	if (!display) {
+		pr_err("Invalid display\n");
+		return -EINVAL;
+	}
+
+	panel = display->panel;
+
+	mutex_lock(&panel->panel_lock);
+	status = panel->dimlayer_exposure;
+	mutex_unlock(&panel->panel_lock);
+
+	return snprintf(buf, PAGE_SIZE, "%d\n", status);
+}
+
+static ssize_t sysfs_dimlayer_exposure_write(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct dsi_display *display;
+	struct dsi_panel *panel;
+	struct drm_connector *connector = NULL;
+	bool status;
+	int rc = 0;
+
+	display = dev_get_drvdata(dev);
+	if (!display) {
+		pr_err("Invalid display\n");
+		return -EINVAL;
+	}
+
+	rc = kstrtobool(buf, &status);
+	if (rc) {
+		pr_err("%s: kstrtobool failed. rc=%d\n", __func__, rc);
+		return rc;
+	}
+
+	panel = display->panel;
+	connector = display->drm_conn;
+	if (!connector) {
+		pr_warn("%s: connector not found\n", __func__);
+		return -EINVAL;
+	}
+
+	panel->dimlayer_exposure = status;
+	dsi_display_set_backlight(connector, display, panel->bl_config.bl_level);
+
+	return count;
+}
+
+static DEVICE_ATTR(dimlayer_exposure, 0644,
+			sysfs_dimlayer_exposure_read,
+			sysfs_dimlayer_exposure_write);
+#endif
+
+static struct attribute *display_fs_attrs[] = {
+#ifdef CONFIG_DRM_SDE_EXPO
+	&dev_attr_dimlayer_exposure.attr,
+#endif
+	NULL,
+};
+
+static struct attribute_group display_fs_attrs_group = {
+	.attrs = display_fs_attrs,
+};
+
+static int dsi_display_sysfs_init(struct dsi_display *display)
+{
+	int rc = 0;
+	struct device *dev = &display->pdev->dev;
+
+	rc = sysfs_create_group(&dev->kobj, &display_fs_attrs_group);
+	if (rc)
+		pr_err("failed to create display device attributes");
+
+	return rc;
+}
+
+static int dsi_display_sysfs_deinit(struct dsi_display *display)
+{
+	struct device *dev = &display->pdev->dev;
+
+	sysfs_remove_group(&dev->kobj, &display_fs_attrs_group);
+
+	return 0;
+}
+
 /**
  * dsi_display_bind - bind dsi device with controlling device
  * @dev:        Pointer to base of platform device
@@ -5707,6 +5863,12 @@ static int dsi_display_bind(struct device *dev,
 
 	atomic_set(&display->clkrate_change_pending, 0);
 	display->cached_clk_rate = 0;
+
+	rc = dsi_display_sysfs_init(display);
+	if (rc) {
+		DSI_ERR("[%s] sysfs init failed, rc=%d\n", display->name, rc);
+		goto error;
+	}
 
 	memset(&info, 0x0, sizeof(info));
 
@@ -5818,6 +5980,15 @@ static int dsi_display_bind(struct device *dev,
 		goto error_host_deinit;
 	}
 
+#ifdef CONFIG_DRM_PANEL
+	if (!lpm_panel_registered &&
+	    !lpm_levels_register_panel(&display->panel->drm_panel))
+		lpm_panel_registered = true;
+#ifdef CONFIG_NOTHING_THERMAL_INTERFACE
+	nothing_thermal_register_panel(&display->panel->drm_panel);
+#endif
+#endif
+
 	DSI_INFO("Successfully bind display panel '%s'\n", display->name);
 	display->drm_dev = drm;
 
@@ -5857,6 +6028,7 @@ error_ctrl_deinit:
 		dsi_ctrl_put(display_ctrl->ctrl);
 		dsi_phy_put(display_ctrl->phy);
 	}
+	(void)dsi_display_sysfs_deinit(display);
 	(void)dsi_display_debugfs_deinit(display);
 error:
 	mutex_unlock(&display->display_lock);
@@ -6013,6 +6185,24 @@ static void dsi_display_firmware_display(const struct firmware *fw,
 	DSI_DEBUG("success\n");
 }
 
+static int panel_id_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%s\n", panel_id_param);
+	return 0;
+}
+
+static int panel_id_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, panel_id_show, NULL);
+}
+
+static const struct proc_ops panel_id_fops = {
+	.proc_open = panel_id_open,
+	.proc_read = seq_read,
+	.proc_lseek = seq_lseek,
+	.proc_release = single_release,
+};
+
 int dsi_display_dev_probe(struct platform_device *pdev)
 {
 	struct dsi_display *display = NULL;
@@ -6087,6 +6277,13 @@ int dsi_display_dev_probe(struct platform_device *pdev)
 
 	dsi_display_parse_cmdline_topology(display, index);
 
+	if (!strcmp(display->display_type, "primary") && !panel_id_entry) {
+		panel_id_entry = proc_create("panel_id", 0444, NULL,
+					     &panel_id_fops);
+		if (!panel_id_entry)
+			DSI_ERR("panel_id proc_create failed\n");
+	}
+
 	platform_set_drvdata(pdev, display);
 
 	/* initialize display in firmware callback */
@@ -6140,6 +6337,11 @@ int dsi_display_dev_remove(struct platform_device *pdev)
 
 	/* decrement ref count */
 	of_node_put(display->panel_node);
+
+	if (panel_id_entry) {
+		proc_remove(panel_id_entry);
+		panel_id_entry = NULL;
+	}
 
 	if (display->dma_cmd_workq) {
 		flush_workqueue(display->dma_cmd_workq);
@@ -7522,6 +7724,8 @@ int dsi_display_set_mode(struct dsi_display *display,
 			timing.h_active, timing.v_active, timing.refresh_rate);
 
 	memcpy(display->panel->cur_mode, &adj_mode, sizeof(adj_mode));
+
+	nt_cur_refresh_rate = timing.refresh_rate;
 error:
 	mutex_unlock(&display->display_lock);
 	return rc;
@@ -8819,3 +9023,6 @@ module_param_string(dsi_display1, dsi_display_secondary, MAX_CMDLINE_PARAM_LEN,
 								0600);
 MODULE_PARM_DESC(dsi_display1,
 	"msm_drm.dsi_display1=<display node>:<configX> where <display node> is 'secondary dsi display node name' and <configX> where x represents index in the topology list");
+module_param_string(panel_id, panel_id_param, sizeof(panel_id_param), 0600);
+MODULE_PARM_DESC(panel_id,
+	"msm_drm.panel_id=<ID1><ID2><ID3>");
