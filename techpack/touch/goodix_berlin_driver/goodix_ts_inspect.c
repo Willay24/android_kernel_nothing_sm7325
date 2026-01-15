@@ -28,7 +28,7 @@
 #define NOISEDATA_TEST_TIMES				1  /* noise test frames */
 
 #define GOODIX_TEST_FILE_NAME				"goodix_test_limits"
-#define DEFAULT_SEQ_FILE_SIZE				200 * 1024
+#define DEFAULT_SEQ_FILE_SIZE				800 * 1024
 #define MAX_DATA_BUFFER						28000
 #define MAX_SHORT_NUM						15
 #define MAX_LINE_LEN                		(1024 * 3 * 7)

@@ -21,6 +21,9 @@
 #include <linux/of.h>
 #include <linux/regmap.h>
 #include <linux/seq_file.h>
+#ifdef CONFIG_NOTHING_POWERINFO_STANDBY
+#include <linux/proc_fs.h>
+#endif
 #include <linux/uaccess.h>
 #include <linux/regulator/of_regulator.h>
 #include <linux/regulator/consumer.h>
@@ -54,7 +57,7 @@ static LIST_HEAD(regulator_ena_gpio_list);
 static LIST_HEAD(regulator_supply_alias_list);
 static LIST_HEAD(regulator_coupler_list);
 static bool has_full_constraints;
-#ifdef CONFIG_DEBUG_FS
+#if defined(CONFIG_DEBUG_FS) || defined(CONFIG_NOTHING_POWERINFO_STANDBY)
 static bool debug_suspend;
 #endif
 
@@ -6288,6 +6291,42 @@ void regulator_debug_print_enabled(void)
 EXPORT_SYMBOL(regulator_debug_print_enabled);
 #endif /* CONFIG_REGULATOR_QTI_DEBUG */
 
+#ifdef CONFIG_NOTHING_POWERINFO_STANDBY
+static ssize_t nt_debug_suspend_write(struct file *filp,
+				      const char __user *buff,
+				      size_t len, loff_t *off)
+{
+	bool val;
+	int ret;
+
+	ret = kstrtobool_from_user(buff, len, &val);
+	if (ret)
+		return ret;
+
+	debug_suspend = val;
+	return len;
+}
+
+static int nt_debug_suspend_show(struct seq_file *m, void *v)
+{
+	seq_printf(m, "%d\n", debug_suspend);
+	return 0;
+}
+
+static int nt_debug_suspend_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, nt_debug_suspend_show, NULL);
+}
+
+static const struct proc_ops nt_debug_suspend_proc_ops = {
+	.proc_open	= nt_debug_suspend_open,
+	.proc_read	= seq_read,
+	.proc_write	= nt_debug_suspend_write,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
+};
+#endif
+
 static int __init regulator_init(void)
 {
 	int ret;
@@ -6307,6 +6346,16 @@ static int __init regulator_init(void)
 
 	debugfs_create_bool("debug_suspend", 0644, debugfs_root,
 			    &debug_suspend);
+#endif
+
+#ifdef CONFIG_NOTHING_POWERINFO_STANDBY
+	{
+		struct proc_dir_entry *reg_proc = proc_mkdir("regulator", NULL);
+
+		if (reg_proc)
+			proc_create("debug_suspend", 0664, reg_proc,
+				    &nt_debug_suspend_proc_ops);
+	}
 #endif
 	regulator_dummy_init();
 

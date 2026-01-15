@@ -78,5 +78,10 @@ ifeq ($(CONFIG_TOUCHSCREEN_FOCALTECH_3680), y)
 		focaltech_touch/focaltech_flash.o \
 		focaltech_touch/focaltech_spi.o
 
+	focaltech_touch-$(CONFIG_TOUCHSCREEN_FOCALTECH_TEST) += \
+		focaltech_touch/focaltech_test/focaltech_test.o \
+		focaltech_touch/focaltech_test/focaltech_test_ini.o \
+		focaltech_touch/focaltech_test/supported_ic/focaltech_test_ft3680.o
+
 	obj-$(CONFIG_MSM_TOUCH) += focaltech_touch.o
 endif

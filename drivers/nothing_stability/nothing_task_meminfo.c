@@ -23,6 +23,12 @@
 #include <linux/delay.h>
 #include <linux/kthread.h>
 #include <linux/kernel.h>
+#include <linux/magic.h>
+
+static inline bool is_dma_buf_file(struct file *file)
+{
+	return file_inode(file)->i_sb->s_magic == DMA_BUF_MAGIC;
+}
 
 struct dma_info {
 	struct dma_buf *dmabuf;
@@ -171,12 +177,12 @@ static int dma_buf_show(const struct dma_buf *buf_obj, void *private)
 
 	robj = buf_obj->resv;
 	while (true) {
-		seq = read_seqcount_begin(&robj->seq);
+		seq = read_seqbegin(&robj->seq);
 		rcu_read_lock();
 		fobj = rcu_dereference(robj->fence);
 		shared_count = fobj ? fobj->shared_count : 0;
 		fence = rcu_dereference(robj->fence_excl);
-		if (!read_seqcount_retry(&robj->seq, seq))
+		if (!read_seqretry(&robj->seq, seq))
 			break;
 		rcu_read_unlock();
 	}
@@ -314,25 +320,25 @@ static int show_all_dma_task_open(struct inode *inode, struct file *file)
 	return single_open(file, dma_procs_debug_show, NULL);
 }
 
-static const struct file_operations show_all_tasks_fops = {
-	.open       = show_all_tasks_open,
-	.read       = seq_read,
-	.llseek     = seq_lseek,
-	.release    = single_release,
+static const struct proc_ops show_all_tasks_fops = {
+	.proc_open    = show_all_tasks_open,
+	.proc_read    = seq_read,
+	.proc_lseek   = seq_lseek,
+	.proc_release = single_release,
 };
 
-static const struct file_operations show_all_dma_fops = {
-	.open       = show_all_dma_open,
-	.read       = seq_read,
-	.llseek     = seq_lseek,
-	.release    = single_release,
+static const struct proc_ops show_all_dma_fops = {
+	.proc_open       = show_all_dma_open,
+	.proc_read       = seq_read,
+	.proc_lseek      = seq_lseek,
+	.proc_release    = single_release,
 };
 
-static const struct file_operations show_all_task_dma_fops = {
-	.open       = show_all_dma_task_open,
-	.read       = seq_read,
-	.llseek     = seq_lseek,
-	.release    = single_release,
+static const struct proc_ops show_all_task_dma_fops = {
+	.proc_open       = show_all_dma_task_open,
+	.proc_read       = seq_read,
+	.proc_lseek      = seq_lseek,
+	.proc_release    = single_release,
 };
 
 static int __init nt_meminfo_init(void)
