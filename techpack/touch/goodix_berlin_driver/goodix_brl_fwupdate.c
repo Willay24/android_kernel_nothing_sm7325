@@ -275,7 +275,7 @@ static int goodix_fw_update_reset(int delay)
 	return hw_ops->reset(goodix_fw_update_ctrl.core_data, delay);
 }
 
-static int get_fw_version_info(struct goodix_fw_version *fw_version)
+int get_fw_version_info(struct goodix_fw_version *fw_version)
 {
 	struct goodix_ts_hw_ops *hw_ops =
 		goodix_fw_update_ctrl.core_data->hw_ops;
