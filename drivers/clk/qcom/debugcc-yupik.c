@@ -1675,6 +1675,9 @@ static int clk_debug_yupik_probe(struct platform_device *pdev)
 				PTR_ERR(clk));
 			return PTR_ERR(clk);
 		}
+#ifdef CONFIG_NOTHING_POWERINFO_STANDBY
+		nothing_clk_proc_add(&mux_list[i].mux->hw);
+#endif
 	}
 
 	for (i = 0; i < ARRAY_SIZE(debugcc_yupik_hws); i++) {
