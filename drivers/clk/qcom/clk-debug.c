@@ -326,6 +326,60 @@ exit:
 DEFINE_DEBUGFS_ATTRIBUTE(clk_measure_fops, clk_debug_measure_get,
 			 NULL, "%lld\n");
 
+#ifdef CONFIG_NOTHING_POWERINFO_STANDBY
+#include <linux/proc_fs.h>
+#include <linux/seq_file.h>
+
+static struct proc_dir_entry *clk_proc;
+static DEFINE_MUTEX(clk_proc_lock);
+
+static int clk_debug_measure_show(struct seq_file *m, void *v)
+{
+	struct clk_hw *hw = m->private;
+	u64 val = 0;
+	int ret;
+
+	if (IS_ERR_OR_NULL(measure))
+		return -ENODEV;
+
+	ret = clk_debug_measure_get(hw, &val);
+	if (ret)
+		return ret;
+	seq_printf(m, "%llu\n", val);
+	return 0;
+}
+
+static int clk_debug_measure_proc_open(struct inode *inode, struct file *file)
+{
+	return single_open(file, clk_debug_measure_show, PDE_DATA(inode));
+}
+
+static const struct proc_ops clk_measure_proc_fops = {
+	.proc_open	= clk_debug_measure_proc_open,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
+};
+
+void nothing_clk_proc_add(struct clk_hw *hw)
+{
+	struct proc_dir_entry *dir;
+
+	mutex_lock(&clk_proc_lock);
+	if (!clk_proc)
+		clk_proc = proc_mkdir("clk", NULL);
+	mutex_unlock(&clk_proc_lock);
+	if (!clk_proc)
+		return;
+
+	dir = proc_mkdir(clk_hw_get_name(hw), clk_proc);
+	if (dir)
+		proc_create_data("clk_measure", 0444, dir,
+				 &clk_measure_proc_fops, hw);
+}
+EXPORT_SYMBOL(nothing_clk_proc_add);
+#endif
+
 void clk_debug_measure_add(struct clk_hw *hw, struct dentry *dentry)
 {
 	debugfs_create_file("clk_measure", 0444, dentry, hw, &clk_measure_fops);
