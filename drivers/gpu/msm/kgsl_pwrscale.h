@@ -110,5 +110,4 @@ void msm_adreno_tz_exit(void);
 int devfreq_gpubw_init(void);
 
 void devfreq_gpubw_exit(void);
-
 #endif
