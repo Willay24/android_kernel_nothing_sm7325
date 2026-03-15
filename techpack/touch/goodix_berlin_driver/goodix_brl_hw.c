@@ -1349,6 +1349,7 @@ static int brl_after_event_handler(struct goodix_ts_core *cd)
 		&sync_clean, 1);
 }
 
+#ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_DEBUG
 static int brld_get_framedata(struct goodix_ts_core *cd,
 		struct ts_rawdata_info *info)
 {
@@ -1557,6 +1558,13 @@ exit:
 	goodix_ts_blocking_notify(NOTIFY_ESD_ON, NULL);
 	return ret;
 }
+#else
+static int brl_get_capacitance_data(struct goodix_ts_core *cd,
+		struct ts_rawdata_info *info)
+{
+	return -EINVAL;
+}
+#endif
 
 static struct goodix_ts_hw_ops brl_hw_ops = {
 	.power_on = brl_power_on,
