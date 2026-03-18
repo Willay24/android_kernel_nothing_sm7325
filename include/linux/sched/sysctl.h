@@ -20,6 +20,10 @@ extern int proc_dohung_task_timeout_secs(struct ctl_table *table, int write,
 enum { sysctl_hung_task_timeout_secs = 0 };
 #endif
 
+#ifdef CONFIG_SCHED_BORE
+extern unsigned int sysctl_sched_min_base_slice;
+extern void sched_update_min_base_slice(void);
+#endif
 extern unsigned int sysctl_sched_base_slice;
 extern unsigned int sysctl_sched_idle_min_granularity;
 
@@ -39,6 +43,10 @@ extern unsigned int sysctl_numa_balancing_scan_size;
 extern __read_mostly unsigned int sysctl_sched_migration_cost;
 extern __read_mostly unsigned int sysctl_sched_nr_migrate;
 
+#ifdef CONFIG_SCHED_BORE
+int sched_min_base_slice_handler(struct ctl_table *table, int write,
+		void *buffer, size_t *lenp, loff_t *ppos);
+#endif
 int sched_proc_update_handler(struct ctl_table *table, int write,
 		void *buffer, size_t *length, loff_t *ppos);
 
