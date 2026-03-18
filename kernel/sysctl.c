@@ -362,11 +362,26 @@ static int bpf_stats_handler(struct ctl_table *table, int write,
 #endif
 
 static struct ctl_table kern_table[] = {
+#ifdef CONFIG_SCHED_BORE
+	{
+		.procname	= "sched_min_base_slice_ns",
+		.data		= &sysctl_sched_min_base_slice,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_proc_update_handler,
+		.extra1		= &min_sched_base_slice,
+		.extra2		= &max_sched_base_slice,
+	},
+#endif /* CONFIG_SCHED_BORE */
 	{
 		.procname	= "sysctl_sched_base_slice",
 		.data		= &sysctl_sched_base_slice,
 		.maxlen		= sizeof(unsigned int),
+#ifdef CONFIG_SCHED_BORE
+		.mode		= 0444,
+#else /* !CONFIG_SCHED_BORE */
 		.mode		= 0644,
+#endif /* CONFIG_SCHED_BORE */
 		.proc_handler	= sched_proc_update_handler,
 		.extra1		= &min_sched_base_slice,
 		.extra2		= &max_sched_base_slice,
