@@ -24,6 +24,7 @@ obj-$(CONFIG_MQ_IOSCHED_DEADLINE)	+= mq-deadline.o
 mq-deadline-y += mq-deadline-main.o
 mq-deadline-$(CONFIG_MQ_IOSCHED_DEADLINE_CGROUP)+= mq-deadline-cgroup.o
 obj-$(CONFIG_MQ_IOSCHED_KYBER)	+= kyber-iosched.o
+obj-$(CONFIG_MQ_IOSCHED_ADIOS)	+= adios.o
 ssg-$(CONFIG_MQ_IOSCHED_SSG)	:= ssg-iosched.o
 ssg-$(CONFIG_MQ_IOSCHED_SSG_CGROUP)	+= ssg-cgroup.o
 obj-$(CONFIG_MQ_IOSCHED_SSG)	+= ssg.o
