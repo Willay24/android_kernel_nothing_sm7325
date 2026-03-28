@@ -49,16 +49,9 @@ void rcu_idle_enter(void);
 void rcu_idle_exit(void);
 void rcu_irq_enter(void);
 void rcu_irq_exit(void);
-void rcu_irq_exit_preempt(void);
 void rcu_irq_enter_irqson(void);
 void rcu_irq_exit_irqson(void);
 bool rcu_is_idle_cpu(int cpu);
-
-#ifdef CONFIG_PROVE_RCU
-void rcu_irq_exit_check_preempt(void);
-#else
-static inline void rcu_irq_exit_check_preempt(void) { }
-#endif
 
 #ifdef CONFIG_PROVE_RCU
 void rcu_irq_exit_check_preempt(void);
