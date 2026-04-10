@@ -42,7 +42,7 @@
 #include "lpm-levels.h"
 #include <trace/events/power.h>
 #include <linux/clk.h>
-#ifdef CONFIG_DRM_PANEL
+#ifdef CONFIG_LPM_WFI_SCREEN_ON
 #include <drm/drm_panel.h>
 #endif
 #define CREATE_TRACE_POINTS
@@ -96,7 +96,7 @@ static void cluster_prepare(struct lpm_cluster *cluster,
 		const struct cpumask *cpu, int child_idx, bool from_idle,
 		int64_t time);
 
-#ifdef CONFIG_DRM_PANEL
+#ifdef CONFIG_LPM_WFI_SCREEN_ON
 static bool sleep_disabled = true;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0444);
 
@@ -104,21 +104,22 @@ static int lpm_drm_panel_notify(struct notifier_block *nb,
 		unsigned long val, void *ptr)
 {
 	struct drm_panel_notifier *evdata = ptr;
-	int *blank = evdata->data;
+	int *blank;
 
+	if (val != DRM_PANEL_EARLY_EVENT_BLANK || !evdata || !evdata->data)
+		return NOTIFY_OK;
+
+	blank = evdata->data;
 	switch (*blank) {
 	case DRM_PANEL_BLANK_UNBLANK:
-		if (val == DRM_PANEL_EARLY_EVENT_BLANK) {
-			sleep_disabled = true;
-			wake_up_all_idle_cpus();
-		}
+		sleep_disabled = true;
+		wake_up_all_idle_cpus();
 		break;
 	case DRM_PANEL_BLANK_POWERDOWN:
 	case DRM_PANEL_BLANK_LP:
-		if (val == DRM_PANEL_EARLY_EVENT_BLANK) {
-			sleep_disabled = false;
-			wake_up_all_idle_cpus();
-		}
+        case DRM_PANEL_BLANK_LP2:
+		sleep_disabled = false;
+		wake_up_all_idle_cpus();
 		break;
 	default:
 		break;
@@ -1762,7 +1763,7 @@ static int lpm_probe(struct platform_device *pdev)
 	unsigned int cpu;
 	struct hrtimer *cpu_histtimer;
 	struct kobject *module_kobj = NULL;
-#ifdef CONFIG_DRM_PANEL
+#ifdef CONFIG_LPM_WFI_SCREEN_ON
 	struct drm_panel *active_panel = get_panel();
 
 	if (!active_panel)
