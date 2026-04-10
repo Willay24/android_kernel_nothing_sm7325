@@ -42,7 +42,7 @@
 #include "lpm-levels.h"
 #include <trace/events/power.h>
 #include <linux/clk.h>
-#ifdef CONFIG_DRM_PANEL
+#ifdef CONFIG_LPM_WFI_SCREEN_ON
 #include <drm/drm_panel.h>
 #endif
 #define CREATE_TRACE_POINTS
@@ -96,7 +96,7 @@ static void cluster_prepare(struct lpm_cluster *cluster,
 		const struct cpumask *cpu, int child_idx, bool from_idle,
 		int64_t time);
 
-#ifdef CONFIG_DRM_PANEL
+#ifdef CONFIG_LPM_WFI_SCREEN_ON
 static bool sleep_disabled = true;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0444);
 
@@ -131,17 +131,7 @@ static struct notifier_block drm_notifier = {
 	.notifier_call = lpm_drm_panel_notify,
 };
 
-int lpm_levels_register_panel(struct drm_panel *panel)
-{
-	int ret = drm_panel_notifier_register(panel, &drm_notifier);
-
-	if (ret)
-		pr_err("Failed to register DRM panel notifier, ret=%d\n", ret);
-	else
-		pr_info("Registered DRM panel notifier\n");
-	return ret;
-}
-
+extern struct drm_panel *get_panel(void);
 #else
 static bool sleep_disabled;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0664);
@@ -154,9 +144,6 @@ static int lpm_cpu_qos_notify(struct notifier_block *nb,
 static struct notifier_block dev_pm_qos_nb[MAX_LPM_CPUS] = {
 	[0 ... (MAX_LPM_CPUS - 1)] = { .notifier_call = lpm_cpu_qos_notify },
 };
-#endif
-#ifndef CONFIG_DRM_PANEL
-int lpm_levels_register_panel(struct drm_panel *panel) { return 0; }
 #endif
 
 static bool check_cpu_isolated(int cpu)
@@ -1698,7 +1685,7 @@ static void register_cluster_lpm_stats(struct lpm_cluster *cl,
 	cl->stats = lpm_stats_config_level(cl->cluster_name, level_name,
 			cl->nlevels, parent ? parent->stats : NULL, NULL);
 	if (IS_ERR_OR_NULL(cl->stats))
-		pr_debug("Cluster (%s) stats not registered\n",
+		pr_info("Cluster (%s) stats not registered\n",
 			cl->cluster_name);
 
 	kfree(level_name);
@@ -1775,6 +1762,18 @@ static int lpm_probe(struct platform_device *pdev)
 	unsigned int cpu;
 	struct hrtimer *cpu_histtimer;
 	struct kobject *module_kobj = NULL;
+#ifdef CONFIG_LPM_WFI_SCREEN_ON
+	struct drm_panel *active_panel = get_panel();
+
+	if (!active_panel)
+		return -EPROBE_DEFER;
+
+	ret = drm_panel_notifier_register(active_panel, &drm_notifier);
+	if (ret)
+		pr_err("Failed to register DRM panel notifier, ret=%d\n", ret);
+	else
+		pr_info("Registered DRM panel notifier\n");
+#endif
 
 	get_online_cpus();
 	lpm_root_node = lpm_of_parse_cluster(pdev);
