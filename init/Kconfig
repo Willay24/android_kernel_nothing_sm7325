@@ -1803,6 +1803,40 @@ config KALLSYMS_BASE_RELATIVE
 
 # end of the "standard kernel features (expert users)" menu
 
+config SCHED_BORE
+	bool "Burst-Oriented Response Enhancer"
+	default y
+	help
+	  In Desktop and Mobile computing, one might prefer interactive
+	  tasks to keep responsive no matter what they run in the background.
+
+	  Enabling this kernel feature modifies the scheduler to discriminate
+	  tasks by their burst time (runtime since it last went sleeping or
+	  yielding state) and prioritize those that run less bursty.
+	  Such tasks usually include window compositor, widgets backend,
+	  terminal emulator, video playback, games and so on.
+	  With a little impact to scheduling fairness, it may improve
+	  responsiveness especially under heavy background workload.
+
+	  If unsure, say Y here.
+
+config MIN_BASE_SLICE_NS
+	int "Default value for min_base_slice_ns"
+	default 2000000
+	help
+	 The BORE Scheduler automatically calculates the optimal base
+	 slice for the configured HZ using the following equation:
+
+	 base_slice_ns = nsecs_per_tick *
+		max(1UL, DIV_ROUND_UP(min_base_slice_ns, nsecs_per_tick))
+
+	 This option sets the default lower bound limit of the base slice
+	 to prevent the loss of task throughput due to overscheduling.
+
+	 Setting this value too high can cause the system to boot with
+	 an unnecessarily large base slice, resulting in high scheduling
+	 latency and poor system responsiveness.
+
 # syscall, maps, verifier
 
 config BPF_LSM
