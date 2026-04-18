@@ -59,6 +59,98 @@ unsigned int sysctl_sched_idle_min_granularity			= 750000ULL;
 
 __read_mostly unsigned int sysctl_sched_migration_cost	= 0UL;
 
+#ifdef CONFIG_SCHED_BORE
+/*
+ * Burst-Oriented Response Enhancer (BORE) CPU Scheduler
+ * Copyright (C) 2021-2024 Masahito Suzuki <firelzrd@gmail.com>
+ *
+ * Ported to the flattened EEVDF scheduler of this tree: instead of CFS
+ * slice scaling, the burst score demotes the task's static priority level
+ * (and therefore its weight) through reweight_task_by_prio().
+ */
+u8   __read_mostly sched_bore                   = 1;
+u8   __read_mostly sched_burst_smoothness_long  = 1;
+u8   __read_mostly sched_burst_smoothness_short = 0;
+u8   __read_mostly sched_burst_fork_atavistic   = 2;
+u8   __read_mostly sched_burst_penalty_offset   = 22;
+uint __read_mostly sched_burst_penalty_scale    = 1280;
+uint __read_mostly sched_burst_cache_lifetime   = 60000000;
+
+#define MAX_BURST_PENALTY (39U << 2)
+
+static void reweight_task_by_prio(struct task_struct *p, int prio);
+
+static inline u32 log2plus1_u64_u32f8(u64 v)
+{
+	u32 msb = fls64(v);
+	s32 excess_bits = msb - 9;
+	u8 fractional = (0 <= excess_bits) ? v >> excess_bits : v << -excess_bits;
+
+	return msb << 8 | fractional;
+}
+
+static inline u32 calc_burst_penalty(u64 burst_time)
+{
+	u32 greed, tolerance, penalty, scaled_penalty;
+
+	greed = log2plus1_u64_u32f8(burst_time);
+	tolerance = sched_burst_penalty_offset << 8;
+	penalty = max(0, (s32)greed - (s32)tolerance);
+	scaled_penalty = penalty * sched_burst_penalty_scale >> 16;
+
+	return min(MAX_BURST_PENALTY, scaled_penalty);
+}
+
+static void update_burst_score(struct sched_entity *se)
+{
+	struct task_struct *p;
+	u8 prio, prev_prio, new_prio;
+
+	if (!entity_is_task(se))
+		return;
+
+	p = task_of(se);
+
+	/* SCHED_IDLE keeps its fixed weight */
+	if (task_has_idle_policy(p))
+		return;
+
+	prio = p->static_prio - MAX_RT_PRIO;
+	prev_prio = min(39, prio + se->burst_score);
+
+	se->burst_score = likely(sched_bore) ? se->burst_penalty >> 2 : 0;
+
+	new_prio = min(39, prio + se->burst_score);
+	if (new_prio != prev_prio)
+		reweight_task_by_prio(p, new_prio);
+}
+
+static void update_burst_penalty(struct sched_entity *se)
+{
+	se->curr_burst_penalty = calc_burst_penalty(se->burst_time);
+	se->burst_penalty = max(se->prev_burst_penalty, se->curr_burst_penalty);
+	update_burst_score(se);
+}
+
+static inline u32 binary_smooth(u32 new, u32 old)
+{
+	int increment = new - old;
+
+	return (0 <= increment) ?
+		old + ( increment >> (int)sched_burst_smoothness_long) :
+		old - (-increment >> (int)sched_burst_smoothness_short);
+}
+
+static void restart_burst(struct sched_entity *se)
+{
+	se->burst_penalty = se->prev_burst_penalty =
+		binary_smooth(se->curr_burst_penalty, se->prev_burst_penalty);
+	se->curr_burst_penalty = 0;
+	se->burst_time = 0;
+	update_burst_score(se);
+}
+#endif /* CONFIG_SCHED_BORE */
+
 int sched_thermal_decay_shift;
 static int __init setup_sched_thermal_decay_shift(char *str)
 {
@@ -1374,7 +1466,13 @@ static void update_curr(struct cfs_rq *cfs_rq)
 
 	cfs_rq = &rq->cfs;
 
+#ifdef CONFIG_SCHED_BORE
+	curr->burst_time += delta_exec;
+	update_burst_penalty(curr);
+	curr->vruntime += max(1ULL, calc_delta_fair(delta_exec, curr));
+#else /* !CONFIG_SCHED_BORE */
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
+#endif /* CONFIG_SCHED_BORE */
 	resched = update_deadline(cfs_rq, curr);
 
 	if (entity_is_task(curr)) {
@@ -3803,14 +3901,16 @@ unsigned long __calc_prop_weight(struct cfs_rq *cfs_rq, struct sched_entity *se,
 	return max(weight, MIN_SHARES);
 }
 
-void reweight_task(struct task_struct *p, const struct load_weight *lw)
+/*
+ * Apply a new task weight without first accounting the runtime of the
+ * current task. reweight_task() does that; BORE calls this variant from
+ * inside update_curr() where recursing would be fatal.
+ */
+static void __reweight_task(struct task_struct *p, const struct load_weight *lw)
 {
 	struct sched_entity *se = &p->se;
 	struct rq *rq = task_rq(p);
 	unsigned long weight = NICE_0_LOAD;
-
-	if (se->on_rq)
-		update_curr_fair(rq);
 
 	reweight_entity(cfs_rq_of(se), se, lw->weight);
 	se->load.inv_weight = lw->inv_weight;
@@ -3823,6 +3923,26 @@ void reweight_task(struct task_struct *p, const struct load_weight *lw)
 
 	reweight_eevdf(&rq->cfs, &p->se, weight, p->se.on_rq);
 }
+
+void reweight_task(struct task_struct *p, const struct load_weight *lw)
+{
+	if (p->se.on_rq)
+		update_curr_fair(task_rq(p));
+
+	__reweight_task(p, lw);
+}
+
+#ifdef CONFIG_SCHED_BORE
+static void reweight_task_by_prio(struct task_struct *p, int prio)
+{
+	struct load_weight lw = {
+		.weight     = scale_load(sched_prio_to_weight[prio]),
+		.inv_weight = sched_prio_to_wmult[prio],
+	};
+
+	__reweight_task(p, &lw);
+}
+#endif /* CONFIG_SCHED_BORE */
 
 static inline int throttled_hierarchy(struct cfs_rq *cfs_rq);
 
@@ -6639,6 +6759,11 @@ static bool __dequeue_task(struct rq *rq, struct task_struct *p, int flags)
 	clear_buddies(cfs_rq, se);
 
 	update_curr_eevdf(cfs_rq);
+#ifdef CONFIG_SCHED_BORE
+	/* A delayed dequeue re-enters here; only restart the burst once. */
+	if (task_sleep && !task_delayed)
+		restart_burst(se);
+#endif /* CONFIG_SCHED_BORE */
 	update_entity_lag(cfs_rq, se);
 
 	if (flags & DEQUEUE_DELAYED) {
@@ -8377,6 +8502,13 @@ static void yield_task_fair(struct rq *rq)
 	struct task_struct *curr = rq->curr;
 	struct sched_entity *se = &curr->se;
 	struct cfs_rq *cfs_rq = &rq->cfs;
+
+#ifdef CONFIG_SCHED_BORE
+	/* Yielding ends the burst, even when we are alone on the runqueue. */
+	update_rq_clock(rq);
+	update_curr_eevdf(cfs_rq);
+	restart_burst(se);
+#endif /* CONFIG_SCHED_BORE */
 
 	/*
 	 * Are we the only task in the tree?
