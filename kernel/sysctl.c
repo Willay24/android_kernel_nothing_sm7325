@@ -318,10 +318,10 @@ static struct ctl_table sysctl_base_table[] = {
 
 static int min_sched_base_slice = 100000;		/* 100 usecs */
 static int max_sched_base_slice = NSEC_PER_SEC;	/* 1 second */
-#ifdef CONFIG_SMP
+#if defined(CONFIG_SMP) && !defined(CONFIG_SCHED_BORE)
 static int min_sched_tunable_scaling = SCHED_TUNABLESCALING_NONE;
 static int max_sched_tunable_scaling = SCHED_TUNABLESCALING_END-1;
-#endif /* CONFIG_SMP */
+#endif /* CONFIG_SMP && !CONFIG_SCHED_BORE */
 
 #ifdef CONFIG_COMPACTION
 static int min_extfrag_threshold;
@@ -362,6 +362,24 @@ static int bpf_stats_handler(struct ctl_table *table, int write,
 #endif
 
 static struct ctl_table kern_table[] = {
+#ifdef CONFIG_SCHED_BORE
+	{
+		.procname	= "sysctl_sched_base_slice",
+		.data		= &sysctl_sched_base_slice,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0444,
+		.proc_handler	= proc_dointvec,
+	},
+	{
+		.procname	= "sched_min_base_slice_ns",
+		.data		= &sysctl_sched_min_base_slice,
+		.maxlen		= sizeof(unsigned int),
+		.mode		= 0644,
+		.proc_handler	= sched_min_base_slice_proc_handler,
+		.extra1		= &min_sched_base_slice,
+		.extra2		= &max_sched_base_slice,
+	},
+#else /* !CONFIG_SCHED_BORE */
 	{
 		.procname	= "sysctl_sched_base_slice",
 		.data		= &sysctl_sched_base_slice,
@@ -371,6 +389,7 @@ static struct ctl_table kern_table[] = {
 		.extra1		= &min_sched_base_slice,
 		.extra2		= &max_sched_base_slice,
 	},
+#endif /* CONFIG_SCHED_BORE */
 	{
 		.procname	= "sched_idle_min_granularity_ns",
 		.data		= &sysctl_sched_idle_min_granularity,
@@ -381,6 +400,7 @@ static struct ctl_table kern_table[] = {
 		.extra2		= &max_sched_base_slice,
 	},
 #ifdef CONFIG_SMP
+#ifndef CONFIG_SCHED_BORE
 	{
 		.procname	= "sched_tunable_scaling",
 		.data		= &sysctl_sched_tunable_scaling,
@@ -390,6 +410,7 @@ static struct ctl_table kern_table[] = {
 		.extra1		= &min_sched_tunable_scaling,
 		.extra2		= &max_sched_tunable_scaling,
 	},
+#endif /* !CONFIG_SCHED_BORE */
 	{
 		.procname	= "sched_migration_cost_ns",
 		.data		= &sysctl_sched_migration_cost,

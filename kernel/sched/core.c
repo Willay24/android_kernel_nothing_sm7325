@@ -26,6 +26,10 @@
 #include "pelt.h"
 #include "smp.h"
 
+#ifdef CONFIG_SCHED_BORE
+#include <linux/sched/bore.h>
+#endif /* CONFIG_SCHED_BORE */
+
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
@@ -1179,7 +1183,11 @@ int tg_nop(struct task_group *tg, void *data)
 
 static void set_load_weight(struct task_struct *p, bool update_load)
 {
+#ifdef CONFIG_SCHED_BORE
+	int prio = effective_prio_bore(p);
+#else /* !CONFIG_SCHED_BORE */
 	int prio = p->static_prio - MAX_RT_PRIO;
+#endif /* CONFIG_SCHED_BORE */
 	struct load_weight lw;
 
 	if (task_has_idle_policy(p)) {
@@ -6683,7 +6691,14 @@ void rt_mutex_setprio(struct task_struct *p, struct task_struct *pi_task)
 		else if (rt_prio(oldprio))
 			p->rt.timeout = 0;
 		else if (!task_has_idle_policy(p)) {
+#ifdef CONFIG_SCHED_BORE
+			/* keep the burst penalty applied on top of the (PI-adjusted) nice */
+			int idx = min_t(int, 39, prio - MAX_RT_PRIO +
+					(static_branch_likely(&sched_bore_key) ?
+					 bore_score(p) : 0));
+#else /* !CONFIG_SCHED_BORE */
 			int idx = prio - MAX_RT_PRIO;
+#endif /* CONFIG_SCHED_BORE */
 			struct load_weight lw = {
 				.weight     = scale_load(sched_prio_to_weight[idx]),
 				.inv_weight = sched_prio_to_wmult[idx],
@@ -9186,6 +9201,10 @@ void __init sched_init(void)
 #ifdef CONFIG_SMP
 	BUG_ON(&dl_sched_class < &stop_sched_class);
 #endif
+
+#ifdef CONFIG_SCHED_BORE
+	sched_init_bore();
+#endif /* CONFIG_SCHED_BORE */
 
 	wait_bit_init();
 
