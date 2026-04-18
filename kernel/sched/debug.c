@@ -8,6 +8,9 @@
  */
 #include <linux/log2.h>
 #include "sched.h"
+#ifdef CONFIG_SCHED_BORE
+#include <linux/sched/bore.h>
+#endif /* CONFIG_SCHED_BORE */
 
 /*
  * This allows printing both to /proc/sched_debug and
@@ -409,6 +412,9 @@ print_task(struct seq_file *m, struct rq *rq, struct task_struct *p)
 		SPLIT_NS(schedstat_val_or_zero(p->stats.sum_sleep_runtime)),
 		SPLIT_NS(schedstat_val_or_zero(p->stats.sum_block_runtime)));
 
+#ifdef CONFIG_SCHED_BORE
+	SEQ_printf(m, " %2d", bore_score(p));
+#endif /* CONFIG_SCHED_BORE */
 #ifdef CONFIG_NUMA_BALANCING
 	SEQ_printf(m, " %d %d", task_node(p), task_numa_group_id(p));
 #endif
@@ -428,6 +434,9 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 	SEQ_printf(m, " S            task   PID     weight       vruntime   eligible    "
 		   "deadline             slice          sum-exec      switches  "
 		   "prio         wait-time        sum-sleep       sum-block"
+#ifdef CONFIG_SCHED_BORE
+		   " bs"
+#endif /* CONFIG_SCHED_BORE */
 #ifdef CONFIG_NUMA_BALANCING
 		   "  node   group-id"
 #endif
@@ -658,11 +667,13 @@ do {									\
 	SEQ_printf(m, "\n");
 }
 
+#ifndef CONFIG_SCHED_BORE
 static const char *sched_tunable_scaling_names[] = {
 	"none",
 	"logarithmic",
 	"linear"
 };
+#endif /* !CONFIG_SCHED_BORE */
 
 static void sched_debug_header(struct seq_file *m)
 {
@@ -702,14 +713,19 @@ static void sched_debug_header(struct seq_file *m)
 #define PN(x) \
 	SEQ_printf(m, "  .%-40s: %Ld.%06ld\n", #x, SPLIT_NS(x))
 	PN(sysctl_sched_base_slice);
+#ifdef CONFIG_SCHED_BORE
+	PN(sysctl_sched_min_base_slice);
+#endif /* CONFIG_SCHED_BORE */
 	PN(sysctl_sched_idle_min_granularity);
 #undef PN
 #undef P
 
+#ifndef CONFIG_SCHED_BORE
 	SEQ_printf(m, "  .%-40s: %d (%s)\n",
 		"sysctl_sched_tunable_scaling",
 		sysctl_sched_tunable_scaling,
 		sched_tunable_scaling_names[sysctl_sched_tunable_scaling]);
+#endif /* !CONFIG_SCHED_BORE */
 	SEQ_printf(m, "\n");
 }
 
@@ -913,6 +929,9 @@ void proc_sched_show_task(struct task_struct *p, struct pid_namespace *ns,
 	__PS("nr_involuntary_switches", p->nivcsw);
 
 	P(se.load.weight);
+#ifdef CONFIG_SCHED_BORE
+	__PS("bore.score", bore_score(p));
+#endif /* CONFIG_SCHED_BORE */
 #ifdef CONFIG_SMP
 	P(se.avg.load_sum);
 	P(se.avg.runnable_sum);
