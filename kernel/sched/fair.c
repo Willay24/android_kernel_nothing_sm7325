@@ -43,8 +43,8 @@
  * (CFS  default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)
  */
 #ifdef CONFIG_SCHED_BORE
-unsigned int sysctl_sched_latency			= 24000000ULL;
-static unsigned int normalized_sysctl_sched_latency	= 24000000ULL;
+unsigned int sysctl_sched_latency			= 5000000ULL;
+static unsigned int normalized_sysctl_sched_latency	= 5000000ULL;
 #else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_latency			= 5000000ULL;
  static unsigned int normalized_sysctl_sched_latency	= 5000000ULL;
@@ -76,8 +76,8 @@ enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_N
  * (CFS  default: 0.75 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
 #ifdef CONFIG_SCHED_BORE
-unsigned int sysctl_sched_min_granularity			= 3500000ULL;
-static unsigned int normalized_sysctl_sched_min_granularity	= 3500000ULL;
+unsigned int sysctl_sched_min_granularity			= 800000ULL;
+static unsigned int normalized_sysctl_sched_min_granularity	= 800000ULL;
 #else // CONFIG_SCHED_BORE
  unsigned int sysctl_sched_min_granularity			= 750000ULL;
  static unsigned int normalized_sysctl_sched_min_granularity	= 750000ULL;
@@ -93,7 +93,7 @@ static unsigned int sched_nr_latency = 8;
  * After fork, child runs first. If set to 0 (default) then
  * parent will (try to) run first.
  */
-unsigned int sysctl_sched_child_runs_first __read_mostly;
+unsigned int sysctl_sched_child_runs_first __read_mostly = 1;
 
 /*
  * SCHED_OTHER wake-up granularity.
@@ -106,8 +106,8 @@ unsigned int sysctl_sched_child_runs_first __read_mostly;
  * (CFS  default: 1 msec * (1 + ilog(ncpus)), units: nanoseconds)
  */
 #ifdef CONFIG_SCHED_BORE
-unsigned int sysctl_sched_wakeup_granularity			= 4500000UL;
-static unsigned int normalized_sysctl_sched_wakeup_granularity	= 4500000UL;
+unsigned int sysctl_sched_wakeup_granularity			= 1500000ULL;
+static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1500000ULL;
 #else // CONFIG_SCHED_BORE
 unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
 static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
@@ -133,20 +133,20 @@ static unsigned int normalized_sysctl_sched_base_slice	= 2800000ULL;
  */
 unsigned int sysctl_sched_idle_min_granularity			= 750000ULL;
 
-const_debug unsigned int sysctl_sched_migration_cost	= 0UL;
+const_debug unsigned int sysctl_sched_migration_cost	= 800000UL;
 
 #ifdef CONFIG_SCHED_BORE
 u8   __read_mostly sched_bore                   = 1;
 u8   __read_mostly sched_burst_exclude_kthreads = 1;
-u8   __read_mostly sched_burst_smoothness_long  = 1;
+u8   __read_mostly sched_burst_smoothness_long  = 2;
 u8   __read_mostly sched_burst_smoothness_short = 1;
-u8   __read_mostly sched_burst_fork_atavistic   = 2;
+u8   __read_mostly sched_burst_fork_atavistic   = 0;
 u8   __read_mostly sched_burst_penalty_offset   = 22;
-uint __read_mostly sched_burst_penalty_scale    = 960;
-uint __read_mostly sched_burst_cache_lifetime   = 80000000;
+uint __read_mostly sched_burst_penalty_scale    = 550;
+uint __read_mostly sched_burst_cache_lifetime   = 12000000;
 #endif // CONFIG_SCHED_BORE
 
-int sched_thermal_decay_shift;
+int sched_thermal_decay_shift = 4;
 static int __init setup_sched_thermal_decay_shift(char *str)
 {
 	int _shift = 0;
@@ -1642,27 +1642,24 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	curr->sum_exec_runtime += delta_exec;
 	schedstat_add(cfs_rq->exec_clock, delta_exec);
 
-#ifdef CONFIG_SCHED_BORE
-	curr->burst_time += delta_exec;
-	update_burst_penalty(curr);
-#else // !CONFIG_SCHED_BORE
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
+
+#ifdef CONFIG_SCHED_BORE
+    curr->burst_time += delta_exec;
+    update_burst_penalty(curr);
 #endif // CONFIG_SCHED_BORE
+
 	resched = update_deadline(cfs_rq, curr);
 
 	if (entity_is_task(curr)) {
 		struct task_struct *curtask = task_of(curr);
-
 		trace_sched_stat_runtime(curtask, delta_exec, curr->vruntime);
 		cgroup_account_cputime(curtask, delta_exec);
 		account_group_exec_runtime(curtask, delta_exec);
 	}
-
 	account_cfs_rq_runtime(cfs_rq, delta_exec);
-
 	if (cfs_rq->nr_queued == 1)
 		return;
-
 	if (resched || !protect_slice(curr)) {
 		resched_curr(rq);
 		clear_buddies(cfs_rq, curr);
