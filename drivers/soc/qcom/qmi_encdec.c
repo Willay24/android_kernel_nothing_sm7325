@@ -11,6 +11,7 @@
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/string.h>
+#include <linux/mm.h>
 #include <linux/soc/qcom/qmi.h>
 
 #define QMI_ENCDEC_ENCODE_TLV(type, length, p_dst) do { \
