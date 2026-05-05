@@ -41,16 +41,17 @@ static int hwid_open(struct inode *inode, struct file *file)
 	return single_open(file, hwid_show, inode->i_private);
 }
 
-static const struct proc_ops hwid_fops = {
+static const struct proc_ops hwid_ops = {
 	.proc_open	= hwid_open,
 	.proc_read	= seq_read,
+	.proc_release = single_release,
 };
 
 static int create_hwid_proc_file(void)
 {
 	struct proc_dir_entry *dir;
 
-	dir = proc_create("hwid", 0440, NULL, &hwid_fops);
+	dir = proc_create("hwid", 0440, NULL, &hwid_ops);
 	if (!dir) {
 		pr_err("Unable to create /proc/hwid");
 		return -1;
