@@ -1209,7 +1209,7 @@ static int32_t nvt_selftest_open(struct inode *inode, struct file *file)
 	return seq_open(file, &nvt_selftest_seq_ops);
 }
 
-static const struct proc_ops nvt_selftest_fops = {
+static const struct proc_ops nvt_selftest_ops = {
 	.proc_open = nvt_selftest_open,
 	.proc_read = seq_read,
 	.proc_lseek = seq_lseek,
@@ -1443,7 +1443,7 @@ return:
 *******************************************************/
 int32_t nvt_mp_proc_init(void)
 {
-	NVT_proc_selftest_entry = proc_create("nvt_selftest", 0444, NULL, &nvt_selftest_fops);
+	NVT_proc_selftest_entry = proc_create("nvt_selftest", 0444, NULL, &nvt_selftest_ops);
 	if (NVT_proc_selftest_entry == NULL) {
 		NVT_ERR("create /proc/nvt_selftest Failed!\n");
 		return -1;
