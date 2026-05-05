@@ -3844,6 +3844,25 @@ done:
 	return rc;
 }
 
+#ifdef OPLUS_FEATURE_AUDIO_FTM
+static ssize_t wcd_codec_exist_read(struct file *p_file,
+			 char __user *puser_buf, size_t count, loff_t *p_offset)
+{
+	return 0;
+}
+
+static ssize_t wcd_codec_exist_write(struct file *p_file,
+			 const char __user *puser_buf,
+			 size_t count, loff_t *p_offset)
+{
+	return 0;
+}
+
+static const struct proc_ops wcd_codec_exist_operations = {
+	.proc_read = wcd_codec_exist_read,
+	.proc_write = wcd_codec_exist_write,
+};
+#endif /* OPLUS_FEATURE_AUDIO_FTM */
 static int wcd938x_soc_codec_probe(struct snd_soc_component *component)
 {
 	struct wcd938x_priv *wcd938x = snd_soc_component_get_drvdata(component);
