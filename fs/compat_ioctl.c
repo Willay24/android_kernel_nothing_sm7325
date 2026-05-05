@@ -193,7 +193,8 @@ COMPAT_SYSCALL_DEFINE3(ioctl, unsigned int, fd, unsigned int, cmd,
 #else
 	case FS_IOC_RESVSP:
 	case FS_IOC_RESVSP64:
-		goto found_handler;
+		error = ioctl_preallocate(f.file, compat_ptr(arg));
+		goto out_fput;
 #endif
 
 	default:
