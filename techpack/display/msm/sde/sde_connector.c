@@ -2580,8 +2580,8 @@ static void _sde_connector_report_panel_dead(struct sde_connector *conn,
 	event.length = sizeof(bool);
 	msm_mode_object_event_notify(&conn->base.base,
 		conn->base.dev, &event, (u8 *)&conn->panel_dead);
-	SDE_ERROR("esd check failed report PANEL_DEAD conn_id: %d enc_id: %d\n",
-			conn->base.base.id, conn->encoder->base.id);
+	//SDE_ERROR("esd check failed report PANEL_DEAD conn_id: %d enc_id: %d\n",
+	//		conn->base.base.id, conn->encoder->base.id);
 }
 
 int sde_connector_esd_status(struct drm_connector *conn)
