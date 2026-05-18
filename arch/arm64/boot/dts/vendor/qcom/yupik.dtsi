@@ -35,7 +35,7 @@
 	#size-cells = <2>;
 
 	chosen {
-		bootargs = "log_buf_len=1M rcupdate.rcu_expedited=1 rcu_nocbs=0-7 kpti=off ignore_loglevel printk.devkmsg=on";
+		bootargs = "log_buf_len=256K rcupdate.rcu_expedited=1 rcu_nocbs=0-7 kpti=off noirqdebug quiet nosoftlockup mce=ignore_ce";
 	};
 
 	memory { device_type = "memory"; reg = <0 0 0 0>; };
