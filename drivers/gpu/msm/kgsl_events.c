@@ -37,7 +37,7 @@ static void _kgsl_event_worker(struct kthread_work *work)
 	struct kgsl_event *event = container_of(work, struct kgsl_event, work);
 
 	trace_kgsl_fire_event(id, event->timestamp, event->result,
-		jiffies - event->created, event->func);
+		jiffies - event->created, event->func, event->prio);
 
 	event->func(event->device, event->group, event->priv, event->result);
 
@@ -267,10 +267,11 @@ int kgsl_add_event(struct kgsl_device *device, struct kgsl_event_group *group,
 	event->func = func;
 	event->created = jiffies;
 	event->group = group;
+	event->prio = KGSL_EVENT_REGULAR_PRIORITY;
 
 	kthread_init_work(&event->work, _kgsl_event_worker);
 
-	trace_kgsl_register_event(KGSL_CONTEXT_ID(context), timestamp, func);
+	trace_kgsl_register_event(KGSL_CONTEXT_ID(context), timestamp, func, KGSL_EVENT_REGULAR_PRIORITY);
 
 	spin_lock(&group->lock);
 
