@@ -1126,25 +1126,25 @@ struct cpufreq_governor *cpufreq_default_governor(void)
 
 cpufreq_governor_init(schedutil_gov);
 
-/****** Vorpal CPUFreq Governor — GKI 5.10 helpers (v3) ******
+/****** Vorpal CPUFreq Governor — GKI 5.5 helpers (v3) ******
  *
- * GKI 5.10 verified (from kernel source scan):
+ * GKI 5.4 verified (from kernel source scan):
  *   cpu_util_cfs(rq)  → EXISTS, takes struct rq* (NOT int cpu)
  *   cpu_bw_dl(rq)     → EXISTS, takes struct rq*
- *   sugov_effective_cpu_perf() → NOT in 5.10
- *   get_capacity_ref_freq()    → NOT in 5.10
+ *   sugov_effective_cpu_perf() → NOT in 5.4
+ *   get_capacity_ref_freq()    → NOT in 5.4
  *************************************************************/
 
 /**
- * rfx_get_util_gki510 - GKI 5.10 compatible util getter for Vorpal.
+ * rfx_get_util_gki510 - GKI 5.4 compatible util getter for Vorpal.
  */
 void rfx_get_util_gki510(int cpu, unsigned long boost,
-			 unsigned long *out_util, unsigned long *out_bw_min)
+                         unsigned long *out_util, unsigned long *out_bw_min)
 {
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long util, bw_dl, max_cap;
 
-	util   = cpu_util_cfs(rq);
+	util   = cpu_util_cfs(cpu);
 	bw_dl  = cpu_bw_dl(rq);
 
 	if (boost > util)
