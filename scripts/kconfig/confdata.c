@@ -998,7 +998,10 @@ static int conf_touch_deps(void)
 		return -1;
 
 	if (depfile_prefix_len > 0)
-		strncpy(depfile_path, name, depfile_prefix_len);
+		if (depfile_prefix_len > 0) {
+	    strncpy(depfile_path, name, depfile_prefix_len);
+	}
+
 
 	depfile_path[depfile_prefix_len] = 0;
 
