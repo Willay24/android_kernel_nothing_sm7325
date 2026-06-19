@@ -13,4 +13,3 @@
 	console-size = <0x200000>;
 	pmsg-size = <0x200000>;
 };
-
