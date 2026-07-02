@@ -284,11 +284,6 @@ bool rcu_lockdep_current_cpu_online(void);
 static inline bool rcu_lockdep_current_cpu_online(void) { return true; }
 #endif /* #else #if defined(CONFIG_HOTPLUG_CPU) && defined(CONFIG_PROVE_RCU) */
 
-extern struct lockdep_map rcu_lock_map;
-extern struct lockdep_map rcu_bh_lock_map;
-extern struct lockdep_map rcu_sched_lock_map;
-extern struct lockdep_map rcu_callback_map;
-
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 
 static inline void rcu_lock_acquire(struct lockdep_map *map)
@@ -301,6 +296,10 @@ static inline void rcu_lock_release(struct lockdep_map *map)
 	lock_release(map, 1, _THIS_IP_);
 }
 
+extern struct lockdep_map rcu_lock_map;
+extern struct lockdep_map rcu_bh_lock_map;
+extern struct lockdep_map rcu_sched_lock_map;
+extern struct lockdep_map rcu_callback_map;
 int debug_lockdep_rcu_enabled(void);
 int rcu_read_lock_held(void);
 int rcu_read_lock_bh_held(void);
@@ -378,7 +377,7 @@ static inline void rcu_preempt_sleep_check(void) { }
 
 #else /* #ifdef CONFIG_PROVE_RCU */
 
-#define RCU_LOCKDEP_WARN(c, s) do { } while (0 && (c))
+#define RCU_LOCKDEP_WARN(c, s) do { } while (0)
 #define rcu_sleep_check() do { } while (0)
 
 #endif /* #else #ifdef CONFIG_PROVE_RCU */
@@ -947,45 +946,6 @@ do {									\
 									\
 	if (___p)							\
 		__kvfree_rcu(&((___p)->rhf), offsetof(typeof(*(ptr)), rhf)); \
-} while (0)
-
-/**
- * kvfree_rcu() - kvfree an object after a grace period.
- *
- * This macro consists of one or two arguments and it is
- * based on whether an object is head-less or not. If it
- * has a head then a semantic stays the same as it used
- * to be before:
- *
- *     kvfree_rcu(ptr, rhf);
- *
- * where @ptr is a pointer to kvfree(), @rhf is the name
- * of the rcu_head structure within the type of @ptr.
- *
- * When it comes to head-less variant, only one argument
- * is passed and that is just a pointer which has to be
- * freed after a grace period. Therefore the semantic is
- *
- *     kvfree_rcu(ptr);
- *
- * where @ptr is a pointer to kvfree().
- *
- * Please note, head-less way of freeing is permitted to
- * use from a context that has to follow might_sleep()
- * annotation. Otherwise, please switch and embed the
- * rcu_head structure within the type of @ptr.
- */
-#define kvfree_rcu(...) KVFREE_GET_MACRO(__VA_ARGS__,		\
-	kvfree_rcu_arg_2, kvfree_rcu_arg_1)(__VA_ARGS__)
-
-#define KVFREE_GET_MACRO(_1, _2, NAME, ...) NAME
-#define kvfree_rcu_arg_2(ptr, rhf) kfree_rcu(ptr, rhf)
-#define kvfree_rcu_arg_1(ptr)					\
-do {								\
-	typeof(ptr) ___p = (ptr);				\
-								\
-	if (___p)						\
-		kvfree_call_rcu(NULL, (rcu_callback_t) (___p));	\
 } while (0)
 
 /*
