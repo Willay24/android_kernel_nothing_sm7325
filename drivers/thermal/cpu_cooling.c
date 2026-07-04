@@ -11,15 +11,14 @@
  *
  */
 #include <linux/module.h>
-#include <linux/thermal.h>
+#include <linux/cpu.h>
 #include <linux/cpufreq.h>
 #include <linux/err.h>
 #include <linux/idr.h>
 #include <linux/pm_opp.h>
 #include <linux/pm_qos.h>
 #include <linux/slab.h>
-#include <linux/cpu.h>
-#include <linux/cpu_cooling.h>
+#include <linux/thermal.h>
 #include <linux/energy_model.h>
 
 #include <trace/events/thermal.h>
