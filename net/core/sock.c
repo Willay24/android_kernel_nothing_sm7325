@@ -598,15 +598,13 @@ out:
 	return ret;
 }
 
-int sock_bindtoindex(struct sock *sk, int ifindex, bool lock_sk)
+int sock_bindtoindex(struct sock *sk, int ifindex)
 {
 	int ret;
 
-	if (lock_sk)
-		lock_sock(sk);
+	lock_sock(sk);
 	ret = sock_bindtoindex_locked(sk, ifindex);
-	if (lock_sk)
-		release_sock(sk);
+	release_sock(sk);
 
 	return ret;
 }
@@ -652,7 +650,7 @@ static int sock_setbindtodevice(struct sock *sk, char __user *optval,
 			goto out;
 	}
 
-	return sock_bindtoindex(sk, index, true);
+	return sock_bindtoindex(sk, index);
 out:
 #endif
 
