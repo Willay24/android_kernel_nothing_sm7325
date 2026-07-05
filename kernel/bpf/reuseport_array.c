@@ -20,14 +20,11 @@ static struct reuseport_array *reuseport_array(struct bpf_map *map)
 /* The caller must hold the reuseport_lock */
 void bpf_sk_reuseport_detach(struct sock *sk)
 {
-	uintptr_t sk_user_data;
+	struct sock __rcu **socks;
 
 	write_lock_bh(&sk->sk_callback_lock);
-	sk_user_data = (uintptr_t)sk->sk_user_data;
-	if (sk_user_data) {
-		struct sock __rcu **socks;
-
-		socks = (void *)(sk_user_data & SK_USER_DATA_PTRMASK);
+	socks = sk->sk_user_data;
+	if (socks) {
 		WRITE_ONCE(sk->sk_user_data, NULL);
 		/*
 		 * Do not move this NULL assignment outside of
@@ -253,7 +250,6 @@ int bpf_fd_reuseport_array_update_elem(struct bpf_map *map, void *key,
 	struct sock *free_osk = NULL, *osk, *nsk;
 	struct sock_reuseport *reuse;
 	u32 index = *(u32 *)key;
-	uintptr_t sk_user_data;
 	struct socket *socket;
 	int err, fd;
 
@@ -307,8 +303,7 @@ int bpf_fd_reuseport_array_update_elem(struct bpf_map *map, void *key,
 	if (err)
 		goto put_file_unlock;
 
-	sk_user_data = (uintptr_t)&array->ptrs[index] | SK_USER_DATA_NOCOPY;
-	WRITE_ONCE(nsk->sk_user_data, (void *)sk_user_data);
+	WRITE_ONCE(nsk->sk_user_data, &array->ptrs[index]);
 	rcu_assign_pointer(array->ptrs[index], nsk);
 	free_osk = osk;
 	err = 0;
