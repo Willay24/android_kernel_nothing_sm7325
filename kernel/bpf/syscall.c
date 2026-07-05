@@ -1935,15 +1935,13 @@ bpf_prog_load_check_attach(enum bpf_prog_type prog_type,
 		switch (prog_type) {
 		case BPF_PROG_TYPE_TRACING:
 		case BPF_PROG_TYPE_STRUCT_OPS:
-		case BPF_PROG_TYPE_EXT:
 			break;
 		default:
 			return -EINVAL;
 		}
 	}
 
-	if (prog_fd && prog_type != BPF_PROG_TYPE_TRACING &&
-	    prog_type != BPF_PROG_TYPE_EXT)
+	if (prog_fd && prog_type != BPF_PROG_TYPE_TRACING)
 		return -EINVAL;
 
 	switch (prog_type) {
@@ -1986,10 +1984,6 @@ bpf_prog_load_check_attach(enum bpf_prog_type prog_type,
 		default:
 			return -EINVAL;
 		}
-	case BPF_PROG_TYPE_EXT:
-		if (expected_attach_type)
-			return -EINVAL;
-		/* fallthrough */
 	default:
 		return 0;
 	}
@@ -2192,8 +2186,7 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog)
 	int tr_fd, err;
 
 	if (prog->expected_attach_type != BPF_TRACE_FENTRY &&
-	    prog->expected_attach_type != BPF_TRACE_FEXIT &&
-	    prog->type != BPF_PROG_TYPE_EXT) {
+	    prog->expected_attach_type != BPF_TRACE_FEXIT) {
 		err = -EINVAL;
 		goto out_put_prog;
 	}
@@ -2260,14 +2253,12 @@ static int bpf_raw_tracepoint_open(const union bpf_attr *attr)
 
 	if (prog->type != BPF_PROG_TYPE_RAW_TRACEPOINT &&
 	    prog->type != BPF_PROG_TYPE_TRACING &&
-	    prog->type != BPF_PROG_TYPE_EXT &&
 	    prog->type != BPF_PROG_TYPE_RAW_TRACEPOINT_WRITABLE) {
 		err = -EINVAL;
 		goto out_put_prog;
 	}
 
-	if (prog->type == BPF_PROG_TYPE_TRACING ||
-	    prog->type == BPF_PROG_TYPE_EXT) {
+	if (prog->type == BPF_PROG_TYPE_TRACING) {
 		if (attr->raw_tracepoint.name) {
 			/* The attach point for this category of programs
 			 * should be specified via btf_id during program load.
