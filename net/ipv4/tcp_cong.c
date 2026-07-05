@@ -343,7 +343,7 @@ out:
  * already initialized.
  */
 int tcp_set_congestion_control(struct sock *sk, const char *name, bool load,
-			       bool cap_net_admin)
+			       bool reinit, bool cap_net_admin)
 {
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	const struct tcp_congestion_ops *ca;
@@ -367,8 +367,15 @@ int tcp_set_congestion_control(struct sock *sk, const char *name, bool load,
 	if (!ca) {
 		err = -ENOENT;
 	} else if (!load) {
+		const struct tcp_congestion_ops *old_ca = icsk->icsk_ca_ops;
+
 		if (bpf_try_module_get(ca, ca->owner)) {
-			tcp_reinit_congestion_control(sk, ca);
+			if (reinit) {
+				tcp_reinit_congestion_control(sk, ca);
+			} else {
+				icsk->icsk_ca_ops = ca;
+				bpf_module_put(old_ca, old_ca->owner);
+			}
 		} else {
 			err = -EBUSY;
 		}
