@@ -1384,12 +1384,13 @@ static u32 rtnl_xdp_prog_skb(struct net_device *dev)
 
 static u32 rtnl_xdp_prog_drv(struct net_device *dev)
 {
-	return dev_xdp_prog_id(dev, XDP_MODE_DRV);
+	return __dev_xdp_query(dev, dev->netdev_ops->ndo_bpf, XDP_QUERY_PROG);
 }
 
 static u32 rtnl_xdp_prog_hw(struct net_device *dev)
 {
-	return dev_xdp_prog_id(dev, XDP_MODE_HW);
+	return __dev_xdp_query(dev, dev->netdev_ops->ndo_bpf,
+			       XDP_QUERY_PROG_HW);
 }
 
 static int rtnl_xdp_report_one(struct sk_buff *skb, struct net_device *dev,
