@@ -36,7 +36,7 @@ struct bpf_cgroup_storage_map;
 
 struct bpf_storage_buffer {
 	struct rcu_head rcu;
-	char data[];
+	char data[0];
 };
 
 struct bpf_cgroup_storage {
