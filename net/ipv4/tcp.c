@@ -2837,7 +2837,7 @@ static void tcp_enable_tx_delay(void)
 	}
 }
 
-int tcp_sock_set_keepidle_locked(struct sock *sk, int val)
+static int __tcp_sock_set_keepidle(struct sock *sk, int val)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
 
@@ -2864,7 +2864,7 @@ int tcp_sock_set_keepidle(struct sock *sk, int val)
 	int err;
 
 	lock_sock(sk);
-	err = tcp_sock_set_keepidle_locked(sk, val);
+	err = __tcp_sock_set_keepidle(sk, val);
 	release_sock(sk);
 	return err;
 }
@@ -3077,7 +3077,7 @@ static int do_tcp_setsockopt(struct sock *sk, int level,
 		break;
 
 	case TCP_KEEPIDLE:
-		err = tcp_sock_set_keepidle_locked(sk, val);
+		err = __tcp_sock_set_keepidle(sk, val);
 		break;
 	case TCP_KEEPINTVL:
 		if (val < 1 || val > MAX_TCP_KEEPINTVL)
