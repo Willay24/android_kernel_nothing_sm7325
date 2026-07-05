@@ -125,12 +125,8 @@ static int bpf_fd_inode_storage_update_elem(struct bpf_map *map, void *key,
 
 	fd = *(int *)key;
 	f = fget_raw(fd);
-	if (!f)
+	if (!f || !inode_storage_ptr(f->f_inode))
 		return -EBADF;
-	if (!inode_storage_ptr(f->f_inode)) {
-		fput(f);
-		return -EBADF;
-	}
 
 	sdata = bpf_local_storage_update(f->f_inode,
 					 (struct bpf_local_storage_map *)map,
