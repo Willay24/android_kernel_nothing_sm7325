@@ -11,7 +11,6 @@
 #include <linux/list.h>
 #include <linux/jhash.h>
 #include <linux/sock_diag.h>
-#include <net/udp.h>
 
 struct bpf_stab {
 	struct bpf_map map;
@@ -187,19 +186,7 @@ static int sock_map_init_proto(struct sock *sk, struct sk_psock *psock)
 
 	sock_owned_by_me(sk);
 
-	switch (sk->sk_type) {
-	case SOCK_STREAM:
-		prot = tcp_bpf_get_proto(sk, psock);
-		break;
-
-	case SOCK_DGRAM:
-		prot = udp_bpf_get_proto(sk, psock);
-		break;
-
-	default:
-		return -EINVAL;
-	}
-
+	prot = tcp_bpf_get_proto(sk, psock);
 	if (IS_ERR(prot))
 		return PTR_ERR(prot);
 
@@ -214,7 +201,7 @@ static struct sk_psock *sock_map_psock_get_checked(struct sock *sk)
 	rcu_read_lock();
 	psock = sk_psock(sk);
 	if (psock) {
-		if (sk->sk_prot->close != sock_map_close) {
+		if (sk->sk_prot->recvmsg != tcp_bpf_recvmsg) {
 			psock = ERR_PTR(-EBUSY);
 			goto out;
 		}
@@ -544,31 +531,15 @@ static bool sock_map_op_okay(const struct bpf_sock_ops_kern *ops)
 	       ops->op == BPF_SOCK_OPS_TCP_LISTEN_CB;
 }
 
-static bool sk_is_tcp(const struct sock *sk)
+static bool sock_map_sk_is_suitable(const struct sock *sk)
 {
 	return sk->sk_type == SOCK_STREAM &&
 	       sk->sk_protocol == IPPROTO_TCP;
 }
 
-static bool sk_is_udp(const struct sock *sk)
-{
-	return sk->sk_type == SOCK_DGRAM &&
-	       sk->sk_protocol == IPPROTO_UDP;
-}
-
-static bool sock_map_sk_is_suitable(const struct sock *sk)
-{
-	return sk_is_tcp(sk) || sk_is_udp(sk);
-}
-
 static bool sock_map_sk_state_allowed(const struct sock *sk)
 {
-	if (sk_is_tcp(sk))
-		return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_LISTEN);
-	else if (sk_is_udp(sk))
-		return sk_hashed(sk);
-
-	return false;
+	return (1 << sk->sk_state) & (TCPF_ESTABLISHED | TCPF_LISTEN);
 }
 
 static int sock_hash_update_common(struct bpf_map *map, void *key,
