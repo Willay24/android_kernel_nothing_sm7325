@@ -106,12 +106,10 @@ static int bpf_iter_check_map(struct bpf_prog *prog,
 	bool is_percpu = false;
 
 	if (map->map_type == BPF_MAP_TYPE_PERCPU_HASH ||
-	    map->map_type == BPF_MAP_TYPE_LRU_PERCPU_HASH ||
-	    map->map_type == BPF_MAP_TYPE_PERCPU_ARRAY)
+	    map->map_type == BPF_MAP_TYPE_LRU_PERCPU_HASH)
 		is_percpu = true;
 	else if (map->map_type != BPF_MAP_TYPE_HASH &&
-		 map->map_type != BPF_MAP_TYPE_LRU_HASH &&
-		 map->map_type != BPF_MAP_TYPE_ARRAY)
+		 map->map_type != BPF_MAP_TYPE_LRU_HASH)
 		return -EINVAL;
 
 	key_acc_size = prog->aux->max_rdonly_access;
