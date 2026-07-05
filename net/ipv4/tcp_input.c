@@ -3895,7 +3895,7 @@ static void tcp_parse_fastopen_option(int len, const unsigned char *cookie,
 	foc->exp = exp_opt;
 }
 
-static bool smc_parse_options(const struct tcphdr *th,
+static void smc_parse_options(const struct tcphdr *th,
 			      struct tcp_options_received *opt_rx,
 			      const unsigned char *ptr,
 			      int opsize)
@@ -3904,13 +3904,10 @@ static bool smc_parse_options(const struct tcphdr *th,
 	if (static_branch_unlikely(&tcp_have_smc)) {
 		if (th->syn && !(opsize & 1) &&
 		    opsize >= TCPOLEN_EXP_SMC_BASE &&
-		    get_unaligned_be32(ptr) == TCPOPT_SMC_MAGIC) {
+		    get_unaligned_be32(ptr) == TCPOPT_SMC_MAGIC)
 			opt_rx->smc_ok = 1;
-			return true;
-		}
 	}
 #endif
-	return false;
 }
 
 /* Try to parse the MSS option from the TCP header. Return 0 on failure, clamped
@@ -3971,7 +3968,6 @@ void tcp_parse_options(const struct net *net,
 
 	ptr = (const unsigned char *)(th + 1);
 	opt_rx->saw_tstamp = 0;
-	opt_rx->saw_unknown = 0;
 
 	while (length > 0) {
 		int opcode = *ptr++;
@@ -4062,21 +4058,15 @@ void tcp_parse_options(const struct net *net,
 				 */
 				if (opsize >= TCPOLEN_EXP_FASTOPEN_BASE &&
 				    get_unaligned_be16(ptr) ==
-				    TCPOPT_FASTOPEN_MAGIC) {
+				    TCPOPT_FASTOPEN_MAGIC)
 					tcp_parse_fastopen_option(opsize -
 						TCPOLEN_EXP_FASTOPEN_BASE,
 						ptr + 2, th->syn, foc, true);
-					break;
-				}
-
-				if (smc_parse_options(th, opt_rx, ptr, opsize))
-					break;
-
-				opt_rx->saw_unknown = 1;
+				else
+					smc_parse_options(th, opt_rx, ptr,
+							  opsize);
 				break;
 
-			default:
-				opt_rx->saw_unknown = 1;
 			}
 			ptr += opsize-2;
 			length -= opsize;
