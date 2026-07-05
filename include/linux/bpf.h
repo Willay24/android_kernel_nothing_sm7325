@@ -697,14 +697,14 @@ enum bpf_jit_poke_reason {
 
 /* Descriptor of pokes pointing /into/ the JITed image. */
 struct bpf_jit_poke_descriptor {
-	void *tailcall_target;
+	void *ip;
 	union {
 		struct {
 			struct bpf_map *map;
 			u32 key;
 		} tail_call;
 	};
-	bool tailcall_target_stable;
+	bool ip_stable;
 	u8 adj_off;
 	u16 reason;
 	u32 insn_idx;
