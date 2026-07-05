@@ -10,8 +10,6 @@ int bpfilter_ip_set_sockopt(struct sock *sk, int optname, char __user *optval,
 			    unsigned int optlen);
 int bpfilter_ip_get_sockopt(struct sock *sk, int optname, char __user *optval,
 			    int __user *optlen);
-void bpfilter_umh_cleanup(struct umd_info *info);
-
 struct bpfilter_umh_ops {
 	struct umd_info info;
 	/* since ip_getsockopt() can run in parallel, serialize access to umh */
@@ -20,6 +18,7 @@ struct bpfilter_umh_ops {
 		       char __user *optval,
 		       unsigned int optlen, bool is_set);
 	int (*start)(void);
+	bool stop;
 };
 extern struct bpfilter_umh_ops bpfilter_ops;
 #endif
