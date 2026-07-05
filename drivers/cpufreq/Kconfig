@@ -206,6 +206,24 @@ config CPU_FREQ_GOV_SCHEDUTIL
 
 	  If in doubt, say N.
 
+config CPU_FREQ_GOV_REFLEX
+	bool "'reflex' cpufreq policy governor"
+	depends on CPU_FREQ_GOV_SCHEDUTIL
+	select CPU_FREQ_GOV_ATTR_SET
+	select IRQ_WORK
+	help
+	  Reflex is schedutil plus a measured fast path for rising load.
+	  Each CPU measures, from its idle time and frequency scale, the
+	  demand it actually ran; an interval without any idle means the CPU
+	  is falling behind, and the governor then runs it at the speed that
+	  best trades latency against energy instead of waiting for PELT to
+	  ramp up.  Otherwise it keeps up with demand like schedutil.
+
+	  The speeds come from the Energy Model when one is registered, else
+	  from a cube-law model.
+
+	  If in doubt, say N.
+
 comment "CPU frequency scaling drivers"
 
 config CPUFREQ_DT
