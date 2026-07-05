@@ -1041,10 +1041,6 @@ static inline int bpf_prog_test_run_flow_dissector(struct bpf_prog *prog,
 	return -ENOTSUPP;
 }
 
-static inline void bpf_map_put(struct bpf_map *map)
-{
-}
-
 static inline bool unprivileged_ebpf_enabled(void)
 {
 	return false;
