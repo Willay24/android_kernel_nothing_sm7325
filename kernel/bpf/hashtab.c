@@ -1372,7 +1372,8 @@ alloc:
 	}
 
 again:
-	bpf_disable_instrumentation();
+	preempt_disable();
+	this_cpu_inc(bpf_prog_active);
 	rcu_read_lock();
 again_nocopy:
 	dst_key = keys;
@@ -1400,7 +1401,8 @@ again_nocopy:
 		 */
 		raw_spin_unlock_irqrestore(&b->lock, flags);
 		rcu_read_unlock();
-		bpf_enable_instrumentation();
+		this_cpu_dec(bpf_prog_active);
+		preempt_enable();
 		goto after_loop;
 	}
 
@@ -1411,7 +1413,8 @@ again_nocopy:
 		 */
 		raw_spin_unlock_irqrestore(&b->lock, flags);
 		rcu_read_unlock();
-		bpf_enable_instrumentation();
+		this_cpu_dec(bpf_prog_active);
+		preempt_enable();
 		kvfree(keys);
 		kvfree(values);
 		goto alloc;
@@ -1481,7 +1484,8 @@ next_batch:
 	}
 
 	rcu_read_unlock();
-	bpf_enable_instrumentation();
+	this_cpu_dec(bpf_prog_active);
+	preempt_enable();
 	if (bucket_cnt && (copy_to_user(ukeys + total * key_size, keys,
 	    key_size * bucket_cnt) ||
 	    copy_to_user(uvalues + total * value_size, values,
