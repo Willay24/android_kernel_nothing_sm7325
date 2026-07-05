@@ -733,7 +733,6 @@ static inline u8 *bpf_skb_cb(struct sk_buff *skb)
 	return qdisc_skb_cb(skb)->data;
 }
 
-/* Must be invoked with migration disabled */
 static inline u32 __bpf_prog_run_save_cb(const struct bpf_prog *prog,
 					 struct sk_buff *skb)
 {
@@ -759,9 +758,9 @@ static inline u32 bpf_prog_run_save_cb(const struct bpf_prog *prog,
 {
 	u32 res;
 
-	migrate_disable();
+	preempt_disable();
 	res = __bpf_prog_run_save_cb(prog, skb);
-	migrate_enable();
+	preempt_enable();
 	return res;
 }
 
