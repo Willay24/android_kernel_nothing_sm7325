@@ -20,6 +20,9 @@ extern int proc_dohung_task_timeout_secs(struct ctl_table *table, int write,
 enum { sysctl_hung_task_timeout_secs = 0 };
 #endif
 
+#ifdef CONFIG_SCHED_BORE
+extern unsigned int sysctl_sched_min_base_slice;
+#endif /* CONFIG_SCHED_BORE */
 extern unsigned int sysctl_sched_base_slice;
 extern unsigned int sysctl_sched_idle_min_granularity;
 
