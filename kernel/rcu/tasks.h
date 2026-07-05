@@ -40,7 +40,6 @@ struct rcu_tasks {
 	struct rcu_head **cbs_tail;
 	struct wait_queue_head cbs_wq;
 	raw_spinlock_t cbs_lock;
-	unsigned long gp_start;
 	struct task_struct *kthread_ptr;
 	rcu_tasks_gp_func_t gp_func;
 	pregp_func_t pregp_func;
@@ -152,7 +151,6 @@ static int __noreturn rcu_tasks_kthread(void *arg)
 		}
 
 		// Wait for one grace period.
-		rtp->gp_start = jiffies;
 		rtp->gp_func(rtp);
 
 		/* Invoke the callbacks. */
