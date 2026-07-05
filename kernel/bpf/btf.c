@@ -3938,13 +3938,14 @@ again:
 		/* Only allow structure for now, can be relaxed for
 		 * other types later.
 		 */
-		t = btf_type_skip_modifiers(btf_vmlinux, array_elem->type,
-					    NULL);
-		if (!btf_type_is_struct(t))
+		elem_type = btf_type_skip_modifiers(btf_vmlinux,
+						    array_elem->type, NULL);
+		if (!btf_type_is_struct(elem_type))
 			goto error;
 
-		off = (off - moff) % t->size;
-		goto again;
+		off = (off - moff) % elem_type->size;
+		return btf_struct_access(log, elem_type, off, size, atype,
+					 next_btf_id);
 
 error:
 		bpf_log(log, "access beyond struct %s at off %u size %u\n",
