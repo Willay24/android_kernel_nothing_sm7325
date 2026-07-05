@@ -11,7 +11,6 @@
 #include <linux/slab.h>
 #include <linux/idr.h>
 #include <linux/rhashtable.h>
-#include <linux/bug.h>
 #include <net/page_pool.h>
 
 #include <net/xdp.h>
@@ -502,10 +501,3 @@ struct xdp_frame *xdp_convert_zc_to_xdp_frame(struct xdp_buff *xdp)
 	return xdpf;
 }
 EXPORT_SYMBOL_GPL(xdp_convert_zc_to_xdp_frame);
-
-/* Used by XDP_WARN macro, to avoid inlining WARN() in fast-path */
-void xdp_warn(const char *msg, const char *func, const int line)
-{
-	WARN(1, "XDP_WARN: %s(line:%d): %s\n", func, line, msg);
-};
-EXPORT_SYMBOL_GPL(xdp_warn);
