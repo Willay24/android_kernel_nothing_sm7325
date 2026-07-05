@@ -2617,12 +2617,9 @@ static int check_stack_read_fixed_off(struct bpf_verifier_env *env,
 	reg = &reg_state->stack[spi].spilled_ptr;
 
 	if (is_spilled_reg(&reg_state->stack[spi])) {
-		u8 spill_size = 1;
+		if (size != BPF_REG_SIZE) {
+			u8 scalar_size = 0;
 
-		for (i = BPF_REG_SIZE - 1; i > 0 && stype[i - 1] == STACK_SPILL; i--)
-			spill_size++;
-
-		if (size != BPF_REG_SIZE || spill_size != BPF_REG_SIZE) {
 			if (reg->type != SCALAR_VALUE) {
 				verbose_linfo(env, env->insn_idx, "; ");
 				verbose(env, "invalid size of register fill\n");
@@ -2633,7 +2630,10 @@ static int check_stack_read_fixed_off(struct bpf_verifier_env *env,
 			if (dst_regno < 0)
 				return 0;
 
-			if (!(off % BPF_REG_SIZE) && size == spill_size) {
+			for (i = BPF_REG_SIZE; i > 0 && stype[i - 1] == STACK_SPILL; i--)
+				scalar_size++;
+
+			if (!(off % BPF_REG_SIZE) && size == scalar_size) {
 				/* The earlier check_reg_arg() has decided the
 				 * subreg_def for this insn.  Save it first.
 				 */
@@ -2656,6 +2656,12 @@ static int check_stack_read_fixed_off(struct bpf_verifier_env *env,
 			}
 			state->regs[dst_regno].live |= REG_LIVE_WRITTEN;
 			return 0;
+		}
+		for (i = 1; i < BPF_REG_SIZE; i++) {
+			if (stype[(slot - i) % BPF_REG_SIZE] != STACK_SPILL) {
+				verbose(env, "corrupted spill memory\n");
+				return -EACCES;
+			}
 		}
 
 		if (dst_regno >= 0) {
