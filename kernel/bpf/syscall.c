@@ -4321,10 +4321,8 @@ static int bpf_prog_bind_map(union bpf_attr *attr)
 	used_maps_old = prog->aux->used_maps;
 
 	for (i = 0; i < prog->aux->used_map_cnt; i++)
-		if (used_maps_old[i] == map) {
-			bpf_map_put(map);
+		if (used_maps_old[i] == map)
 			goto out_unlock;
-		}
 
 	used_maps_new = kmalloc_array(prog->aux->used_map_cnt + 1,
 				      sizeof(used_maps_new[0]),
