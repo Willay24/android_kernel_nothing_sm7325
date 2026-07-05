@@ -806,8 +806,7 @@ static void tls_update(struct sock *sk, struct proto *p,
 		ctx->sk_write_space = write_space;
 		ctx->sk_proto = p;
 	} else {
-		/* Pairs with lockless read in sk_clone_lock(). */
-		WRITE_ONCE(sk->sk_prot, p);
+		sk->sk_prot = p;
 		sk->sk_write_space = write_space;
 	}
 }
