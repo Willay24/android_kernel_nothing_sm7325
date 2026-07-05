@@ -735,8 +735,7 @@ BPF_CALL_5(bpf_seq_printf, struct seq_file *, m, char *, fmt, u32, fmt_size,
 		}
 
 		if (fmt[i] != 'i' && fmt[i] != 'd' &&
-		    fmt[i] != 'u' && fmt[i] != 'x' &&
-		    fmt[i] != 'X') {
+		    fmt[i] != 'u' && fmt[i] != 'x') {
 			err = -EINVAL;
 			goto out;
 		}
