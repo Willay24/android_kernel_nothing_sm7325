@@ -105,7 +105,7 @@
 	.prog_type = BPF_PROG_TYPE_SCHED_CLS,
 	.fixup_map_hash_8b = { 16 },
 	.result = REJECT,
-	.errstr = "R0 min value is outside of the allowed memory range",
+	.errstr = "R0 min value is outside of the array range",
 },
 {
 	"calls: overlapping caller/callee",
