@@ -818,7 +818,9 @@ static int dev_map_notification(struct notifier_block *notifier,
 			break;
 
 		/* will be freed in free_netdev() */
-		netdev->xdp_bulkq = alloc_percpu(struct xdp_dev_bulk_queue);
+		netdev->xdp_bulkq =
+			__alloc_percpu_gfp(sizeof(struct xdp_dev_bulk_queue),
+					   sizeof(void *), GFP_ATOMIC);
 		if (!netdev->xdp_bulkq)
 			return NOTIFY_BAD;
 
