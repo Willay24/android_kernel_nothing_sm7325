@@ -180,17 +180,28 @@ static void sock_map_unref(struct sock *sk, void *link_raw)
 	}
 }
 
-static int sock_map_init_proto(struct sock *sk, struct sk_psock *psock)
+static int sock_map_init_proto(struct sock *sk)
 {
+	struct sk_psock *psock;
 	struct proto *prot;
 
 	sock_owned_by_me(sk);
 
+	rcu_read_lock();
+	psock = sk_psock(sk);
+	if (unlikely(!psock)) {
+		rcu_read_unlock();
+		return -EINVAL;
+	}
+
 	prot = tcp_bpf_get_proto(sk, psock);
-	if (IS_ERR(prot))
+	if (IS_ERR(prot)) {
+		rcu_read_unlock();
 		return PTR_ERR(prot);
+	}
 
 	sk_psock_update_proto(sk, psock, prot);
+	rcu_read_unlock();
 	return 0;
 }
 
@@ -269,7 +280,7 @@ static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
 	if (msg_parser)
 		psock_set_prog(&psock->progs.msg_parser, msg_parser);
 
-	ret = sock_map_init_proto(sk, psock);
+	ret = sock_map_init_proto(sk);
 	if (ret < 0)
 		goto out_drop;
 
@@ -317,7 +328,7 @@ static int sock_map_link_no_progs(struct bpf_map *map, struct sock *sk)
 			return -ENOMEM;
 	}
 
-	ret = sock_map_init_proto(sk, psock);
+	ret = sock_map_init_proto(sk);
 	if (ret < 0)
 		sk_psock_put(sk, psock);
 	return ret;
