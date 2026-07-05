@@ -538,8 +538,7 @@ enum sk_pacing {
  * be copied.
  */
 #define SK_USER_DATA_NOCOPY	1UL
-#define SK_USER_DATA_BPF	2UL	/* Managed by BPF */
-#define SK_USER_DATA_PTRMASK	~(SK_USER_DATA_NOCOPY | SK_USER_DATA_BPF)
+#define SK_USER_DATA_PTRMASK	~(SK_USER_DATA_NOCOPY)
 
 /**
  * sk_user_data_is_nocopy - Test if sk_user_data pointer must not be copied
