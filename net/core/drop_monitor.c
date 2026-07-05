@@ -67,7 +67,7 @@ struct net_dm_hw_entry {
 
 struct net_dm_hw_entries {
 	u32 num_entries;
-	struct net_dm_hw_entry entries[];
+	struct net_dm_hw_entry entries[0];
 };
 
 struct per_cpu_dm_data {
