@@ -28,7 +28,7 @@ struct xdp_buff {
 } __attribute__((preserve_access_index));
 
 __u64 test_result_fentry = 0;
-SEC("fentry/FUNC")
+SEC("fentry/_xdp_tx_iptunnel")
 int BPF_PROG(trace_on_entry, struct xdp_buff *xdp)
 {
 	test_result_fentry = xdp->rxq->dev->ifindex;
@@ -36,7 +36,7 @@ int BPF_PROG(trace_on_entry, struct xdp_buff *xdp)
 }
 
 __u64 test_result_fexit = 0;
-SEC("fexit/FUNC")
+SEC("fexit/_xdp_tx_iptunnel")
 int BPF_PROG(trace_on_exit, struct xdp_buff *xdp, int ret)
 {
 	test_result_fexit = ret;
