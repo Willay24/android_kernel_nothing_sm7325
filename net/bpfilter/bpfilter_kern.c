@@ -31,51 +31,48 @@ static void __stop_umh(void)
 		shutdown_umh();
 }
 
-static int bpfilter_send_req(struct mbox_request *req)
+static int __bpfilter_process_sockopt(struct sock *sk, int optname,
+				      char __user *optval,
+				      unsigned int optlen, bool is_set)
 {
+	struct mbox_request req;
 	struct mbox_reply reply;
 	loff_t pos;
 	ssize_t n;
+	int ret = -EFAULT;
 
+	req.is_set = is_set;
+	req.pid = current->pid;
+	req.cmd = optname;
+	req.addr = (uintptr_t)optval;
+	req.len = optlen;
 	if (!bpfilter_ops.info.tgid)
-		return -EFAULT;
+		goto out;
 	pos = 0;
-	n = kernel_write(bpfilter_ops.info.pipe_to_umh, req, sizeof(*req),
+	n = kernel_write(bpfilter_ops.info.pipe_to_umh, &req, sizeof(req),
 			   &pos);
-	if (n != sizeof(*req)) {
+	if (n != sizeof(req)) {
 		pr_err("write fail %zd\n", n);
-		goto stop;
+		__stop_umh();
+		ret = -EFAULT;
+		goto out;
 	}
 	pos = 0;
 	n = kernel_read(bpfilter_ops.info.pipe_from_umh, &reply, sizeof(reply),
 			&pos);
 	if (n != sizeof(reply)) {
 		pr_err("read fail %zd\n", n);
-		goto stop;
+		__stop_umh();
+		ret = -EFAULT;
+		goto out;
 	}
-	return reply.status;
-stop:
-	__stop_umh();
-	return -EFAULT;
-}
-
-static int bpfilter_process_sockopt(struct sock *sk, int optname,
-				    char __user *optval, unsigned int optlen,
-				    bool is_set)
-{
-	struct mbox_request req = {
-		.is_set		= is_set,
-		.pid		= current->pid,
-		.cmd		= optname,
-		.addr		= (uintptr_t)optval,
-		.len		= optlen,
-	};
-	return bpfilter_send_req(&req);
+	ret = reply.status;
+out:
+	return ret;
 }
 
 static int start_umh(void)
 {
-	struct mbox_request req = { .pid = current->pid };
 	int err;
 
 	/* fork usermode process */
@@ -85,7 +82,7 @@ static int start_umh(void)
 	pr_info("Loaded bpfilter_umh pid %d\n", pid_nr(bpfilter_ops.info.tgid));
 
 	/* health check that usermode process started correctly */
-	if (bpfilter_send_req(&req) != 0) {
+	if (__bpfilter_process_sockopt(NULL, 0, NULL, 0, 0) != 0) {
 		shutdown_umh();
 		return -EFAULT;
 	}
@@ -106,7 +103,7 @@ static int __init load_umh(void)
 	mutex_lock(&bpfilter_ops.lock);
 	err = start_umh();
 	if (!err && IS_ENABLED(CONFIG_INET)) {
-		bpfilter_ops.sockopt = &bpfilter_process_sockopt;
+		bpfilter_ops.sockopt = &__bpfilter_process_sockopt;
 		bpfilter_ops.start = &start_umh;
 	}
 	mutex_unlock(&bpfilter_ops.lock);
