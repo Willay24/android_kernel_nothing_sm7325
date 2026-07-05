@@ -18,8 +18,7 @@ static void bpfilter_umh_cleanup(struct umd_info *info)
 	bpfilter_ops.stop = true;
 	fput(info->pipe_to_umh);
 	fput(info->pipe_from_umh);
-	put_pid(info->tgid);
-	info->tgid = NULL;
+	info->pid = 0;
 	mutex_unlock(&bpfilter_ops.lock);
 }
 
