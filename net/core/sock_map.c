@@ -177,8 +177,8 @@ static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
 			 struct sock *sk)
 {
 	struct bpf_prog *msg_parser, *skb_parser, *skb_verdict;
+	bool skb_progs, sk_psock_is_new = false;
 	struct sk_psock *psock;
-	bool skb_progs;
 	int ret;
 
 	skb_verdict = READ_ONCE(progs->skb_verdict);
@@ -223,14 +223,18 @@ static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
 			ret = -ENOMEM;
 			goto out_progs;
 		}
+		sk_psock_is_new = true;
 	}
 
 	if (msg_parser)
 		psock_set_prog(&psock->progs.msg_parser, msg_parser);
-
-	ret = tcp_bpf_init(sk);
-	if (ret < 0)
-		goto out_drop;
+	if (sk_psock_is_new) {
+		ret = tcp_bpf_init(sk);
+		if (ret < 0)
+			goto out_drop;
+	} else {
+		tcp_bpf_reinit(sk);
+	}
 
 	write_lock_bh(&sk->sk_callback_lock);
 	if (skb_progs && !psock->parser.enabled) {
@@ -267,11 +271,14 @@ static int sock_map_link_no_progs(struct bpf_map *map, struct sock *sk)
 	if (IS_ERR(psock))
 		return PTR_ERR(psock);
 
-	if (!psock) {
-		psock = sk_psock_init(sk, map->numa_node);
-		if (!psock)
-			return -ENOMEM;
+	if (psock) {
+		tcp_bpf_reinit(sk);
+		return 0;
 	}
+
+	psock = sk_psock_init(sk, map->numa_node);
+	if (!psock)
+		return -ENOMEM;
 
 	ret = tcp_bpf_init(sk);
 	if (ret < 0)
