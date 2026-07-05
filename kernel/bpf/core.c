@@ -617,29 +617,20 @@ static DEFINE_SPINLOCK(bpf_lock);
 static LIST_HEAD(bpf_kallsyms);
 static struct latch_tree_root bpf_tree __cacheline_aligned;
 
-void bpf_ksym_add(struct bpf_ksym *ksym)
+static void bpf_prog_ksym_node_add(struct bpf_prog_aux *aux)
 {
-	spin_lock_bh(&bpf_lock);
-	WARN_ON_ONCE(!list_empty(&ksym->lnode));
-	list_add_tail_rcu(&ksym->lnode, &bpf_kallsyms);
-	latch_tree_insert(&ksym->tnode, &bpf_tree, &bpf_tree_ops);
-	spin_unlock_bh(&bpf_lock);
+	WARN_ON_ONCE(!list_empty(&aux->ksym.lnode));
+	list_add_tail_rcu(&aux->ksym.lnode, &bpf_kallsyms);
+	latch_tree_insert(&aux->ksym.tnode, &bpf_tree, &bpf_tree_ops);
 }
 
-static void __bpf_ksym_del(struct bpf_ksym *ksym)
+static void bpf_prog_ksym_node_del(struct bpf_prog_aux *aux)
 {
-	if (list_empty(&ksym->lnode))
+	if (list_empty(&aux->ksym.lnode))
 		return;
 
-	latch_tree_erase(&ksym->tnode, &bpf_tree, &bpf_tree_ops);
-	list_del_rcu(&ksym->lnode);
-}
-
-void bpf_ksym_del(struct bpf_ksym *ksym)
-{
-	spin_lock_bh(&bpf_lock);
-	__bpf_ksym_del(ksym);
-	spin_unlock_bh(&bpf_lock);
+	latch_tree_erase(&aux->ksym.tnode, &bpf_tree, &bpf_tree_ops);
+	list_del_rcu(&aux->ksym.lnode);
 }
 
 static bool bpf_prog_kallsyms_candidate(const struct bpf_prog *fp)
@@ -663,7 +654,9 @@ void bpf_prog_kallsyms_add(struct bpf_prog *fp)
 	bpf_prog_ksym_set_name(fp);
 	fp->aux->ksym.prog = true;
 
-	bpf_ksym_add(&fp->aux->ksym);
+	spin_lock_bh(&bpf_lock);
+	bpf_prog_ksym_node_add(fp->aux);
+	spin_unlock_bh(&bpf_lock);
 }
 
 void bpf_prog_kallsyms_del(struct bpf_prog *fp)
@@ -671,7 +664,9 @@ void bpf_prog_kallsyms_del(struct bpf_prog *fp)
 	if (!bpf_prog_kallsyms_candidate(fp))
 		return;
 
-	bpf_ksym_del(&fp->aux->ksym);
+	spin_lock_bh(&bpf_lock);
+	bpf_prog_ksym_node_del(fp->aux);
+	spin_unlock_bh(&bpf_lock);
 }
 
 static struct bpf_ksym *bpf_ksym_find(unsigned long addr)
