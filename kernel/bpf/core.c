@@ -1749,17 +1749,18 @@ bool bpf_prog_array_compatible(struct bpf_array *array,
 	if (fp->kprobe_override)
 		return false;
 
-	if (!array->aux->type) {
+	if (!array->owner_prog_type) {
 		/* There's no owner yet where we could check for
 		 * compatibility.
 		 */
-		array->aux->type  = fp->type;
-		array->aux->jited = fp->jited;
+		array->owner_prog_type = fp->type;
+		array->owner_jited = fp->jited;
+
 		return true;
 	}
 
-	return array->aux->type  == fp->type &&
-	       array->aux->jited == fp->jited;
+	return array->owner_prog_type == fp->type &&
+	       array->owner_jited == fp->jited;
 }
 
 static int bpf_check_tail_call(const struct bpf_prog *fp)
