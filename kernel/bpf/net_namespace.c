@@ -19,11 +19,19 @@ struct bpf_netns_link {
 	 * with netns_bpf_mutex held.
 	 */
 	struct net *net;
-	struct list_head node; /* node in list of links attached to net */
 };
 
 /* Protects updates to netns_bpf */
 DEFINE_MUTEX(netns_bpf_mutex);
+
+/* Must be called with netns_bpf_mutex held. */
+static void __net_exit bpf_netns_link_auto_detach(struct bpf_link *link)
+{
+	struct bpf_netns_link *net_link =
+		container_of(link, struct bpf_netns_link, link);
+
+	net_link->net = NULL;
+}
 
 /* Must be called with netns_bpf_mutex held. */
 static void netns_bpf_run_array_detach(struct net *net,
@@ -58,7 +66,7 @@ static void bpf_netns_link_release(struct bpf_link *link)
 		goto out_unlock;
 
 	netns_bpf_run_array_detach(net, type);
-	list_del(&net_link->node);
+	net->bpf.links[type] = NULL;
 
 out_unlock:
 	mutex_unlock(&netns_bpf_mutex);
@@ -217,7 +225,7 @@ int netns_bpf_prog_attach(const union bpf_attr *attr, struct bpf_prog *prog)
 	mutex_lock(&netns_bpf_mutex);
 
 	/* Attaching prog directly is not compatible with links */
-	if (!list_empty(&net->bpf.links[type])) {
+	if (net->bpf.links[type]) {
 		ret = -EEXIST;
 		goto out_unlock;
 	}
@@ -271,7 +279,7 @@ static int __netns_bpf_prog_detach(struct net *net,
 	struct bpf_prog *attached;
 
 	/* Progs attached via links cannot be detached */
-	if (!list_empty(&net->bpf.links[type]))
+	if (net->bpf.links[type])
 		return -EINVAL;
 
 	attached = net->bpf.progs[type];
@@ -302,15 +310,13 @@ int netns_bpf_prog_detach(const union bpf_attr *attr)
 static int netns_bpf_link_attach(struct net *net, struct bpf_link *link,
 				 enum netns_bpf_attach_type type)
 {
-	struct bpf_netns_link *net_link =
-		container_of(link, struct bpf_netns_link, link);
 	struct bpf_prog_array *run_array;
 	int err;
 
 	mutex_lock(&netns_bpf_mutex);
 
 	/* Allow attaching only one prog or link for now */
-	if (!list_empty(&net->bpf.links[type])) {
+	if (net->bpf.links[type]) {
 		err = -E2BIG;
 		goto out_unlock;
 	}
@@ -339,7 +345,7 @@ static int netns_bpf_link_attach(struct net *net, struct bpf_link *link,
 	run_array->items[0].prog = link->prog;
 	rcu_assign_pointer(net->bpf.run_array[type], run_array);
 
-	list_add_tail(&net_link->node, &net->bpf.links[type]);
+	net->bpf.links[type] = link;
 
 out_unlock:
 	mutex_unlock(&netns_bpf_mutex);
@@ -398,34 +404,24 @@ out_put_net:
 	return err;
 }
 
-static int __net_init netns_bpf_pernet_init(struct net *net)
-{
-	int type;
-
-	for (type = 0; type < MAX_NETNS_BPF_ATTACH_TYPE; type++)
-		INIT_LIST_HEAD(&net->bpf.links[type]);
-
-	return 0;
-}
-
 static void __net_exit netns_bpf_pernet_pre_exit(struct net *net)
 {
 	enum netns_bpf_attach_type type;
-	struct bpf_netns_link *net_link;
+	struct bpf_link *link;
 
 	mutex_lock(&netns_bpf_mutex);
 	for (type = 0; type < MAX_NETNS_BPF_ATTACH_TYPE; type++) {
 		netns_bpf_run_array_detach(net, type);
-		list_for_each_entry(net_link, &net->bpf.links[type], node)
-			net_link->net = NULL; /* auto-detach link */
-		if (net->bpf.progs[type])
+		link = net->bpf.links[type];
+		if (link)
+			bpf_netns_link_auto_detach(link);
+		else if (net->bpf.progs[type])
 			bpf_prog_put(net->bpf.progs[type]);
 	}
 	mutex_unlock(&netns_bpf_mutex);
 }
 
 static struct pernet_operations netns_bpf_pernet_ops __net_initdata = {
-	.init = netns_bpf_pernet_init,
 	.pre_exit = netns_bpf_pernet_pre_exit,
 };
 
