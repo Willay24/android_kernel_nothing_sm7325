@@ -840,7 +840,7 @@ int bpf_jit_charge_modmem(u32 pages)
 {
 	if (atomic_long_add_return(pages, &bpf_jit_current) >
 	    (bpf_jit_limit >> PAGE_SHIFT)) {
-		if (!bpf_capable()) {
+		if (!capable(CAP_SYS_ADMIN)) {
 			atomic_long_sub(pages, &bpf_jit_current);
 			return -EPERM;
 		}
