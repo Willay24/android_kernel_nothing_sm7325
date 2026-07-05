@@ -4206,9 +4206,11 @@ static int check_helper_call(struct bpf_verifier_env *env, int func_id, int insn
 	meta.func_id = func_id;
 	/* check args */
 	for (i = 0; i < 5; i++) {
-		err = btf_resolve_helper_id(&env->log, fn, i);
-		if (err > 0)
-			meta.btf_id = err;
+		if (fn->arg_type[i] == ARG_PTR_TO_BTF_ID) {
+			if (!fn->btf_id[i])
+				fn->btf_id[i] = btf_resolve_helper_id(&env->log, fn->func, i);
+			meta.btf_id = fn->btf_id[i];
+		}
 		err = check_func_arg(env, BPF_REG_1 + i, fn->arg_type[i], &meta);
 		if (err)
 			return err;
