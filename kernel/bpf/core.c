@@ -103,7 +103,6 @@ struct bpf_prog *bpf_prog_alloc_no_stats(unsigned int size, gfp_t gfp_extra_flag
 	fp->jit_requested = ebpf_jit_enabled();
 
 	INIT_LIST_HEAD_RCU(&fp->aux->ksym.lnode);
-	mutex_init(&fp->aux->used_maps_mutex);
 
 	return fp;
 }
@@ -259,7 +258,6 @@ struct bpf_prog *bpf_prog_realloc(struct bpf_prog *fp_old, unsigned int size,
 void __bpf_prog_free(struct bpf_prog *fp)
 {
 	if (fp->aux) {
-		mutex_destroy(&fp->aux->used_maps_mutex);
 		free_percpu(fp->aux->stats);
 		kfree(fp->aux->poke_tab);
 		kfree(fp->aux);
@@ -1807,9 +1805,8 @@ bool bpf_prog_array_compatible(struct bpf_array *array,
 static int bpf_check_tail_call(const struct bpf_prog *fp)
 {
 	struct bpf_prog_aux *aux = fp->aux;
-	int i, ret = 0;
+	int i;
 
-	mutex_lock(&aux->used_maps_mutex);
 	for (i = 0; i < aux->used_map_cnt; i++) {
 		struct bpf_map *map = aux->used_maps[i];
 		struct bpf_array *array;
@@ -1818,15 +1815,11 @@ static int bpf_check_tail_call(const struct bpf_prog *fp)
 			continue;
 
 		array = container_of(map, struct bpf_array, map);
-		if (!bpf_prog_array_compatible(array, fp)) {
-			ret = -EINVAL;
-			goto out;
-		}
+		if (!bpf_prog_array_compatible(array, fp))
+			return -EINVAL;
 	}
 
-out:
-	mutex_unlock(&aux->used_maps_mutex);
-	return ret;
+	return 0;
 }
 
 static void bpf_prog_select_func(struct bpf_prog *fp)
