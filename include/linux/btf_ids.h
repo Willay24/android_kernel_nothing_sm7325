@@ -57,19 +57,16 @@ asm(							\
  * .zero 4
  *
  */
-#define __BTF_ID_LIST(name, scope)			\
+#define __BTF_ID_LIST(name)				\
 asm(							\
 ".pushsection " BTF_IDS_SECTION ",\"a\";       \n"	\
-"." #scope " " #name ";                        \n"	\
+".local " #name ";                             \n"	\
 #name ":;                                      \n"	\
 ".popsection;                                  \n");	\
 
 #define BTF_ID_LIST(name)				\
-__BTF_ID_LIST(name, local)				\
+__BTF_ID_LIST(name)					\
 extern u32 name[];
-
-#define BTF_ID_LIST_GLOBAL(name)			\
-__BTF_ID_LIST(name, globl)
 
 /*
  * The BTF_ID_UNUSED macro defines 4 zero bytes.
@@ -93,7 +90,6 @@ asm(							\
 #define BTF_ID_LIST(name) static u32 name[5];
 #define BTF_ID(prefix, name)
 #define BTF_ID_UNUSED
-#define BTF_ID_LIST_GLOBAL(name) u32 name[1];
 
 #endif /* CONFIG_DEBUG_INFO_BTF */
 
