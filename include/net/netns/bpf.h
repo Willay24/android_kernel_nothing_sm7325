@@ -12,7 +12,6 @@ struct bpf_prog;
 
 struct netns_bpf {
 	struct bpf_prog __rcu *progs[MAX_NETNS_BPF_ATTACH_TYPE];
-	struct bpf_link *links[MAX_NETNS_BPF_ATTACH_TYPE];
 };
 
 #endif /* __NETNS_BPF_H__ */
