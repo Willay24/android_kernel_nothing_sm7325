@@ -381,7 +381,7 @@ static const struct inode_operations bpf_dir_iops = {
 	.unlink		= simple_unlink,
 };
 
-static int bpf_obj_do_pin(const char __user *pathname, void *raw,
+static int bpf_obj_do_pin(const struct filename *pathname, void *raw,
 			  enum bpf_type type)
 {
 	struct dentry *dentry;
@@ -390,7 +390,7 @@ static int bpf_obj_do_pin(const char __user *pathname, void *raw,
 	umode_t mode;
 	int ret;
 
-	dentry = user_path_create(AT_FDCWD, pathname, &path, 0);
+	dentry = kern_path_create(AT_FDCWD, pathname->name, &path, 0);
 	if (IS_ERR(dentry))
 		return PTR_ERR(dentry);
 
@@ -423,22 +423,30 @@ out:
 
 int bpf_obj_pin_user(u32 ufd, const char __user *pathname)
 {
+	struct filename *pname;
 	enum bpf_type type;
 	void *raw;
 	int ret;
 
-	raw = bpf_fd_probe_obj(ufd, &type);
-	if (IS_ERR(raw))
-		return PTR_ERR(raw);
+	pname = getname(pathname);
+	if (IS_ERR(pname))
+		return PTR_ERR(pname);
 
-	ret = bpf_obj_do_pin(pathname, raw, type);
+	raw = bpf_fd_probe_obj(ufd, &type);
+	if (IS_ERR(raw)) {
+		ret = PTR_ERR(raw);
+		goto out;
+	}
+
+	ret = bpf_obj_do_pin(pname, raw, type);
 	if (ret != 0)
 		bpf_any_put(raw, type);
-
+out:
+	putname(pname);
 	return ret;
 }
 
-static void *bpf_obj_do_get(const char __user *pathname,
+static void *bpf_obj_do_get(const struct filename *pathname,
 			    enum bpf_type *type, int flags)
 {
 	struct inode *inode;
@@ -446,7 +454,7 @@ static void *bpf_obj_do_get(const char __user *pathname,
 	void *raw;
 	int ret;
 
-	ret = user_path_at(AT_FDCWD, pathname, LOOKUP_FOLLOW, &path);
+	ret = kern_path(pathname->name, LOOKUP_FOLLOW, &path);
 	if (ret)
 		return ERR_PTR(ret);
 
@@ -473,27 +481,36 @@ out:
 int bpf_obj_get_user(const char __user *pathname, int flags)
 {
 	enum bpf_type type = BPF_TYPE_UNSPEC;
+	struct filename *pname;
+	int ret = -ENOENT;
 	int f_flags;
 	void *raw;
-	int ret;
 
 	f_flags = bpf_get_file_flag(flags);
 	if (f_flags < 0)
 		return f_flags;
 
-	raw = bpf_obj_do_get(pathname, &type, f_flags);
-	if (IS_ERR(raw))
-		return PTR_ERR(raw);
+	pname = getname(pathname);
+	if (IS_ERR(pname))
+		return PTR_ERR(pname);
+
+	raw = bpf_obj_do_get(pname, &type, f_flags);
+	if (IS_ERR(raw)) {
+		ret = PTR_ERR(raw);
+		goto out;
+	}
 
 	if (type == BPF_TYPE_PROG)
 		ret = bpf_prog_new_fd(raw);
 	else if (type == BPF_TYPE_MAP)
 		ret = bpf_map_new_fd(raw, f_flags);
 	else
-		return -ENOENT;
+		goto out;
 
 	if (ret < 0)
 		bpf_any_put(raw, type);
+out:
+	putname(pname);
 	return ret;
 }
 
