@@ -75,7 +75,7 @@ struct bpf_cpu_map {
 	struct list_head __percpu *flush_list;
 };
 
-static int bq_flush_to_queue(struct xdp_bulk_queue *bq);
+static int bq_flush_to_queue(struct xdp_bulk_queue *bq, bool in_napi_ctx);
 
 static struct bpf_map *cpu_map_alloc(union bpf_attr *attr)
 {
@@ -402,6 +402,7 @@ free_rcu:
 static void __cpu_map_entry_free(struct rcu_head *rcu)
 {
 	struct bpf_cpu_map_entry *rcpu;
+	int cpu;
 
 	/* This cpu_map_entry have been disconnected from map and one
 	 * RCU graze-period have elapsed.  Thus, XDP cannot queue any
@@ -410,6 +411,13 @@ static void __cpu_map_entry_free(struct rcu_head *rcu)
 	 */
 	rcpu = container_of(rcu, struct bpf_cpu_map_entry, rcu);
 
+	/* Flush remaining packets in percpu bulkq */
+	for_each_online_cpu(cpu) {
+		struct xdp_bulk_queue *bq = per_cpu_ptr(rcpu->bulkq, cpu);
+
+		/* No concurrent bq_enqueue can run at this point */
+		bq_flush_to_queue(bq, false);
+	}
 	free_percpu(rcpu->bulkq);
 	/* Cannot kthread_stop() here, last put free rcpu resources */
 	put_cpu_map_entry(rcpu);
@@ -502,6 +510,7 @@ static int cpu_map_update_elem(struct bpf_map *map, void *key, void *value,
 static void cpu_map_free(struct bpf_map *map)
 {
 	struct bpf_cpu_map *cmap = container_of(map, struct bpf_cpu_map, map);
+	int cpu;
 	u32 i;
 
 	/* At this point bpf_prog->aux->refcnt == 0 and this map->refcnt == 0,
@@ -515,6 +524,18 @@ static void cpu_map_free(struct bpf_map *map)
 
 	bpf_clear_redirect_map(map);
 	synchronize_rcu();
+
+	/* To ensure all pending flush operations have completed wait for flush
+	 * list be empty on _all_ cpus. Because the above synchronize_rcu()
+	 * ensures the map is disconnected from the program we can assume no new
+	 * items will be added to the list.
+	 */
+	for_each_online_cpu(cpu) {
+		struct list_head *flush_list = per_cpu_ptr(cmap->flush_list, cpu);
+
+		while (!list_empty(flush_list))
+			cond_resched();
+	}
 
 	/* For cpu_map the remote CPUs can still be using the entries
 	 * (struct bpf_cpu_map_entry).
@@ -581,7 +602,7 @@ const struct bpf_map_ops cpu_map_ops = {
 	.map_check_btf		= map_check_no_btf,
 };
 
-static int bq_flush_to_queue(struct xdp_bulk_queue *bq)
+static int bq_flush_to_queue(struct xdp_bulk_queue *bq, bool in_napi_ctx)
 {
 	struct bpf_cpu_map_entry *rcpu = bq->obj;
 	unsigned int processed = 0, drops = 0;
@@ -602,7 +623,10 @@ static int bq_flush_to_queue(struct xdp_bulk_queue *bq)
 		err = __ptr_ring_produce(q, xdpf);
 		if (err) {
 			drops++;
-			xdp_return_frame_rx_napi(xdpf);
+			if (likely(in_napi_ctx))
+				xdp_return_frame_rx_napi(xdpf);
+			else
+				xdp_return_frame(xdpf);
 		}
 		processed++;
 	}
@@ -625,7 +649,7 @@ static int bq_enqueue(struct bpf_cpu_map_entry *rcpu, struct xdp_frame *xdpf)
 	struct xdp_bulk_queue *bq = this_cpu_ptr(rcpu->bulkq);
 
 	if (unlikely(bq->count == CPU_MAP_BULK_SIZE))
-		bq_flush_to_queue(bq);
+		bq_flush_to_queue(bq, true);
 
 	/* Notice, xdp_buff/page MUST be queued here, long enough for
 	 * driver to code invoking us to finished, due to driver
@@ -667,7 +691,7 @@ void __cpu_map_flush(struct bpf_map *map)
 	struct xdp_bulk_queue *bq, *tmp;
 
 	list_for_each_entry_safe(bq, tmp, flush_list, flush_node) {
-		bq_flush_to_queue(bq);
+		bq_flush_to_queue(bq, true);
 
 		/* If already running, costs spin_lock_irqsave + smb_mb */
 		wake_up_process(bq->obj->kthread);
