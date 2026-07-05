@@ -21,7 +21,8 @@ void bpfilter_umh_cleanup(struct umd_info *info)
 }
 EXPORT_SYMBOL_GPL(bpfilter_umh_cleanup);
 
-static int bpfilter_mbox_request(struct sock *sk, int optname, sockptr_t optval,
+static int bpfilter_mbox_request(struct sock *sk, int optname,
+				 char __user *optval,
 				 unsigned int optlen, bool is_set)
 {
 	int err;
@@ -51,7 +52,7 @@ out:
 	return err;
 }
 
-int bpfilter_ip_set_sockopt(struct sock *sk, int optname, sockptr_t optval,
+int bpfilter_ip_set_sockopt(struct sock *sk, int optname, char __user *optval,
 			    unsigned int optlen)
 {
 	return bpfilter_mbox_request(sk, optname, optval, optlen, true);
@@ -65,8 +66,7 @@ int bpfilter_ip_get_sockopt(struct sock *sk, int optname, char __user *optval,
 	if (get_user(len, optlen))
 		return -EFAULT;
 
-	return bpfilter_mbox_request(sk, optname, USER_SOCKPTR(optval), len,
-				     false);
+	return bpfilter_mbox_request(sk, optname, optval, len, false);
 }
 
 static int __init bpfilter_sockopt_init(void)

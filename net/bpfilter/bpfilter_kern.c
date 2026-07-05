@@ -60,17 +60,17 @@ stop:
 }
 
 static int bpfilter_process_sockopt(struct sock *sk, int optname,
-				    sockptr_t optval, unsigned int optlen,
+				    char __user *optval, unsigned int optlen,
 				    bool is_set)
 {
 	struct mbox_request req = {
 		.is_set		= is_set,
 		.pid		= current->pid,
 		.cmd		= optname,
-		.addr		= (uintptr_t)optval.user,
+		.addr		= (uintptr_t)optval,
 		.len		= optlen,
 	};
-	if (uaccess_kernel() || sockptr_is_kernel(optval)) {
+	if (uaccess_kernel()) {
 		pr_err("kernel access not supported\n");
 		return -EFAULT;
 	}
