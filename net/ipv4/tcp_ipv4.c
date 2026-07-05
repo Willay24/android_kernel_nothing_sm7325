@@ -2899,7 +2899,7 @@ static struct pernet_operations __net_initdata tcp_sk_ops = {
 DEFINE_BPF_ITER_FUNC(tcp, struct bpf_iter_meta *meta,
 		     struct sock_common *sk_common, uid_t uid)
 
-static int bpf_iter_init_tcp(void *priv_data, struct bpf_iter_aux_info *aux)
+static int bpf_iter_init_tcp(void *priv_data)
 {
 	struct tcp_iter_state *st = priv_data;
 	struct tcp_seq_afinfo *afinfo;
@@ -2911,7 +2911,7 @@ static int bpf_iter_init_tcp(void *priv_data, struct bpf_iter_aux_info *aux)
 
 	afinfo->family = AF_UNSPEC;
 	st->bpf_seq_afinfo = afinfo;
-	ret = bpf_iter_init_seq_net(priv_data, aux);
+	ret = bpf_iter_init_seq_net(priv_data);
 	if (ret)
 		kfree(afinfo);
 	return ret;
