@@ -34,16 +34,16 @@
 #define VETH_RING_SIZE		256
 #define VETH_XDP_HEADROOM	(XDP_PACKET_HEADROOM + NET_IP_ALIGN)
 
+/* Separating two types of XDP xmit */
+#define VETH_XDP_TX		BIT(0)
+#define VETH_XDP_REDIR		BIT(1)
+
 #define VETH_XDP_TX_BULK_SIZE	16
 
 struct veth_stats {
-	u64	rx_drops;
-	/* xdp */
 	u64	xdp_packets;
 	u64	xdp_bytes;
-	u64	xdp_redirect;
 	u64	xdp_drops;
-	u64	xdp_tx;
 };
 
 struct veth_rq_stats {
@@ -490,8 +490,8 @@ static int veth_xdp_tx(struct net_device *dev, struct xdp_buff *xdp,
 
 static struct sk_buff *veth_xdp_rcv_one(struct veth_rq *rq,
 					struct xdp_frame *frame,
-					struct veth_xdp_tx_bq *bq,
-					struct veth_stats *stats)
+					unsigned int *xdp_xmit,
+					struct veth_xdp_tx_bq *bq)
 {
 	void *hard_start = frame->data - frame->headroom;
 	int len = frame->len, delta = 0;
@@ -525,10 +525,9 @@ static struct sk_buff *veth_xdp_rcv_one(struct veth_rq *rq,
 			if (unlikely(veth_xdp_tx(rq->dev, &xdp, bq) < 0)) {
 				trace_xdp_exception(rq->dev, xdp_prog, act);
 				frame = &orig_frame;
-				stats->rx_drops++;
 				goto err_xdp;
 			}
-			stats->xdp_tx++;
+			*xdp_xmit |= VETH_XDP_TX;
 			rcu_read_unlock();
 			goto xdp_xmit;
 		case XDP_REDIRECT:
@@ -536,10 +535,9 @@ static struct sk_buff *veth_xdp_rcv_one(struct veth_rq *rq,
 			xdp.rxq->mem = frame->mem;
 			if (xdp_do_redirect(rq->dev, &xdp, xdp_prog)) {
 				frame = &orig_frame;
-				stats->rx_drops++;
 				goto err_xdp;
 			}
-			stats->xdp_redirect++;
+			*xdp_xmit |= VETH_XDP_REDIR;
 			rcu_read_unlock();
 			goto xdp_xmit;
 		default:
@@ -549,7 +547,6 @@ static struct sk_buff *veth_xdp_rcv_one(struct veth_rq *rq,
 			trace_xdp_exception(rq->dev, xdp_prog, act);
 			/* fall through */
 		case XDP_DROP:
-			stats->xdp_drops++;
 			goto err_xdp;
 		}
 	}
@@ -559,7 +556,6 @@ static struct sk_buff *veth_xdp_rcv_one(struct veth_rq *rq,
 	skb = veth_build_skb(hard_start, headroom, len, frame->frame_sz);
 	if (!skb) {
 		xdp_return_frame(frame);
-		stats->rx_drops++;
 		goto err;
 	}
 
@@ -575,10 +571,9 @@ xdp_xmit:
 	return NULL;
 }
 
-static struct sk_buff *veth_xdp_rcv_skb(struct veth_rq *rq,
-					struct sk_buff *skb,
-					struct veth_xdp_tx_bq *bq,
-					struct veth_stats *stats)
+static struct sk_buff *veth_xdp_rcv_skb(struct veth_rq *rq, struct sk_buff *skb,
+					unsigned int *xdp_xmit,
+					struct veth_xdp_tx_bq *bq)
 {
 	u32 pktlen, headroom, act, metalen;
 	void *orig_data, *orig_data_end;
@@ -660,21 +655,18 @@ static struct sk_buff *veth_xdp_rcv_skb(struct veth_rq *rq,
 		xdp.rxq->mem = rq->xdp_mem;
 		if (unlikely(veth_xdp_tx(rq->dev, &xdp, bq) < 0)) {
 			trace_xdp_exception(rq->dev, xdp_prog, act);
-			stats->rx_drops++;
 			goto err_xdp;
 		}
-		stats->xdp_tx++;
+		*xdp_xmit |= VETH_XDP_TX;
 		rcu_read_unlock();
 		goto xdp_xmit;
 	case XDP_REDIRECT:
 		get_page(virt_to_page(xdp.data));
 		consume_skb(skb);
 		xdp.rxq->mem = rq->xdp_mem;
-		if (xdp_do_redirect(rq->dev, &xdp, xdp_prog)) {
-			stats->rx_drops++;
+		if (xdp_do_redirect(rq->dev, &xdp, xdp_prog))
 			goto err_xdp;
-		}
-		stats->xdp_redirect++;
+		*xdp_xmit |= VETH_XDP_REDIR;
 		rcu_read_unlock();
 		goto xdp_xmit;
 	default:
@@ -684,8 +676,7 @@ static struct sk_buff *veth_xdp_rcv_skb(struct veth_rq *rq,
 		trace_xdp_exception(rq->dev, xdp_prog, act);
 		/* fall through */
 	case XDP_DROP:
-		stats->xdp_drops++;
-		goto xdp_drop;
+		goto drop;
 	}
 	rcu_read_unlock();
 
@@ -710,8 +701,6 @@ static struct sk_buff *veth_xdp_rcv_skb(struct veth_rq *rq,
 out:
 	return skb;
 drop:
-	stats->rx_drops++;
-xdp_drop:
 	rcu_read_unlock();
 	kfree_skb(skb);
 	return NULL;
@@ -722,14 +711,14 @@ xdp_xmit:
 	return NULL;
 }
 
-static int veth_xdp_rcv(struct veth_rq *rq, int budget,
-			struct veth_xdp_tx_bq *bq,
-			struct veth_stats *stats)
+static int veth_xdp_rcv(struct veth_rq *rq, int budget, unsigned int *xdp_xmit,
+			struct veth_xdp_tx_bq *bq)
 {
-	int i, done = 0;
+	int i, done = 0, drops = 0, bytes = 0;
 
 	for (i = 0; i < budget; i++) {
 		void *ptr = __ptr_ring_consume(&rq->xdp_ring);
+		unsigned int xdp_xmit_one = 0;
 		struct sk_buff *skb;
 
 		if (!ptr)
@@ -738,24 +727,27 @@ static int veth_xdp_rcv(struct veth_rq *rq, int budget,
 		if (veth_is_xdp_frame(ptr)) {
 			struct xdp_frame *frame = veth_ptr_to_xdp(ptr);
 
-			stats->xdp_bytes += frame->len;
-			skb = veth_xdp_rcv_one(rq, frame, bq, stats);
+			bytes += frame->len;
+			skb = veth_xdp_rcv_one(rq, frame, &xdp_xmit_one, bq);
 		} else {
 			skb = ptr;
-			stats->xdp_bytes += skb->len;
-			skb = veth_xdp_rcv_skb(rq, skb, bq, stats);
+			bytes += skb->len;
+			skb = veth_xdp_rcv_skb(rq, skb, &xdp_xmit_one, bq);
 		}
+		*xdp_xmit |= xdp_xmit_one;
 
 		if (skb)
 			napi_gro_receive(&rq->xdp_napi, skb);
+		else if (!xdp_xmit_one)
+			drops++;
 
 		done++;
 	}
 
 	u64_stats_update_begin(&rq->stats.syncp);
-	rq->stats.vs.xdp_bytes += stats->xdp_bytes;
-	rq->stats.vs.xdp_drops += stats->xdp_drops + stats->rx_drops;
 	rq->stats.vs.xdp_packets += done;
+	rq->stats.vs.xdp_bytes += bytes;
+	rq->stats.vs.xdp_drops += drops;
 	u64_stats_update_end(&rq->stats.syncp);
 
 	return done;
@@ -765,14 +757,14 @@ static int veth_poll(struct napi_struct *napi, int budget)
 {
 	struct veth_rq *rq =
 		container_of(napi, struct veth_rq, xdp_napi);
-	struct veth_stats stats = {};
+	unsigned int xdp_xmit = 0;
 	struct veth_xdp_tx_bq bq;
 	int done;
 
 	bq.count = 0;
 
 	xdp_set_return_frame_no_direct();
-	done = veth_xdp_rcv(rq, budget, &bq, &stats);
+	done = veth_xdp_rcv(rq, budget, &xdp_xmit, &bq);
 
 	if (done < budget && napi_complete_done(napi, done)) {
 		/* Write rx_notify_masked before reading ptr_ring */
@@ -785,9 +777,9 @@ static int veth_poll(struct napi_struct *napi, int budget)
 		}
 	}
 
-	if (stats.xdp_tx > 0)
+	if (xdp_xmit & VETH_XDP_TX)
 		veth_xdp_flush(rq->dev, &bq);
-	if (stats.xdp_redirect > 0)
+	if (xdp_xmit & VETH_XDP_REDIR)
 		xdp_do_flush();
 	xdp_clear_return_frame_no_direct();
 
