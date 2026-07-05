@@ -42,8 +42,6 @@ static DEFINE_IDR(prog_idr);
 static DEFINE_SPINLOCK(prog_idr_lock);
 static DEFINE_IDR(map_idr);
 static DEFINE_SPINLOCK(map_idr_lock);
-static DEFINE_IDR(link_idr);
-static DEFINE_SPINLOCK(link_idr_lock);
 
 int sysctl_unprivileged_bpf_disabled __read_mostly =
 	IS_BUILTIN(CONFIG_BPF_UNPRIV_DEFAULT_OFF) ? 2 : 0;
@@ -2186,38 +2184,25 @@ static int bpf_obj_get(const union bpf_attr *attr)
 				attr->file_flags);
 }
 
-void bpf_link_init(struct bpf_link *link,
-		   const struct bpf_link_ops *ops, struct bpf_prog *prog)
+void bpf_link_init(struct bpf_link *link, const struct bpf_link_ops *ops,
+		   struct bpf_prog *prog)
 {
 	atomic64_set(&link->refcnt, 1);
-	link->id = 0;
 	link->ops = ops;
 	link->prog = prog;
 }
 
-static void bpf_link_free_id(int id)
-{
-	if (!id)
-		return;
-
-	spin_lock_bh(&link_idr_lock);
-	idr_remove(&link_idr, id);
-	spin_unlock_bh(&link_idr_lock);
-}
-
 /* Clean up bpf_link and corresponding anon_inode file and FD. After
  * anon_inode is created, bpf_link can't be just kfree()'d due to deferred
- * anon_inode's release() call. This helper marksbpf_link as
- * defunct, releases anon_inode file and puts reserved FD. bpf_prog's refcnt
- * is not decremented, it's the responsibility of a calling code that failed
- * to complete bpf_link initialization.
+ * anon_inode's release() call. This helper manages marking bpf_link as
+ * defunct, releases anon_inode file and puts reserved FD.
  */
-void bpf_link_cleanup(struct bpf_link_primer *primer)
+void bpf_link_cleanup(struct bpf_link *link, struct file *link_file,
+		      int link_fd)
 {
-	primer->link->prog = NULL;
-	bpf_link_free_id(primer->id);
-	fput(primer->file);
-	put_unused_fd(primer->fd);
+	link->prog = NULL;
+	fput(link_file);
+	put_unused_fd(link_fd);
 }
 
 void bpf_link_inc(struct bpf_link *link)
@@ -2228,7 +2213,6 @@ void bpf_link_inc(struct bpf_link *link)
 /* bpf_link_free is guaranteed to be called from process context */
 static void bpf_link_free(struct bpf_link *link)
 {
-	bpf_link_free_id(link->id);
 	if (link->prog) {
 		/* detach BPF program, clean up used resources */
 		link->ops->release(link);
@@ -2294,11 +2278,9 @@ static void bpf_link_show_fdinfo(struct seq_file *m, struct file *filp)
 	bin2hex(prog_tag, prog->tag, sizeof(prog->tag));
 	seq_printf(m,
 		   "link_type:\t%s\n"
-		   "link_id:\t%u\n"
 		   "prog_tag:\t%s\n"
 		   "prog_id:\t%u\n",
 		   link_type,
-		   link->id,
 		   prog_tag,
 		   prog->aux->id);
 }
@@ -2313,76 +2295,36 @@ static const struct file_operations bpf_link_fops = {
 	.write		= bpf_dummy_write,
 };
 
-static int bpf_link_alloc_id(struct bpf_link *link)
+int bpf_link_new_fd(struct bpf_link *link)
 {
-	int id;
-
-	idr_preload(GFP_KERNEL);
-	spin_lock_bh(&link_idr_lock);
-	id = idr_alloc_cyclic(&link_idr, link, 1, INT_MAX, GFP_ATOMIC);
-	spin_unlock_bh(&link_idr_lock);
-	idr_preload_end();
-
-	return id;
+	return anon_inode_getfd("bpf-link", &bpf_link_fops, link, O_CLOEXEC);
 }
 
-/* Prepare bpf_link to be exposed to user-space by allocating anon_inode file,
- * reserving unused FD and allocating ID from link_idr. This is to be paired
- * with bpf_link_settle() to install FD and ID and expose bpf_link to
- * user-space, if bpf_link is successfully attached. If not, bpf_link and
- * pre-allocated resources are to be freed with bpf_cleanup() call. All the
- * transient state is passed around in struct bpf_link_primer.
- * This is preferred way to create and initialize bpf_link, especially when
- * there are complicated and expensive operations inbetween creating bpf_link
- * itself and attaching it to BPF hook. By using bpf_link_prime() and
- * bpf_link_settle() kernel code using bpf_link doesn't have to perform
- * expensive (and potentially failing) roll back operations in a rare case
- * that file, FD, or ID can't be allocated.
+/* Similar to bpf_link_new_fd, create anon_inode for given bpf_link, but
+ * instead of immediately installing fd in fdtable, just reserve it and
+ * return. Caller then need to either install it with fd_install(fd, file) or
+ * release with put_unused_fd(fd).
+ * This is useful for cases when bpf_link attachment/detachment are
+ * complicated and expensive operations and should be delayed until all the fd
+ * reservation and anon_inode creation succeeds.
  */
-int bpf_link_prime(struct bpf_link *link, struct bpf_link_primer *primer)
+struct file *bpf_link_new_file(struct bpf_link *link, int *reserved_fd)
 {
 	struct file *file;
-	int fd, id;
+	int fd;
 
 	fd = get_unused_fd_flags(O_CLOEXEC);
 	if (fd < 0)
-		return fd;
+		return ERR_PTR(fd);
 
 	file = anon_inode_getfile("bpf_link", &bpf_link_fops, link, O_CLOEXEC);
 	if (IS_ERR(file)) {
 		put_unused_fd(fd);
-		return PTR_ERR(file);
+		return file;
 	}
 
-	id = bpf_link_alloc_id(link);
-	if (id < 0) {
-		put_unused_fd(fd);
-		fput(file);
-		return id;
-	}
-
-	primer->link = link;
-	primer->file = file;
-	primer->fd = fd;
-	primer->id = id;
-	return 0;
-}
-
-int bpf_link_settle(struct bpf_link_primer *primer)
-{
-	/* make bpf_link fetchable by ID */
-	spin_lock_bh(&link_idr_lock);
-	primer->link->id = primer->id;
-	spin_unlock_bh(&link_idr_lock);
-	/* make bpf_link fetchable by FD */
-	fd_install(primer->fd, primer->file);
-	/* pass through installed FD */
-	return primer->fd;
-}
-
-int bpf_link_new_fd(struct bpf_link *link)
-{
-	return anon_inode_getfd("bpf-link", &bpf_link_fops, link, O_CLOEXEC);
+	*reserved_fd = fd;
+	return file;
 }
 
 struct bpf_link *bpf_link_get_from_fd(u32 ufd)
@@ -2428,9 +2370,9 @@ static const struct bpf_link_ops bpf_tracing_link_lops = {
 
 static int bpf_tracing_prog_attach(struct bpf_prog *prog)
 {
-	struct bpf_link_primer link_primer;
 	struct bpf_tracing_link *link;
-	int err;
+	struct file *link_file;
+	int link_fd, err;
 
 	switch (prog->type) {
 	case BPF_PROG_TYPE_TRACING:
@@ -2465,19 +2407,22 @@ static int bpf_tracing_prog_attach(struct bpf_prog *prog)
 	}
 	bpf_link_init(&link->link, &bpf_tracing_link_lops, prog);
 
-	err = bpf_link_prime(&link->link, &link_primer);
-	if (err) {
+	link_file = bpf_link_new_file(&link->link, &link_fd);
+	if (IS_ERR(link_file)) {
 		kfree(link);
+		err = PTR_ERR(link_file);
 		goto out_put_prog;
 	}
 
 	err = bpf_trampoline_link_prog(prog);
 	if (err) {
-		bpf_link_cleanup(&link_primer);
+		bpf_link_cleanup(&link->link, link_file, link_fd);
 		goto out_put_prog;
 	}
 
-	return bpf_link_settle(&link_primer);
+	fd_install(link_fd, link_file);
+	return link_fd;
+
 out_put_prog:
 	bpf_prog_put(prog);
 	return err;
@@ -2505,7 +2450,7 @@ static void bpf_raw_tp_link_dealloc(struct bpf_link *link)
 	kfree(raw_tp);
 }
 
-static const struct bpf_link_ops bpf_raw_tp_link_lops = {
+static const struct bpf_link_ops bpf_raw_tp_lops = {
 	.release = bpf_raw_tp_link_release,
 	.dealloc = bpf_raw_tp_link_dealloc,
 };
@@ -2514,13 +2459,13 @@ static const struct bpf_link_ops bpf_raw_tp_link_lops = {
 
 static int bpf_raw_tracepoint_open(const union bpf_attr *attr)
 {
-	struct bpf_link_primer link_primer;
 	struct bpf_raw_tp_link *link;
 	struct bpf_raw_event_map *btp;
+	struct file *link_file;
 	struct bpf_prog *prog;
 	const char *tp_name;
 	char buf[128];
-	int err;
+	int link_fd, err;
 
 	if (CHECK_ATTR(BPF_RAW_TRACEPOINT_OPEN))
 		return -EINVAL;
@@ -2573,22 +2518,24 @@ static int bpf_raw_tracepoint_open(const union bpf_attr *attr)
 		err = -ENOMEM;
 		goto out_put_btp;
 	}
-	bpf_link_init(&link->link, &bpf_raw_tp_link_lops, prog);
+	bpf_link_init(&link->link, &bpf_raw_tp_lops, prog);
 	link->btp = btp;
 
-	err = bpf_link_prime(&link->link, &link_primer);
-	if (err) {
+	link_file = bpf_link_new_file(&link->link, &link_fd);
+	if (IS_ERR(link_file)) {
 		kfree(link);
+		err = PTR_ERR(link_file);
 		goto out_put_btp;
 	}
 
 	err = bpf_probe_register(link->btp, prog);
 	if (err) {
-		bpf_link_cleanup(&link_primer);
+		bpf_link_cleanup(&link->link, link_file, link_fd);
 		goto out_put_btp;
 	}
 
-	return bpf_link_settle(&link_primer);
+	fd_install(link_fd, link_file);
+	return link_fd;
 
 out_put_btp:
 	bpf_put_raw_tracepoint(btp);
@@ -3526,7 +3473,7 @@ static int bpf_task_fd_query(const union bpf_attr *attr,
 	if (file->f_op == &bpf_link_fops) {
 		struct bpf_link *link = file->private_data;
 
-		if (link->ops == &bpf_raw_tp_link_lops) {
+		if (link->ops == &bpf_raw_tp_lops) {
 			struct bpf_raw_tp_link *raw_tp =
 				container_of(link, struct bpf_raw_tp_link, link);
 			struct bpf_raw_event_map *btp = raw_tp->btp;
