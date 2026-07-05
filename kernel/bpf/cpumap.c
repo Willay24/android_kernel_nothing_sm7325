@@ -624,7 +624,7 @@ int cpu_map_enqueue(struct bpf_cpu_map_entry *rcpu, struct xdp_buff *xdp,
 {
 	struct xdp_frame *xdpf;
 
-	xdpf = xdp_convert_buff_to_frame(xdp);
+	xdpf = convert_to_xdp_frame(xdp);
 	if (unlikely(!xdpf))
 		return -EOVERFLOW;
 
