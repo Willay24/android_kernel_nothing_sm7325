@@ -1362,7 +1362,8 @@ done:
 	(&((struct mpls_dev *)0)->field)
 
 static int mpls_conf_proc(struct ctl_table *ctl, int write,
-			  void *buffer, size_t *lenp, loff_t *ppos)
+			  void __user *buffer,
+			  size_t *lenp, loff_t *ppos)
 {
 	int oval = *(int *)ctl->data;
 	int ret = proc_dointvec(ctl, write, buffer, lenp, ppos);
@@ -2633,7 +2634,7 @@ nolabels:
 }
 
 static int mpls_platform_labels(struct ctl_table *table, int write,
-				void *buffer, size_t *lenp, loff_t *ppos)
+				void __user *buffer, size_t *lenp, loff_t *ppos)
 {
 	struct net *net = table->data;
 	int platform_labels = net->mpls.platform_labels;
