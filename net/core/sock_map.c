@@ -377,14 +377,7 @@ static struct sock *__sock_map_lookup_elem(struct bpf_map *map, u32 key)
 
 static void *sock_map_lookup(struct bpf_map *map, void *key)
 {
-	struct sock *sk;
-
-	sk = __sock_map_lookup_elem(map, *(u32 *)key);
-	if (!sk || !sk_fullsock(sk))
-		return NULL;
-	if (sk_is_refcounted(sk) && !refcount_inc_not_zero(&sk->sk_refcnt))
-		return NULL;
-	return sk;
+	return __sock_map_lookup_elem(map, *(u32 *)key);
 }
 
 static void *sock_map_lookup_sys(struct bpf_map *map, void *key)
@@ -1112,14 +1105,7 @@ static void *sock_hash_lookup_sys(struct bpf_map *map, void *key)
 
 static void *sock_hash_lookup(struct bpf_map *map, void *key)
 {
-	struct sock *sk;
-
-	sk = __sock_hash_lookup_elem(map, key);
-	if (!sk || !sk_fullsock(sk))
-		return NULL;
-	if (sk_is_refcounted(sk) && !refcount_inc_not_zero(&sk->sk_refcnt))
-		return NULL;
-	return sk;
+	return __sock_hash_lookup_elem(map, key);
 }
 
 static void sock_hash_release_progs(struct bpf_map *map)
