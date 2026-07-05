@@ -3926,7 +3926,10 @@ static int check_stack_access_within_bounds(
 
 	if (tnum_is_const(reg->var_off)) {
 		min_off = reg->var_off.value + off;
-		max_off = min_off + access_size;
+		if (access_size > 0)
+			max_off = min_off + access_size - 1;
+		else
+			max_off = min_off;
 	} else {
 		if (reg->smax_value >= BPF_MAX_VAR_OFF ||
 		    reg->smin_value <= -BPF_MAX_VAR_OFF) {
@@ -3935,12 +3938,15 @@ static int check_stack_access_within_bounds(
 			return -EACCES;
 		}
 		min_off = reg->smin_value + off;
-		max_off = reg->smax_value + off + access_size;
+		if (access_size > 0)
+			max_off = reg->smax_value + off + access_size - 1;
+		else
+			max_off = min_off;
 	}
 
 	err = check_stack_slot_within_bounds(min_off, state, type);
-	if (!err && max_off > 0)
-		err = -EINVAL; /* out of stack access into non-negative offsets */
+	if (!err)
+		err = check_stack_slot_within_bounds(max_off, state, type);
 
 	if (err) {
 		if (tnum_is_const(reg->var_off)) {
