@@ -162,10 +162,8 @@ static void *bpf_test_init(const union bpf_attr *kattr, u32 size,
 	    bpf_fentry_test3(4, 5, 6) != 15 ||
 	    bpf_fentry_test4((void *)7, 8, 9, 10) != 34 ||
 	    bpf_fentry_test5(11, (void *)12, 13, 14, 15) != 65 ||
-	    bpf_fentry_test6(16, (void *)17, 18, 19, (void *)20, 21) != 111) {
-		kfree(data);
+	    bpf_fentry_test6(16, (void *)17, 18, 19, (void *)20, 21) != 111)
 		return ERR_PTR(-EFAULT);
-	}
 	return data;
 }
 
