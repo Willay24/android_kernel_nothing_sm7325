@@ -136,7 +136,8 @@ static void *sd_zbc_alloc_report_buffer(struct scsi_disk *sdkp,
 
 	while (bufsize >= SECTOR_SIZE) {
 		buf = __vmalloc(bufsize,
-				GFP_KERNEL | __GFP_ZERO | __GFP_NORETRY);
+				GFP_KERNEL | __GFP_ZERO | __GFP_NORETRY,
+				PAGE_KERNEL);
 		if (buf) {
 			*buflen = bufsize;
 			return buf;
