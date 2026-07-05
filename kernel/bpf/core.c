@@ -678,27 +678,19 @@ static struct bpf_prog *bpf_prog_kallsyms_find(unsigned long addr)
 	       NULL;
 }
 
-static struct bpf_ksym *bpf_ksym_find(unsigned long addr)
-{
-	struct latch_tree_node *n;
-
-	n = latch_tree_find((void *)addr, &bpf_tree, &bpf_tree_ops);
-	return n ? container_of(n, struct bpf_ksym, tnode) : NULL;
-}
-
 const char *__bpf_address_lookup(unsigned long addr, unsigned long *size,
 				 unsigned long *off, char *sym)
 {
-	struct bpf_ksym *ksym;
+	struct bpf_prog *prog;
 	char *ret = NULL;
 
 	rcu_read_lock();
-	ksym = bpf_ksym_find(addr);
-	if (ksym) {
-		unsigned long symbol_start = ksym->start;
-		unsigned long symbol_end = ksym->end;
+	prog = bpf_prog_kallsyms_find(addr);
+	if (prog) {
+		unsigned long symbol_start = prog->aux->ksym.start;
+		unsigned long symbol_end = prog->aux->ksym.end;
 
-		strncpy(sym, ksym->name, KSYM_NAME_LEN);
+		strncpy(sym, prog->aux->ksym.name, KSYM_NAME_LEN);
 
 		ret = sym;
 		if (size)
@@ -716,7 +708,7 @@ bool is_bpf_text_address(unsigned long addr)
 	bool ret;
 
 	rcu_read_lock();
-	ret = bpf_ksym_find(addr) != NULL;
+	ret = bpf_prog_kallsyms_find(addr) != NULL;
 	rcu_read_unlock();
 
 	return ret;
