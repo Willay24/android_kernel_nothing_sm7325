@@ -1124,4 +1124,33 @@ struct cpufreq_governor *cpufreq_default_governor(void)
 }
 #endif
 
+#ifdef CONFIG_CPU_FREQ_GOV_REFLEX
+unsigned long cpufreq_get_capacity_ref_freq(struct cpufreq_policy *policy)
+{
+	return policy->cpuinfo.max_freq;
+}
+
+void cpufreq_get_effective_util(int cpu, unsigned long boost,
+				unsigned long *out_util,
+				unsigned long *out_bw_min,
+				unsigned long *out_bw_max)
+{
+	unsigned long bw_min, bw_max, util = cpu_util_cfs(cpu);
+
+	util = effective_cpu_util(cpu, util, &bw_min, &bw_max);
+	util = max(util, boost);
+	util = map_util_perf(util);
+	util = min(util, bw_max);
+
+	*out_util = max(bw_min, util);
+	*out_bw_min = bw_min;
+	*out_bw_max = bw_max;
+}
+
+bool cpufreq_cpu_dl_bw_exceeded(int cpu, unsigned long bw_min)
+{
+	return cpu_bw_dl(cpu_rq(cpu)) > bw_min;
+}
+#endif
+
 cpufreq_governor_init(schedutil_gov);
