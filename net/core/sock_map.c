@@ -185,6 +185,8 @@ static int sock_map_init_proto(struct sock *sk, struct sk_psock *psock)
 {
 	struct proto *prot;
 
+	sock_owned_by_me(sk);
+
 	switch (sk->sk_type) {
 	case SOCK_STREAM:
 		prot = tcp_bpf_get_proto(sk, psock);
@@ -271,8 +273,8 @@ static int sock_map_link(struct bpf_map *map, struct sk_psock_progs *progs,
 		}
 	} else {
 		psock = sk_psock_init(sk, map->numa_node);
-		if (IS_ERR(psock)) {
-			ret = PTR_ERR(psock);
+		if (!psock) {
+			ret = -ENOMEM;
 			goto out_progs;
 		}
 	}
@@ -324,8 +326,8 @@ static int sock_map_link_no_progs(struct bpf_map *map, struct sock *sk)
 
 	if (!psock) {
 		psock = sk_psock_init(sk, map->numa_node);
-		if (IS_ERR(psock))
-			return PTR_ERR(psock);
+		if (!psock)
+			return -ENOMEM;
 	}
 
 	ret = sock_map_init_proto(sk, psock);
