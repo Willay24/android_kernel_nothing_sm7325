@@ -269,8 +269,7 @@ out_unlock:
 
 /* Must be called with netns_bpf_mutex held. */
 static int __netns_bpf_prog_detach(struct net *net,
-				   enum netns_bpf_attach_type type,
-				   struct bpf_prog *old)
+				   enum netns_bpf_attach_type type)
 {
 	struct bpf_prog *attached;
 
@@ -279,7 +278,7 @@ static int __netns_bpf_prog_detach(struct net *net,
 		return -EINVAL;
 
 	attached = net->bpf.progs[type];
-	if (!attached || attached != old)
+	if (!attached)
 		return -ENOENT;
 	netns_bpf_run_array_detach(net, type);
 	net->bpf.progs[type] = NULL;
@@ -287,28 +286,18 @@ static int __netns_bpf_prog_detach(struct net *net,
 	return 0;
 }
 
-int netns_bpf_prog_detach(const union bpf_attr *attr, enum bpf_prog_type ptype)
+int netns_bpf_prog_detach(const union bpf_attr *attr)
 {
 	enum netns_bpf_attach_type type;
-	struct bpf_prog *prog;
 	int ret;
-
-	if (attr->target_fd)
-		return -EINVAL;
 
 	type = to_netns_bpf_attach_type(attr->attach_type);
 	if (type < 0)
 		return -EINVAL;
 
-	prog = bpf_prog_get_type(attr->attach_bpf_fd, ptype);
-	if (IS_ERR(prog))
-		return PTR_ERR(prog);
-
 	mutex_lock(&netns_bpf_mutex);
-	ret = __netns_bpf_prog_detach(current->nsproxy->net_ns, type, prog);
+	ret = __netns_bpf_prog_detach(current->nsproxy->net_ns, type);
 	mutex_unlock(&netns_bpf_mutex);
-
-	bpf_prog_put(prog);
 
 	return ret;
 }
