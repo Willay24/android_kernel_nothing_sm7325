@@ -527,3 +527,10 @@ u64 approximate_runtime(unsigned long util)
 
 	return runtime;
 }
+
+#ifdef CONFIG_CPU_FREQ_GOV_REFLEX
+u64 cpufreq_pelt_decay(u64 val, u64 delta_ns)
+{
+	return decay_load(val, delta_ns >> 20);
+}
+#endif
