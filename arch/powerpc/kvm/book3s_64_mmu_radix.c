@@ -62,10 +62,12 @@ unsigned long __kvmhv_copy_tofrom_guest_radix(int lpid, int pid,
 	}
 	isync();
 
+	pagefault_disable();
 	if (is_load)
-		ret = probe_user_read(to, (const void __user *)from, n);
+		ret = raw_copy_from_user(to, from, n);
 	else
-		ret = probe_user_write((void __user *)to, from, n);
+		ret = raw_copy_to_user(to, from, n);
+	pagefault_enable();
 
 	/* switch the pid first to avoid running host with unallocated pid */
 	if (quadrant == 1 && pid != old_pid)
