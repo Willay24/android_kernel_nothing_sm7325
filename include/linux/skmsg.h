@@ -353,8 +353,7 @@ static inline void sk_psock_update_proto(struct sock *sk,
 	psock->saved_write_space = sk->sk_write_space;
 
 	psock->sk_proto = sk->sk_prot;
-	/* Pairs with lockless read in sk_clone_lock() */
-	WRITE_ONCE(sk->sk_prot, ops);
+	sk->sk_prot = ops;
 }
 
 static inline void sk_psock_restore_proto(struct sock *sk,
