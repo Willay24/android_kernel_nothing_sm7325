@@ -64,7 +64,8 @@ const struct btf_type *btf_type_resolve_func_ptr(const struct btf *btf,
 						 u32 id, u32 *res_id);
 const struct btf_type *
 btf_resolve_size(const struct btf *btf, const struct btf_type *type,
-		 u32 *type_size);
+		 u32 *type_size, const struct btf_type **elem_type,
+		 u32 *total_nelems);
 
 #define for_each_member(i, struct_type, member)			\
 	for (i = 0, member = btf_type_member(struct_type);	\
