@@ -33,7 +33,6 @@
 #include <net/netns/mpls.h>
 #include <net/netns/can.h>
 #include <net/netns/xdp.h>
-#include <net/netns/bpf.h>
 #include <linux/ns_common.h>
 #include <linux/idr.h>
 #include <linux/skbuff.h>
@@ -160,8 +159,7 @@ struct net {
 #endif
 	struct net_generic __rcu	*gen;
 
-	/* Used to store attached BPF programs */
-	struct netns_bpf	bpf;
+	struct bpf_prog __rcu	*flow_dissector_prog;
 
 	/* Note : following structs are cache line aligned */
 #ifdef CONFIG_XFRM
