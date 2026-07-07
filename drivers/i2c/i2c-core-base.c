@@ -394,6 +394,13 @@ static int i2c_device_probe(struct device *dev)
 	if (status)
 		goto err_clear_wakeup_irq;
 
+	client->devres_group_id = devres_open_group(&client->dev, NULL,
+						    GFP_KERNEL);
+	if (!client->devres_group_id) {
+		status = -ENOMEM;
+		goto err_detach_pm_domain;
+	}
+
 	/*
 	 * When there are no more users of probe(),
 	 * rename probe_new to probe.
@@ -406,11 +413,21 @@ static int i2c_device_probe(struct device *dev)
 	else
 		status = -EINVAL;
 
+	/*
+	 * Note that we are not closing the devres group opened above so
+	 * even resources that were attached to the device after probe is
+	 * run are released when i2c_device_remove() is executed. This is
+	 * needed as some drivers would allocate additional resources,
+	 * for example when updating firmware.
+	 */
+
 	if (status)
-		goto err_detach_pm_domain;
+		goto err_release_driver_resources;
 
 	return 0;
 
+err_release_driver_resources:
+	devres_release_group(&client->dev, client->devres_group_id);
 err_detach_pm_domain:
 	dev_pm_domain_detach(&client->dev, true);
 err_clear_wakeup_irq:
@@ -437,6 +454,8 @@ static int i2c_device_remove(struct device *dev)
 		dev_dbg(dev, "remove\n");
 		status = driver->remove(client);
 	}
+
+	devres_release_group(&client->dev, client->devres_group_id);
 
 	dev_pm_domain_detach(&client->dev, true);
 
@@ -783,6 +802,7 @@ i2c_new_client_device(struct i2c_adapter *adap, struct i2c_board_info const *inf
 	client->dev.of_node = of_node_get(info->of_node);
 	client->dev.fwnode = info->fwnode;
 
+	device_enable_async_suspend(&client->dev);
 	i2c_dev_set_name(adap, client, info);
 
 	if (info->properties) {
@@ -1280,7 +1300,7 @@ static int i2c_setup_host_notify_irq_domain(struct i2c_adapter *adap)
 	if (!i2c_check_functionality(adap, I2C_FUNC_SMBUS_HOST_NOTIFY))
 		return 0;
 
-	domain = irq_domain_create_linear(adap->dev.fwnode,
+	domain = irq_domain_create_linear(adap->dev.parent->fwnode,
 					  I2C_ADDR_7BITS_COUNT,
 					  &i2c_host_notify_irq_ops, adap);
 	if (!domain)
@@ -1373,6 +1393,7 @@ static int i2c_register_adapter(struct i2c_adapter *adap)
 
 	dev_dbg(&adap->dev, "adapter [%s] registered\n", adap->name);
 
+	device_enable_async_suspend(&adap->dev);
 	pm_runtime_no_callbacks(&adap->dev);
 	pm_suspend_ignore_children(&adap->dev, true);
 	pm_runtime_enable(&adap->dev);

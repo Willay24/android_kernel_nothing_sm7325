@@ -19,7 +19,6 @@
 #ifdef CONFIG_RWSEM_SPIN_ON_OWNER
 #include <linux/osq_lock.h>
 #endif
-#include <linux/android_vendor.h>
 
 /*
  * For an uncontended rwsem, count and owner are the only fields a task
@@ -52,7 +51,6 @@ struct rw_semaphore {
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
 	struct lockdep_map	dep_map;
 #endif
-	ANDROID_VENDOR_DATA(1);
 };
 
 /*
@@ -73,11 +71,7 @@ static inline int rwsem_is_locked(struct rw_semaphore *sem)
 /* Common initializer macros and functions */
 
 #ifdef CONFIG_DEBUG_LOCK_ALLOC
-# define __RWSEM_DEP_MAP_INIT(lockname)			\
-	, .dep_map = {					\
-		.name = #lockname,			\
-		.wait_type_inner = LD_WAIT_SLEEP,	\
-	}
+# define __RWSEM_DEP_MAP_INIT(lockname) , .dep_map = { .name = #lockname }
 #else
 # define __RWSEM_DEP_MAP_INIT(lockname)
 #endif

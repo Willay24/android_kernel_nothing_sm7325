@@ -24,7 +24,6 @@
 #include <linux/irq_work.h>
 #include <linux/posix-timers.h>
 #include <linux/rq_stats.h>
-#include <linux/timer.h>
 #include <linux/context_tracking.h>
 #include <linux/mm.h>
 
@@ -273,10 +272,8 @@ static void nohz_full_kick_func(struct irq_work *work)
 	/* Empty, the tick restart happens on tick_nohz_irq_exit() */
 }
 
-static DEFINE_PER_CPU(struct irq_work, nohz_full_kick_work) = {
-	.func = nohz_full_kick_func,
-	.flags = ATOMIC_INIT(IRQ_WORK_HARD_IRQ),
-};
+static DEFINE_PER_CPU(struct irq_work, nohz_full_kick_work) =
+	IRQ_WORK_INIT_HARD(nohz_full_kick_func);
 
 /*
  * Kick this CPU if it's full dynticks in order to force it to
@@ -381,24 +378,16 @@ void tick_nohz_dep_clear_cpu(int cpu, enum tick_dep_bits bit)
 EXPORT_SYMBOL_GPL(tick_nohz_dep_clear_cpu);
 
 /*
- * Set a per-task tick dependency. RCU need this. Also posix CPU timers
- * in order to elapse per task timers.
+ * Set a per-task tick dependency. Posix CPU timers need this in order to elapse
+ * per task timers.
  */
 void tick_nohz_dep_set_task(struct task_struct *tsk, enum tick_dep_bits bit)
 {
-	if (!atomic_fetch_or(BIT(bit), &tsk->tick_dep_mask)) {
-		if (tsk == current) {
-			preempt_disable();
-			tick_nohz_full_kick();
-			preempt_enable();
-		} else {
-			/*
-			 * Some future tick_nohz_full_kick_task()
-			 * should optimize this.
-			 */
-			tick_nohz_full_kick_all();
-		}
-	}
+	/*
+	 * We could optimize this with just kicking the target running the task
+	 * if that noise matters for nohz full users.
+	 */
+	tick_nohz_dep_set_all(&tsk->tick_dep_mask, bit);
 }
 
 void tick_nohz_dep_clear_task(struct task_struct *tsk, enum tick_dep_bits bit)
@@ -986,11 +975,6 @@ static void __tick_nohz_idle_stop_tick(struct tick_sched *ts)
 {
 	ktime_t expires;
 	int cpu = smp_processor_id();
-
-#ifdef CONFIG_SMP
-	if (check_pending_deferrable_timers(cpu))
-		raise_softirq_irqoff(TIMER_SOFTIRQ);
-#endif
 
 	/*
 	 * If tick_nohz_get_sleep_length() ran tick_nohz_next_event(), the

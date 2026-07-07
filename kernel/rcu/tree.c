@@ -160,6 +160,7 @@ static void rcu_cleanup_dead_rnp(struct rcu_node *rnp_leaf);
 static void rcu_boost_kthread_setaffinity(struct rcu_node *rnp, int outgoingcpu);
 static void invoke_rcu_core(void);
 static void rcu_report_exp_rdp(struct rcu_data *rdp);
+static void rcu_report_qs_rdp(struct rcu_data *rdp);
 static void sync_sched_exp_online_cleanup(int cpu);
 static void check_cb_ovld_locked(struct rcu_data *rdp, struct rcu_node *rnp);
 static bool rcu_rdp_is_offloaded(struct rcu_data *rdp);
@@ -1300,8 +1301,6 @@ static int rcu_implicit_dynticks_qs(struct rcu_data *rdp)
 		if (IS_ENABLED(CONFIG_IRQ_WORK) &&
 		    !rdp->rcu_iw_pending && rdp->rcu_iw_gp_seq != rnp->gp_seq &&
 		    (rnp->ffmask & rdp->grpmask)) {
-			init_irq_work(&rdp->rcu_iw, rcu_iw_handler);
-			atomic_set(&rdp->rcu_iw.flags, IRQ_WORK_HARD_IRQ);
 			rdp->rcu_iw_pending = true;
 			rdp->rcu_iw_gp_seq = rnp->gp_seq;
 			irq_work_queue_on(&rdp->rcu_iw, rdp->cpu);
@@ -1843,6 +1842,17 @@ static noinline_for_stack bool rcu_gp_init(void)
 	// If strict, make all CPUs aware of new grace period.
 	if (IS_ENABLED(CONFIG_RCU_STRICT_GRACE_PERIOD))
 		on_each_cpu(rcu_strict_gp_boundary, NULL, 0);
+
+	/*
+	 * Immediately report QS for the GP kthread's CPU. The GP kthread
+	 * cannot be in an RCU read-side critical section while running
+	 * the FQS scan. This eliminates the need for a second FQS wait
+	 * when all CPUs are idle.
+	 */
+	preempt_disable();
+	rcu_qs();
+	rcu_report_qs_rdp(this_cpu_ptr(&rcu_data));
+	preempt_enable();
 
 	return true;
 }
@@ -3373,7 +3383,7 @@ need_wait_for_krwp_work(struct kfree_rcu_cpu_work *krwp)
 }
 
 static void
-schedule_delayed_monitor_work(struct kfree_rcu_cpu *krcp)
+__schedule_delayed_monitor_work(struct kfree_rcu_cpu *krcp)
 {
 	long delay, delay_left;
 
@@ -3385,6 +3395,16 @@ schedule_delayed_monitor_work(struct kfree_rcu_cpu *krcp)
 		return;
 	}
 	queue_delayed_work(system_wq, &krcp->monitor_work, delay);
+}
+
+static void
+schedule_delayed_monitor_work(struct kfree_rcu_cpu *krcp)
+{
+	unsigned long flags;
+
+	raw_spin_lock_irqsave(&krcp->lock, flags);
+	__schedule_delayed_monitor_work(krcp);
+	raw_spin_unlock_irqrestore(&krcp->lock, flags);
 }
 
 /*
@@ -3639,7 +3659,7 @@ void kvfree_call_rcu(struct rcu_head *head, rcu_callback_t func)
 
 	// Set timer to drain after KFREE_DRAIN_JIFFIES.
 	if (rcu_scheduler_active == RCU_SCHEDULER_RUNNING)
-		schedule_delayed_monitor_work(krcp);
+		__schedule_delayed_monitor_work(krcp);
 
 unlock_return:
 	krc_this_cpu_unlock(krcp, flags);
@@ -4224,6 +4244,7 @@ int rcutree_prepare_cpu(unsigned int cpu)
 	rdp->cpu_no_qs.b.norm = true;
 	rdp->core_needs_qs = false;
 	rdp->rcu_iw_pending = false;
+	rdp->rcu_iw = IRQ_WORK_INIT_HARD(rcu_iw_handler);
 	rdp->rcu_iw_gp_seq = rdp->gp_seq - 1;
 	trace_rcu_grace_period(rcu_state.name, rdp->gp_seq, TPS("cpuonl"));
 	raw_spin_unlock_irqrestore_rcu_node(rnp, flags);
@@ -4508,7 +4529,8 @@ static void __init rcu_start_exp_gp_kworkers(void)
 
 static inline void rcu_alloc_par_gp_wq(void)
 {
-	rcu_par_gp_wq = alloc_workqueue("rcu_par_gp", WQ_MEM_RECLAIM, 0);
+	rcu_par_gp_wq = alloc_workqueue("rcu_par_gp",
+					WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
 	WARN_ON(!rcu_par_gp_wq);
 }
 #endif /* CONFIG_RCU_EXP_KTHREAD */
@@ -4844,7 +4866,7 @@ void __init rcu_init(void)
 	}
 
 	/* Create workqueue for Tree SRCU and for expedited GPs. */
-	rcu_gp_wq = alloc_workqueue("rcu_gp", WQ_MEM_RECLAIM, 0);
+	rcu_gp_wq = alloc_workqueue("rcu_gp", WQ_MEM_RECLAIM | WQ_UNBOUND, 0);
 	WARN_ON(!rcu_gp_wq);
 	rcu_alloc_par_gp_wq();
 

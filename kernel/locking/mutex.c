@@ -112,7 +112,7 @@ static inline struct task_struct *__mutex_trylock_or_owner(struct mutex *lock)
 
 	owner = atomic_long_read(&lock->owner);
 	for (;;) { /* must loop, can race against a flag */
-		unsigned long old, flags = __owner_flags(owner);
+		unsigned long flags = __owner_flags(owner);
 		unsigned long task = owner & ~MUTEX_FLAGS;
 
 		if (task) {
@@ -136,11 +136,8 @@ static inline struct task_struct *__mutex_trylock_or_owner(struct mutex *lock)
 		 */
 		flags &= ~MUTEX_FLAG_HANDOFF;
 
-		old = atomic_long_cmpxchg_acquire(&lock->owner, owner, curr | flags);
-		if (old == owner)
+		if (atomic_long_try_cmpxchg_acquire(&lock->owner, &owner, curr | flags))
 			return NULL;
-
-		owner = old;
 	}
 
 	return __owner_task(owner);
@@ -180,10 +177,7 @@ static __always_inline bool __mutex_unlock_fast(struct mutex *lock)
 {
 	unsigned long curr = (unsigned long)current;
 
-	if (atomic_long_cmpxchg_release(&lock->owner, curr, 0UL) == curr)
-		return true;
-
-	return false;
+	return atomic_long_try_cmpxchg_release(&lock->owner, &curr, 0UL);
 }
 #endif
 
@@ -238,7 +232,7 @@ static void __mutex_handoff(struct mutex *lock, struct task_struct *task)
 	unsigned long owner = atomic_long_read(&lock->owner);
 
 	for (;;) {
-		unsigned long old, new;
+		unsigned long new;
 
 #ifdef CONFIG_DEBUG_MUTEXES
 		DEBUG_LOCKS_WARN_ON(__owner_task(owner) != current);
@@ -250,11 +244,8 @@ static void __mutex_handoff(struct mutex *lock, struct task_struct *task)
 		if (task)
 			new |= MUTEX_FLAG_PICKUP;
 
-		old = atomic_long_cmpxchg_release(&lock->owner, owner, new);
-		if (old == owner)
+		if (atomic_long_try_cmpxchg_release(&lock->owner, &owner, new))
 			break;
-
-		owner = old;
 	}
 }
 
@@ -564,13 +555,16 @@ bool mutex_spin_on_owner(struct mutex *lock, struct task_struct *owner,
 {
 	bool ret = true;
 
-	rcu_read_lock();
+	lockdep_assert_preemption_disabled();
+
 	while (__mutex_owner(lock) == owner) {
 		/*
 		 * Ensure we emit the owner->on_cpu, dereference _after_
-		 * checking lock->owner still matches owner. If that fails,
-		 * owner might point to freed memory. If it still matches,
-		 * the rcu_read_lock() ensures the memory stays valid.
+		 * checking lock->owner still matches owner. And we already
+		 * disabled preemption which is equal to the RCU read-side
+		 * crital section in optimistic spinning code. Thus the
+		 * task_strcut structure won't go away during the spinning
+		 * period
 		 */
 		barrier();
 
@@ -590,7 +584,6 @@ bool mutex_spin_on_owner(struct mutex *lock, struct task_struct *owner,
 
 		cpu_relax();
 	}
-	rcu_read_unlock();
 
 	return ret;
 }
@@ -603,19 +596,25 @@ static inline int mutex_can_spin_on_owner(struct mutex *lock)
 	struct task_struct *owner;
 	int retval = 1;
 
+	lockdep_assert_preemption_disabled();
+
 	if (need_resched())
 		return 0;
 
-	rcu_read_lock();
+	/*
+	 * We already disabled preemption which is equal to the RCU read-side
+	 * crital section in optimistic spinning code. Thus the task_strcut
+	 * structure won't go away during the spinning period.
+	 */
 	owner = __mutex_owner(lock);
 
 	/*
 	 * As lock holder preemption issue, we both skip spinning if task is not
 	 * on cpu or its cpu is preempted
 	 */
+
 	if (owner)
 		retval = owner->on_cpu && !vcpu_is_preempted(task_cpu(owner));
-	rcu_read_unlock();
 
 	/*
 	 * If lock->owner is not set, the mutex has been released. Return true
@@ -935,7 +934,7 @@ __ww_mutex_add_waiter(struct mutex_waiter *waiter,
  * Lock a mutex (possibly interruptible), slowpath:
  */
 static __always_inline int __sched
-__mutex_lock_common(struct mutex *lock, long state, unsigned int subclass,
+__mutex_lock_common(struct mutex *lock, unsigned int state, unsigned int subclass,
 		    struct lockdep_map *nest_lock, unsigned long ip,
 		    struct ww_acquire_ctx *ww_ctx, const bool use_ww_ctx)
 {
@@ -1108,14 +1107,14 @@ err_early_kill:
 }
 
 static int __sched
-__mutex_lock(struct mutex *lock, long state, unsigned int subclass,
+__mutex_lock(struct mutex *lock, unsigned int state, unsigned int subclass,
 	     struct lockdep_map *nest_lock, unsigned long ip)
 {
 	return __mutex_lock_common(lock, state, subclass, nest_lock, ip, NULL, false);
 }
 
 static int __sched
-__ww_mutex_lock(struct mutex *lock, long state, unsigned int subclass,
+__ww_mutex_lock(struct mutex *lock, unsigned int state, unsigned int subclass,
 		struct lockdep_map *nest_lock, unsigned long ip,
 		struct ww_acquire_ctx *ww_ctx)
 {
@@ -1247,8 +1246,6 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 	 */
 	owner = atomic_long_read(&lock->owner);
 	for (;;) {
-		unsigned long old;
-
 #ifdef CONFIG_DEBUG_MUTEXES
 		DEBUG_LOCKS_WARN_ON(__owner_task(owner) != current);
 		DEBUG_LOCKS_WARN_ON(owner & MUTEX_FLAG_PICKUP);
@@ -1257,16 +1254,12 @@ static noinline void __sched __mutex_unlock_slowpath(struct mutex *lock, unsigne
 		if (owner & MUTEX_FLAG_HANDOFF)
 			break;
 
-		old = atomic_long_cmpxchg_release(&lock->owner, owner,
-						  __owner_flags(owner));
-		if (old == owner) {
+		if (atomic_long_try_cmpxchg_release(&lock->owner, &owner, __owner_flags(owner))) {
 			if (owner & MUTEX_FLAG_WAITERS)
 				break;
 
 			return;
 		}
-
-		owner = old;
 	}
 
 	spin_lock(&lock->wait_lock);

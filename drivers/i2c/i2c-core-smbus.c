@@ -324,7 +324,6 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter *adapter, u16 addr,
 	unsigned char msgbuf0[I2C_SMBUS_BLOCK_MAX+3];
 	unsigned char msgbuf1[I2C_SMBUS_BLOCK_MAX+2];
 	int num = read_write == I2C_SMBUS_READ ? 2 : 1;
-	int i;
 	u8 partial_pec = 0;
 	int status;
 	struct i2c_msg msg[2] = {
@@ -340,6 +339,8 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter *adapter, u16 addr,
 			.buf = msgbuf1,
 		},
 	};
+	bool wants_pec = ((flags & I2C_CLIENT_PEC) && size != I2C_SMBUS_QUICK
+			  && size != I2C_SMBUS_I2C_BLOCK_DATA);
 
 	msgbuf0[0] = command;
 	switch (size) {
@@ -398,8 +399,7 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter *adapter, u16 addr,
 			}
 
 			i2c_smbus_try_get_dmabuf(&msg[0], command);
-			for (i = 1; i < msg[0].len; i++)
-				msg[0].buf[i] = data->block[i - 1];
+			memcpy(msg[0].buf + 1, data->block, msg[0].len - 1);
 		}
 		break;
 	case I2C_SMBUS_BLOCK_PROC_CALL:
@@ -414,8 +414,7 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter *adapter, u16 addr,
 
 		msg[0].len = data->block[0] + 2;
 		i2c_smbus_try_get_dmabuf(&msg[0], command);
-		for (i = 1; i < msg[0].len; i++)
-			msg[0].buf[i] = data->block[i - 1];
+		memcpy(msg[0].buf + 1, data->block, msg[0].len - 1);
 
 		msg[1].flags |= I2C_M_RECV_LEN;
 		msg[1].len = 1; /* block length will be added by
@@ -437,8 +436,7 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter *adapter, u16 addr,
 			msg[0].len = data->block[0] + 1;
 
 			i2c_smbus_try_get_dmabuf(&msg[0], command);
-			for (i = 1; i <= data->block[0]; i++)
-				msg[0].buf[i] = data->block[i];
+			memcpy(msg[0].buf + 1, data->block + 1, data->block[0]);
 		}
 		break;
 	default:
@@ -446,9 +444,7 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter *adapter, u16 addr,
 		return -EOPNOTSUPP;
 	}
 
-	i = ((flags & I2C_CLIENT_PEC) && size != I2C_SMBUS_QUICK
-				      && size != I2C_SMBUS_I2C_BLOCK_DATA);
-	if (i) {
+	if (wants_pec) {
 		/* Compute PEC if first message is a write */
 		if (!(msg[0].flags & I2C_M_RD)) {
 			if (num == 1) /* Write only */
@@ -471,7 +467,7 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter *adapter, u16 addr,
 	status = 0;
 
 	/* Check PEC if last message is a read */
-	if (i && (msg[num-1].flags & I2C_M_RD)) {
+	if (wants_pec && (msg[num-1].flags & I2C_M_RD)) {
 		status = i2c_smbus_check_pec(partial_pec, &msg[num-1]);
 		if (status < 0)
 			goto cleanup;
@@ -490,8 +486,7 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter *adapter, u16 addr,
 			data->word = msgbuf1[0] | (msgbuf1[1] << 8);
 			break;
 		case I2C_SMBUS_I2C_BLOCK_DATA:
-			for (i = 0; i < data->block[0]; i++)
-				data->block[i + 1] = msg[1].buf[i];
+			memcpy(data->block + 1, msg[1].buf, data->block[0]);
 			break;
 		case I2C_SMBUS_BLOCK_DATA:
 		case I2C_SMBUS_BLOCK_PROC_CALL:
@@ -502,8 +497,7 @@ static s32 i2c_smbus_xfer_emulated(struct i2c_adapter *adapter, u16 addr,
 				status = -EPROTO;
 				goto cleanup;
 			}
-			for (i = 0; i < msg[1].buf[0] + 1; i++)
-				data->block[i] = msg[1].buf[i];
+			memcpy(data->block, msg[1].buf, msg[1].buf[0] + 1);
 			break;
 		}
 

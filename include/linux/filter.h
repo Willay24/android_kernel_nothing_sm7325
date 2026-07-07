@@ -639,7 +639,7 @@ static inline void bpf_jit_set_header_magic(struct bpf_binary_header *hdr)
 
 #define __BPF_PROG_RUN(prog, ctx, dfunc)	({			\
 	u32 ret;							\
-	cant_sleep();							\
+	cant_migrate();							\
 	if (static_branch_unlikely(&bpf_stats_enabled_key)) {		\
 		struct bpf_prog_stats *stats;				\
 		u64 start = sched_clock();				\
@@ -805,9 +805,7 @@ static inline u32 bpf_prog_run_clear_cb(const struct bpf_prog *prog,
 	if (unlikely(prog->cb_access))
 		memset(cb_data, 0, BPF_SKB_CB_LEN);
 
-	preempt_disable();
-	res = BPF_PROG_RUN(prog, skb);
-	preempt_enable();
+	res = bpf_prog_run_pin_on_cpu(prog, skb);
 	return res;
 }
 

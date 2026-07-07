@@ -58,8 +58,8 @@ config AS_VERSION
 
 config CC_CAN_LINK
 	bool
-	default $(success,$(srctree)/scripts/cc-can-link.sh $(CC) $(CLANG_FLAGS) $(USERCFLAGS) $(USERLDFLAGS) $(m64-flag)) if 64BIT
-	default $(success,$(srctree)/scripts/cc-can-link.sh $(CC) $(CLANG_FLAGS) $(USERCFLAGS) $(USERLDFLAGS) $(m32-flag))
+	default $(success,$(srctree)/scripts/cc-can-link.sh $(CC) $(m64-flag)) if 64BIT
+	default $(success,$(srctree)/scripts/cc-can-link.sh $(CC) $(m32-flag))
 
 config CC_CAN_LINK_STATIC
 	bool
@@ -482,14 +482,24 @@ config HAVE_SCHED_AVG_IRQ
 	depends on IRQ_TIME_ACCOUNTING || PARAVIRT_TIME_ACCOUNTING
 	depends on SMP
 
-config SCHED_WALT
-	bool "Support window based load tracking"
+config SCHED_THERMAL_PRESSURE
+	bool
+	default y if ARM && ARM_CPU_TOPOLOGY
+	default y if ARM64
 	depends on SMP
+	depends on CPU_THERMAL
 	help
-	This feature will allow the scheduler to maintain a tunable window
-	based set of metrics for tasks and runqueues. These metrics can be
-	used to guide task placement as well as task frequency requirements
-	for cpufreq governors.
+	  Select this option to enable thermal pressure accounting in the
+	  scheduler. Thermal pressure is the value conveyed to the scheduler
+	  that reflects the reduction in CPU compute capacity resulted from
+	  thermal throttling. Thermal throttling occurs when the performance of
+	  a CPU is capped due to high operating temperatures.
+
+	  If selected, the scheduler will be able to balance tasks accordingly,
+	  i.e. put less load on throttled CPUs than on non/less throttled ones.
+
+	  This requires the architecture to implement
+	  arch_set_thermal_pressure() and arch_scale_thermal_pressure().
 
 config BSD_PROCESS_ACCT
 	bool "BSD Process Accounting"
@@ -953,7 +963,7 @@ config FAIR_GROUP_SCHED
 
 config CFS_BANDWIDTH
 	bool "CPU bandwidth provisioning for FAIR_GROUP_SCHED"
-	depends on FAIR_GROUP_SCHED && !SCHED_WALT
+	depends on FAIR_GROUP_SCHED
 	default n
 	help
 	  This option allows users to define CPU bandwidth rates (limits) for
@@ -1190,6 +1200,31 @@ config CHECKPOINT_RESTORE
 
 	  If unsure, say N here.
 
+config SCHED_CASS
+	bool "Capacity Aware Superset Scheduler"
+	depends on SMP
+	help
+	  This enables the Capacity Aware Superset Scheduler (CASS), which
+	  optimizes runqueue selection of CFS tasks. By using CPU capacity as a
+	  basis for comparing the relative utilization between different CPUs,
+	  CASS fairly balances load across CPUs of varying capacities. This
+	  results in improved multi-core performance, especially when CPUs are
+	  overutilized because CASS doesn't clip a CPU's utilization when it
+	  eclipses the CPU's capacity.
+
+	  As a superset of capacity aware scheduling, CASS implements a
+	  hierarchy of criteria to determine the better CPU to wake a task upon
+	  between CPUs that have the same relative utilization. This way,
+	  single-core performance, latency, and cache affinity are all optimized
+	  where possible.
+
+	  CASS doesn't feature explicit energy awareness but its basic load
+	  balancing principle results in decreased overall energy, often better
+	  than what is possible with explicit energy awareness. By fairly
+	  balancing load based on relative utilization, all CPUs are kept at
+	  their lowest P-state necessary to satisfy the overall load at any
+	  given moment.
+
 config SCHED_AUTOGROUP
 	bool "Automatic process group scheduling"
 	select CGROUPS
@@ -1201,6 +1236,25 @@ config SCHED_AUTOGROUP
 	  of workloads isolates aggressive CPU burners (like build jobs) from
 	  desktop applications.  Task group autogeneration is currently based
 	  upon task session.
+
+config RT_SOFTIRQ_AWARE_SCHED
+	bool "Improve RT scheduling during long softirq execution"
+	depends on SMP && !PREEMPT_RT
+	default n
+	help
+	  Enable an optimization which tries to avoid placing RT tasks on CPUs
+	  occupied by nonpreemptible tasks, such as a long softirq or CPUs
+	  which may soon block preemptions, such as a CPU running a ksoftirq
+	  thread which handles slow softirqs.
+
+config SPRD_ROTATION_TASK
+	bool "Sprd rotation task"
+	depends on SMP
+	help
+	  This option enables task rotation feature. In ARM big.little cpu
+	  topology, benchmark app may start NR_CPUS big tasks to run,
+	  rotation task can improve system performance between big core
+	  and little core.
 
 config SYSFS_DEPRECATED
 	bool "Enable deprecated sysfs features to support old userspace tools"
