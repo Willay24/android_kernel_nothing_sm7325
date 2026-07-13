@@ -12,7 +12,7 @@ on:
         required: true
         default: 'vendor/lahaina-qgki_defconfig'
       su_variant:
-        description: 'Root solution to integrate (none / KernelSU / ReSukiSU)'
+        description: 'Root solution to integrate (none / KernelSU / ReSukiSU / KernelSU-Next)'
         required: false
         default: 'none'
         type: choice
@@ -20,6 +20,7 @@ on:
           - none
           - KernelSU
           - ReSukiSU
+          - KernelSU-Next
       build_tag:
         description: 'Build tag for ZIP name (e.g., Test/Perf/Normal)'
         required: false
@@ -151,12 +152,14 @@ jobs:
 
       # -------------------------------------------------------------------
       # Root solution setup — controlled by the su_variant input:
-      #   none      → skip entirely, vanilla kernel
-      #   KernelSU  → tiann setup.sh → swap folder → backslashxx fork
-      #   ReSukiSU  → ReSukiSU setup.sh (handles everything itself)
-      # Both variants inject CONFIG_KSU=y into the defconfig afterwards.
+      #   none            → skip entirely, vanilla kernel
+      #   KernelSU        → tiann setup.sh → swap folder → backslashxx fork
+      #   ReSukiSU        → ReSukiSU setup.sh (handles everything itself)
+      #   KernelSU-Next   → KernelSU-Next setup.sh → add KSUN remote →
+      #                     fetch → checkout susfs-hookless branch
+      # All variants inject CONFIG_KSU=y into the defconfig afterwards.
       # -------------------------------------------------------------------
-      - name: Setup root solution (KernelSU / ReSukiSU)
+      - name: Setup root solution (KernelSU / ReSukiSU / KernelSU-Next)
         if: ${{ github.event.inputs.su_variant != 'none' }}
         run: |
           VARIANT="${{ github.event.inputs.su_variant }}"
@@ -170,13 +173,37 @@ jobs:
             # Step 2: Remove the KernelSU folder created by the setup script
             rm -rf KernelSU
             # Step 3: Clone backslashxx's KernelSU fork (shockwave branch)
-            git clone -b shockwave https://github.com/MrShockWAVEog/KernelSU.git KernelSU
+            git clone -b master https://github.com/doubledashdot/KernelSU.git
             echo "✅ KernelSU (backslashxx/shockwave) ready"
 
           elif [ "$VARIANT" = "ReSukiSU" ]; then
             echo "── ReSukiSU setup ──────────────────────────────────────────"
+            # Step 1: Run the ReSukiSU setup script
             curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -
-            echo "✅ ReSukiSU ready"
+            # Step 2: Remove the KernelSU folder created by the setup script
+            rm -rf KernelSU
+            # Step 3: Clone Will ResukiSU fork (main branch) into the
+            # "KernelSU" folder name — this is the path the setup script's
+            # symlink (drivers/kernelsu) and Makefile/Kconfig patches
+            # already expect, so it must match exactly or the build
+            # can't find drivers/kernelsu/Kconfig.
+            git clone -b main https://github.com/William24hmar/ReSukiSU.git KernelSU
+            echo "✅ ReSukiSU (William24hmar/main) ready"
+
+          elif [ "$VARIANT" = "KernelSU-Next" ]; then
+            echo "── KernelSU-Next setup ─────────────────────────────────────"
+            # Step 1: Run the official KernelSU-Next setup script (clones
+            # into a "KernelSU-Next" folder, symlinks it, patches Makefile
+            # and Kconfig)
+            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
+            # Step 2: Add the KSUN fork as a remote and fetch its branches
+            cd KernelSU-Next
+            git remote add KSUN https://github.com/MirahSyakilla/KSUN.git
+            git fetch KSUN
+            # Step 3: Switch to the susfs-hookless branch tracking KSUN
+            git checkout -b susfs-hookless KSUN/susfs-hookless
+            cd ..
+            echo "✅ KernelSU-Next (KSUN/susfs-hookless) ready"
           fi
 
           # Inject CONFIG_KSU=y — shared by both variants

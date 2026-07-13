@@ -142,7 +142,7 @@ jobs:
           # Step 2: Remove the KernelSU folder created by setup
           rm -rf KernelSU
           # Step 3: Clone backslashxx's KernelSU fork (master branch)
-          git clone -b shockwave https://github.com/MrShockWAVEog/KernelSU.git KernelSU
+          git clone -b master https://github.com/William24hmar/KernelSU.git KernelSU
           # Step 4: Inject CONFIG_KSU=y into defconfig
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
           if [ -f "$DEFCONFIG_PATH" ]; then
