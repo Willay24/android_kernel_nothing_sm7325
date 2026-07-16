@@ -169,12 +169,12 @@ jobs:
           if [ "$VARIANT" = "KernelSU" ]; then
             echo "── KernelSU setup ──────────────────────────────────────────"
             # Step 1: Run the official tiann KernelSU setup script
-            curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+            curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s master
             # Step 2: Remove the KernelSU folder created by the setup script
             rm -rf KernelSU
-            # Step 3: Clone backslashxx's KernelSU fork (shockwave branch)
-            git clone -b master https://github.com/doubledashdot/KernelSU.git
-            echo "✅ KernelSU (backslashxx/shockwave) ready"
+            # Step 3: Clone William24hmar KernelSU fork (master-susfs branch)
+            git clone -b master-susfs https://github.com/William24hmar/KernelSU.git
+            echo "✅ KernelSU (William24hmar/KernelSU) ready"
 
           elif [ "$VARIANT" = "ReSukiSU" ]; then
             echo "── ReSukiSU setup ──────────────────────────────────────────"
