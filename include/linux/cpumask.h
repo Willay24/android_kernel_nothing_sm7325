@@ -201,16 +201,6 @@ static inline unsigned int cpumask_first(const struct cpumask *srcp)
  *
  * Returns	>= nr_cpumask_bits if no CPUs set.
  */
-
-static inline
-unsigned int cpumask_first_and_and(const struct cpumask *srcp1,
-				   const struct cpumask *srcp2,
-				   const struct cpumask *srcp3)
-{
-	return find_first_and_and_bit(cpumask_bits(srcp1), cpumask_bits(srcp2),
-				      cpumask_bits(srcp3), nr_cpumask_bits);
-}
-
 static inline unsigned int cpumask_last(const struct cpumask *srcp)
 {
 	return find_last_bit(cpumask_bits(srcp), nr_cpumask_bits);
