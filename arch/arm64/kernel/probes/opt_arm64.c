@@ -7,14 +7,16 @@
 
 #include <linux/jump_label.h>
 #include <linux/kprobes.h>
-#include <linux/wordpart.h>
 
 #include <asm/cacheflush.h>
 #include <asm/compiler.h>
 #include <asm/insn.h>
 #include <asm/kprobes.h>
-#include <asm/text-patching.h>
 
+#include <linux/kernel.h>
+#include <linux/bitfield.h>
+#include <linux/slab.h>
+ 
 #define OPTPROBE_BATCH_SIZE 64
 
 #define TMPL_VAL_IDX \
@@ -73,9 +75,9 @@ int arch_prepared_optinsn(struct arch_optimized_insn *optinsn)
 	return optinsn->trampoline != NULL;
 }
 
-int arch_within_optimized_kprobe(struct optimized_kprobe *op, kprobe_opcode_t *addr)
+int arch_within_optimized_kprobe(struct optimized_kprobe *op, unsigned long addr)
 {
-	return op->kp.addr == addr;
+	return op->kp.addr == (kprobe_opcode_t *)addr;
 }
 
 static int optprobe_check_branch_limit(unsigned long pc, unsigned long addr)
@@ -230,7 +232,7 @@ void optprobe_optimized_callback(struct optimized_kprobe *op, struct pt_regs *re
 	if (kprobe_disabled(&op->kp))
 		return;
 
-	guard(preempt)();
+	preempt_disable();
 
 	if (kprobe_running()) {
 		kprobes_inc_nmissed_count(&op->kp);
@@ -240,5 +242,7 @@ void optprobe_optimized_callback(struct optimized_kprobe *op, struct pt_regs *re
 		opt_pre_handler(&op->kp, regs);
 		__this_cpu_write(current_kprobe, NULL);
 	}
+	
+	preempt_enable();
 }
 NOKPROBE_SYMBOL(optprobe_optimized_callback)
