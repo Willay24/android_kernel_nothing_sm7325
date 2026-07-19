@@ -13,43 +13,24 @@
 #include <linux/ktime.h>
 #include <linux/miscdevice.h>
 #include <linux/module.h>
-#include <linux/lockdep.h>
 #include <linux/mutex.h>
 #include <linux/overflow.h>
 #include <linux/sched.h>
 #include <linux/sched/signal.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+#include <linux/uaccess.h>
+#include <linux/compat.h>
 #include <uapi/linux/ntsync.h>
-#include <linux/delay.h>
-#include <linux/workqueue.h>
-#include <linux/namei.h>
-#include <linux/path.h>
-#include <linux/xattr.h>
-#include <linux/version.h>
-
-#ifndef LOCK_STATE_NOT_HELD
-#define LOCK_STATE_NOT_HELD 0
-#endif
-
-#ifndef lockdep_is_held
-#ifdef CONFIG_LOCKDEP
-#define lockdep_is_held(lock) lock_is_held(&(lock)->dep_map)
-#else
-#define lockdep_is_held(lock) 1
-#endif
-#endif
 
 #ifndef lockdep_assert
 #ifdef CONFIG_LOCKDEP
-#define lockdep_assert(cond) WARN_ON(debug_locks && !(cond))
+#define lockdep_assert(c) do { \
+	WARN_ON_ONCE(debug_locks && !(c)); \
+} while (0)
 #else
-#define lockdep_assert(cond) do { } while (0)
+#define lockdep_assert(c) do { } while (0)
 #endif
-#endif
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0)
-#include <linux/mnt_idmapping.h>
 #endif
 
 #define NTSYNC_NAME	"ntsync"
@@ -165,8 +146,6 @@ struct ntsync_device {
 	struct file *file;
 };
 
-static struct delayed_work ntsync_perm_work;
-
 /*
  * Single objects are locked using obj->lock.
  *
@@ -256,8 +235,8 @@ static void ntsync_unlock_obj(struct ntsync_device *dev, struct ntsync_obj *obj,
 }
 
 #define ntsync_assert_held(obj) \
-	lockdep_assert((lockdep_is_held(&(obj)->lock) != LOCK_STATE_NOT_HELD) || \
-		       ((lockdep_is_held(&(obj)->dev->wait_all_lock) != LOCK_STATE_NOT_HELD) && \
+	lockdep_assert((lockdep_is_held(&(obj)->lock)) || \
+		       ((lockdep_is_held(&(obj)->dev->wait_all_lock)) && \
 			(obj)->dev_locked))
 
 static bool is_signaled(struct ntsync_obj *obj, __u32 owner)
@@ -754,20 +733,21 @@ static struct ntsync_obj *ntsync_alloc_obj(struct ntsync_device *dev,
 
 static int ntsync_obj_get_fd(struct ntsync_obj *obj)
 {
-	struct file *file;
 	int fd;
+	struct file *file;
 
 	fd = get_unused_fd_flags(O_CLOEXEC);
 	if (fd < 0)
 		return fd;
+
 	file = anon_inode_getfile("ntsync", &ntsync_obj_fops, obj, O_RDWR);
 	if (IS_ERR(file)) {
 		put_unused_fd(fd);
 		return PTR_ERR(file);
 	}
+
 	obj->file = file;
 	fd_install(fd, file);
-
 	return fd;
 }
 
@@ -926,7 +906,7 @@ static int setup_wait(struct ntsync_device *dev,
 	if (args->alert)
 		fds[count] = args->alert;
 
-	q = kmalloc(struct_size(q, entries, total_count), GFP_KERNEL);
+	q = kmalloc(sizeof(*q) + total_count * sizeof(struct ntsync_q_entry), GFP_KERNEL);
 	if (!q)
 		return -ENOMEM;
 	q->task = current;
@@ -1229,27 +1209,6 @@ static long ntsync_char_ioctl(struct file *file, unsigned int cmd,
 	}
 }
 
-static void ntsync_fix_perms_worker(struct work_struct *work)
-{
-    struct path path;
-    char *ctx = "u:object_r:gpu_device:s0";
-    if (!kern_path("/dev/ntsync", LOOKUP_FOLLOW, &path)) {
-        struct inode *inode = d_backing_inode(path.dentry);
-        if (inode) {
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5,12,0)
-             __vfs_setxattr_noperm(path.dentry, "security.selinux", ctx, strlen(ctx) + 1, 0);
-#elif LINUX_VERSION_CODE < KERNEL_VERSION(6,3,0)
-            __vfs_setxattr_noperm(&init_user_ns, path.dentry, "security.selinux", ctx, strlen(ctx) + 1, 0);
-#else
-            __vfs_setxattr_noperm(&nop_mnt_idmap, path.dentry, "security.selinux", ctx, strlen(ctx) + 1, 0);
-#endif
-            inode->i_mode = (inode->i_mode & ~S_IALLUGO) | 0666;
-            pr_info("ntsync: Applied 0666 and gpu_device context\n");
-        }
-        path_put(&path);
-    }
-}
-
 static const struct file_operations ntsync_fops = {
 	.owner		= THIS_MODULE,
 	.open		= ntsync_char_open,
@@ -1265,28 +1224,7 @@ static struct miscdevice ntsync_misc = {
 	.mode		= 0666,
 };
 
-static int __init ntsync_init(void)
-{
-    int ret;
-
-    ret = misc_register(&ntsync_misc);
-    if (ret)
-        return ret;
-
-    INIT_DELAYED_WORK(&ntsync_perm_work, ntsync_fix_perms_worker);
-    schedule_delayed_work(&ntsync_perm_work, msecs_to_jiffies(2000));
-
-    return 0;
-}
-
-static void __exit ntsync_exit(void)
-{
-    cancel_delayed_work_sync(&ntsync_perm_work);
-    misc_deregister(&ntsync_misc); 
-}
-
-module_init(ntsync_init);
-module_exit(ntsync_exit);
+module_misc_device(ntsync_misc);
 
 MODULE_AUTHOR("Elizabeth Figura <zfigura@codeweavers.com>");
 MODULE_DESCRIPTION("Kernel driver for NT synchronization primitives");

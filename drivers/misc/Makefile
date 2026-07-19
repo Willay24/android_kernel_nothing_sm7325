@@ -25,7 +25,6 @@ obj-$(CONFIG_ENCLOSURE_SERVICES) += enclosure.o
 obj-$(CONFIG_KGDB_TESTS)	+= kgdbts.o
 obj-$(CONFIG_SGI_XP)		+= sgi-xp/
 obj-$(CONFIG_SGI_GRU)		+= sgi-gru/
-obj-$(CONFIG_NTSYNC)		+= ntsync.o
 obj-$(CONFIG_CS5535_MFGPT)	+= cs5535-mfgpt.o
 obj-$(CONFIG_HP_ILO)		+= hpilo.o
 obj-$(CONFIG_APDS9802ALS)	+= apds9802als.o
@@ -70,3 +69,5 @@ obj-$(CONFIG_HISI_HIKEY_USB)	+= hisi_hikey_usb.o
 obj-$(CONFIG_NT_HWID)		+= hardware_id.o
 obj-$(CONFIG_NT_SECURE_STATE)	+= secure_state.o
 obj-$(CONFIG_NT_SLOT_STATE)	+= slot_status.o
+
+obj-$(CONFIG_NTSYNC)		+= ntsync.o
