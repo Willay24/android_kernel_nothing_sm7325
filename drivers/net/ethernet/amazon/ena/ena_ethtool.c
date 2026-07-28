@@ -30,7 +30,6 @@
  * SOFTWARE.
  */
 
-#include <linux/ethtool.h>
 #include <linux/pci.h>
 
 #include "ena_netdev.h"

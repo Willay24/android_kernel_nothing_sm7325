@@ -10,7 +10,6 @@
  * Copyright (C) 2018-2019 Intel Corporation
  */
 
-#include <linux/ethtool.h>
 #include <linux/netdevice.h>
 #include <linux/debugfs.h>
 #include <linux/list.h>

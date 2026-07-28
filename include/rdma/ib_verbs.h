@@ -39,7 +39,6 @@
 #if !defined(IB_VERBS_H)
 #define IB_VERBS_H
 
-#include <linux/ethtool.h>
 #include <linux/types.h>
 #include <linux/device.h>
 #include <linux/dma-mapping.h>

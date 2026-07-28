@@ -15,7 +15,6 @@
 #include <net/sock.h>
 #include <net/net_namespace.h>
 #include <linux/rtnetlink.h>
-#include <linux/ethtool.h>
 #include <linux/vmalloc.h>
 #include <linux/export.h>
 #include <linux/jiffies.h>
