@@ -678,12 +678,6 @@ void pde_put(struct proc_dir_entry *pde)
 	}
 }
 
-static void pde_erase(struct proc_dir_entry *pde, struct proc_dir_entry *parent)
-{
-	rb_erase(&pde->subdir_node, &parent->subdir);
-	RB_CLEAR_NODE(&pde->subdir_node);
-}
-
 /*
  * Remove a /proc entry and free it if it's not currently in use.
  */
