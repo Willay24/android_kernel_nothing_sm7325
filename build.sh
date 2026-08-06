@@ -24,6 +24,48 @@ CURRENT_DIR="$(pwd)"
 # ---- Set Eastern Time timezone ----
 export TZ=Europe/Kiev # Enter your time zone
 
+# ---- Telegram bot notifications ----
+# Credentials come from the environment (GitHub Actions repo secrets), never
+# hardcoded here. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID as repo secrets
+# and pass them through as env vars to this script's job/step.
+export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+export TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:-}"
+TELEGRAM_ENABLED=0
+[ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ] && TELEGRAM_ENABLED=1
+
+tg_sticker() {
+	[ "$TELEGRAM_ENABLED" -eq 1 ] || return 0
+	curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendSticker" \
+		-d sticker="CAACAgEAAxkBAAEnKnJfZOFzBnwC3cPwiirjZdgTMBMLRAACugEAAkVfBy-aN927wS5blhsE" \
+		-d chat_id="$TELEGRAM_CHAT_ID" > /dev/null
+}
+
+tg_msg() {
+	# $1 = message text (HTML parse mode, use %0A for newlines)
+	[ "$TELEGRAM_ENABLED" -eq 1 ] || return 0
+	curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+		-d chat_id="$TELEGRAM_CHAT_ID" \
+		-d "disable_web_page_preview=true" \
+		-d "parse_mode=html" \
+		-d text="$1" > /dev/null
+}
+
+tg_push() {
+	# $1 = file path, $2 = caption
+	# NOTE: caption uses --form-string, not -F/--form. curl's -F treats a value
+	# starting with '<' as "read the value from this file on disk", which is
+	# exactly how our HTML captions start (e.g. "<b>...") — with -F that fails
+	# as curl: (26) Failed to open/read local data from file/application.
+	[ "$TELEGRAM_ENABLED" -eq 1 ] || return 0
+	[ -f "$1" ] || { echo -e "${RED}tg_push: file not found: $1${NC}"; return 1; }
+	RESPONSE=$(curl -s -F document=@"$1" "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+		-F chat_id="$TELEGRAM_CHAT_ID" \
+		-F "disable_web_page_preview=true" \
+		-F "parse_mode=html" \
+		--form-string "caption=$2")
+	echo "$RESPONSE" | grep -q '"ok":true' || echo -e "${RED}tg_push: Telegram upload of $1 may have failed: $RESPONSE${NC}"
+}
+
 # ---- random_color - generates a random color for output to the terminal ----
 random_color() {
 	local colors=($GREEN $RED $YELLOW $PURPLE $BLUE)	# Array of colors
@@ -723,6 +765,15 @@ generate_flashable() {
 	echo -e "${GREEN}✔ Flashable signed zip ready:${NC} $TARGET_OUT/$ANYKERNEL_PATH/$SIGNED_ZIP"
 	curl -s -X POST http://127.0.0.1:8080/webhook/build_ready > /dev/null
 
+	# ---- Send the signed zip (and build log) to Telegram ----
+	END_SEC=$(date +%s)
+	DIFF_SEC=$(( END_SEC - START_SEC ))
+	MD5CHECK=$(md5sum "$SIGNED_ZIP" | cut -d' ' -f1)
+
+	tg_push "$SIGNED_ZIP" "<b>✅ Spacewar Kernel Build Complete</b>%0A<b>Device:</b> <code>$TARGET_DEVICE</code>%0A<b>Compiler:</b> <code>${CURRENT_COMPILER:-unknown}</code>%0A<b>Branch:</b> <code>${CURRENT_BRANCH:-unknown}</code>%0A<b>Build time:</b> <code>$(( DIFF_SEC / 60 ))m $(( DIFF_SEC % 60 ))s</code>%0A<b>MD5:</b> <code>$MD5CHECK</code>"
+
+	[ -f "$LOG_FILE" ] && tg_push "$LOG_FILE" "Build log"
+
 	cd "$KERNEL_DIR" || return 1
 }
 
@@ -850,10 +901,15 @@ compile_kernel() {
 	curl -s -X POST "http://127.0.0.1:8080/webhook/start?compiler=$(echo "$CURRENT_COMPILER" |
 	sed 's/ /%20/g')&branch=$(echo "$CURRENT_BRANCH" | sed 's/ /%20/g')" > /dev/null
 
-	trap 'echo -e "${RED}Build interrupted! Sending failed status...${NC}"; curl -s -X POST http://127.0.0.1:8080/webhook/failed > /dev/null; exit 1' INT TERM
+	trap 'echo -e "${RED}Build interrupted! Sending failed status...${NC}"; curl -s -X POST http://127.0.0.1:8080/webhook/failed > /dev/null; tg_msg "<b>⚠️ Spacewar Kernel Build Interrupted</b>%0A<b>Branch:</b> <code>$CURRENT_BRANCH</code>"; exit 1' INT TERM
 
 	random_color
 	ascii_art_logo
+
+	# ---- Notify Telegram that the build has started ----
+	tg_sticker
+	tg_msg "<b>🚀 Spacewar Kernel Build Triggered</b>%0A<b>Compiler:</b> <code>$CURRENT_COMPILER</code>%0A<b>Branch:</b> <code>$CURRENT_BRANCH</code>%0A<b>Commit:</b> <code>$(git log -1 --pretty=format:%h)</code> - $(git log -1 --pretty=format:%s)%0A<b>Date:</b> <code>$(date)</code>"
+
 	setup_toolchains
 	clean
 	check_tools
@@ -871,6 +927,8 @@ compile_kernel() {
 		} || {
 		echo -e "${RED}Error: Kernel build failed. Sending status...${NC}"
 		curl -s -X POST http://127.0.0.1:8080/webhook/failed > /dev/null
+		tg_msg "<b>❌ Spacewar Kernel Build Failed</b>%0A<b>Branch:</b> <code>$CURRENT_BRANCH</code>"
+		[ -f "$LOG_FILE" ] && tg_push "$LOG_FILE" "Build log (failed)"
 		exit 1
 	}
 }
