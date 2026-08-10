@@ -1139,12 +1139,12 @@ cpufreq_governor_init(schedutil_gov);
  * rfx_get_util_gki510 - GKI 5.10 compatible util getter for Vorpal.
  */
 void rfx_get_util_gki510(int cpu, unsigned long boost,
-			 unsigned long *out_util, unsigned long *out_bw_min)
+                         unsigned long *out_util, unsigned long *out_bw_min)
 {
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long util, bw_dl, max_cap;
 
-	util   = cpu_util_cfs(rq);
+	util   = cpu_util_cfs(cpu);
 	bw_dl  = cpu_bw_dl(rq);
 
 	if (boost > util)
@@ -1154,7 +1154,6 @@ void rfx_get_util_gki510(int cpu, unsigned long boost,
 
 	/* 25% DVFS headroom — equivalent to map_util_perf() in newer kernels */
 	util = util + (util >> 2);
-
 	max_cap = (unsigned long)arch_scale_cpu_capacity(cpu);
 	*out_util = min(util, max_cap);
 }
