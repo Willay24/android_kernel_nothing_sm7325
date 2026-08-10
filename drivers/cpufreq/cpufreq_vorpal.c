@@ -1551,14 +1551,14 @@ static void rfx_limits(struct cpufreq_policy *policy)
 }
 
 static struct cpufreq_governor vorpal_gov = {
-	.name = CPUFREQ_VORPAL_NAME,
-	.owner = THIS_MODULE,
-	.flags = CPUFREQ_GOV_DYNAMIC_SWITCHING,
-	.init = rfx_init,
-	.exit = rfx_exit,
-	.start = rfx_start,
-	.stop = rfx_stop,
-	.limits = rfx_limits,
+	.name             = "vorpal",
+	.owner            = THIS_MODULE,
+	.dynamic_switching = true,
+	.init             = rfx_init,
+	.exit             = rfx_exit,
+	.start            = rfx_start,
+	.stop             = rfx_stop,
+	.limits           = rfx_limits,
 };
 
 #ifdef CONFIG_CPU_FREQ_DEFAULT_GOV_VORPAL
