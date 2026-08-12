@@ -7,9 +7,9 @@
 #include <asm/assembler.h>
 #include <linux/version.h>
 /**
- * _lz4_decompress_asm: The fast LZ4 decompression, lz4 decompression algothrim asm
+ * _lz4p_decompress_asm: The fast LZ4 decompression, lz4 decompression algothrim asm
  * routine,support EROFS filesystem striving for maximum decompression speed.
- * Entry point _lz4_decompress_asm.
+ * Entry point _lz4p_decompress_asm.
  * @para:
  * x0 = current destination address ptr
  * x1 = destination start position
@@ -248,9 +248,9 @@
 .text
 .p2align 4
 
-SYM_FUNC_START(_lz4_decompress_asm)
+SYM_FUNC_START(_lz4p_decompress_asm)
 	lz4_decompress_asm_generic
-SYM_FUNC_END(_lz4_decompress_asm)
+SYM_FUNC_END(_lz4p_decompress_asm)
 
 SYM_INNER_LABEL(Failed, SYM_L_LOCAL)
 	mov	tmp, #-1
@@ -313,6 +313,6 @@ Copylength_table:
 
 .text
 .p2align 4
-SYM_FUNC_START(_lz4_decompress_asm_noprfm)
+SYM_FUNC_START(_lz4p_decompress_asm_noprfm)
 	lz4_decompress_asm_generic	0
-SYM_FUNC_END(_lz4_decompress_asm_noprfm)
+SYM_FUNC_END(_lz4p_decompress_asm_noprfm)

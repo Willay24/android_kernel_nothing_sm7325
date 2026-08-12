@@ -16,7 +16,7 @@ struct lz4_ctx {
 	void *lz4_comp_mem;
 };
 
-static void *lz4_alloc_ctx(struct crypto_scomp *tfm)
+static void *lz4_alloc_ctx(void)
 {
 	void *ctx;
 
@@ -31,7 +31,7 @@ static int lz4_init(struct crypto_tfm *tfm)
 {
 	struct lz4_ctx *ctx = crypto_tfm_ctx(tfm);
 
-	ctx->lz4_comp_mem = lz4_alloc_ctx(NULL);
+	ctx->lz4_comp_mem = lz4_alloc_ctx();
 	if (IS_ERR(ctx->lz4_comp_mem)) {
 		pr_err("lz4p %s err, lz4_comp_mem: %p\n", __func__, ctx->lz4_comp_mem);
 		return -ENOMEM;
@@ -40,7 +40,7 @@ static int lz4_init(struct crypto_tfm *tfm)
 	return 0;
 }
 
-static void lz4_free_ctx(struct crypto_scomp *tfm, void *ctx)
+static void lz4_free_ctx(void *ctx)
 {
 	vfree(ctx);
 }
@@ -49,7 +49,7 @@ static void lz4_exit(struct crypto_tfm *tfm)
 {
 	struct lz4_ctx *ctx = crypto_tfm_ctx(tfm);
 
-	lz4_free_ctx(NULL, ctx->lz4_comp_mem);
+	lz4_free_ctx(ctx->lz4_comp_mem);
 }
 
 static int __lz4_compress_crypto(const u8 *src, unsigned int slen,
