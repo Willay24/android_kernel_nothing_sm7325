@@ -3705,6 +3705,13 @@
 		};
 	};
 
+	sram@c3f0000 {
+		compatible = "qcom,rpmh-stats";
+		reg = <0x0c3f0000 0x400>;
+		ss-name = "modem", "adsp", "adsp_island", "cdsp", "apss";
+	};
+
+
 	spmi_bus: qcom,spmi@c440000 {
 		compatible = "qcom,spmi-pmic-arb";
 		reg = <0xc440000 0x1100>,
