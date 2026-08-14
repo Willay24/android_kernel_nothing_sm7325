@@ -3083,13 +3083,13 @@ int proc_dou8vec_minmax(struct ctl_table *table, int write,
 
 	tmp.maxlen = sizeof(val);
 	tmp.data = &val;
-	val = READ_ONCE(*data);
+	val = *data;
 	res = do_proc_douintvec(&tmp, write, buffer, lenp, ppos,
 				do_proc_douintvec_minmax_conv, &param);
 	if (res)
 		return res;
 	if (write)
-		WRITE_ONCE(*data, val);
+		*data = val;
 	return 0;
 }
 
