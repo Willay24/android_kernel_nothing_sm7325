@@ -902,10 +902,11 @@ static bool adios_bio_merge(struct request_queue *q, struct bio *bio,
 }
 
 static bool merge_or_insert_to_dl_tree(struct adios_data *ad,
-		struct request *rq, struct request_queue *q) {
+                struct request *rq, struct request_queue *q,
+                struct list_head *free) {
 	bool dl_idx;
 
-	if (blk_mq_sched_try_insert_merge(q, rq))
+	if (blk_mq_sched_try_insert_merge(q, rq, free))
 		return true;
 
 	dl_idx = adios_optype_not_read(rq);
@@ -916,7 +917,6 @@ static bool merge_or_insert_to_dl_tree(struct adios_data *ad,
 		if (!q->last_merge)
 			q->last_merge = rq;
 	}
-
 	return false;
 }
 
@@ -943,13 +943,14 @@ static void insert_to_prio_queue(struct adios_data *ad,
 
 // Insert a request into the scheduler (after Read & Write models stabilized)
 static void insert_request_post_stability(struct blk_mq_hw_ctx *hctx,
-		struct request *rq, bool at_head) {
+                struct request *rq, bool at_head) {
 	struct request_queue *q = hctx->queue;
 	struct adios_data *ad = q->elevator->elevator_data;
 	struct adios_rq_data *rd = get_rq_data(rq);
 	u8 optype = adios_optype(rq);
 	bool rq_is_flush;
 	unsigned long flags;
+	LIST_HEAD(free);
 
 	rd->managed = true;
 	rd->block_size = blk_rq_bytes(rq);
@@ -981,8 +982,11 @@ static void insert_request_post_stability(struct blk_mq_hw_ctx *hctx,
 		return;
 	}
 
-	if (merge_or_insert_to_dl_tree(ad, rq, q))
+	if (merge_or_insert_to_dl_tree(ad, rq, q, &free)) {
+		if (!list_empty(&free))
+			blk_mq_free_requests(&free);
 		return;
+	}
 }
 
 // Insert a request into the scheduler (before Read & Write models stabilizes)
@@ -1045,7 +1049,7 @@ static void adios_insert_requests(struct blk_mq_hw_ctx *hctx,
 }
 
 // Prepare a request before it is inserted into the scheduler
-static void adios_prepare_request(struct request *rq) {
+static void adios_prepare_request(struct request *rq, struct bio *bio) {
 	struct adios_data *ad = rq->q->elevator->elevator_data;
 	struct adios_rq_data *rd;
 
@@ -1402,14 +1406,18 @@ static bool release_barrier_requests(struct adios_data *ad) {
 	if (!list_empty(&local_list)) {
 		struct request *trq, *next;
 		unsigned long flags2;
+		LIST_HEAD(free);
 
 		spin_lock_irqsave(&ad->lock, flags2);
 		list_for_each_entry_safe(trq, next, &local_list, queuelist) {
 			list_del_init(&trq->queuelist);
-			if (merge_or_insert_to_dl_tree(ad, trq, ad->queue))
+			if (merge_or_insert_to_dl_tree(ad, trq, ad->queue, &free))
 				continue;
 		}
 		spin_unlock_irqrestore(&ad->lock, flags2);
+
+		if (!list_empty(&free))
+			blk_mq_free_requests(&free);
 	}
 
 	return true;
