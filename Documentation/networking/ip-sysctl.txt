@@ -818,8 +818,6 @@ tcp_rx_skb_cache - BOOLEAN
 
 	Default: 0 (disabled)
 
-UDP variables:
-
 tcp_plb_enabled - BOOLEAN
 	If set and the underlying congestion control (e.g. DCTCP) supports
 	and enables PLB feature, TCP PLB (Protective Load Balancing) is
@@ -895,7 +893,7 @@ tcp_plb_cong_thresh - INTEGER
 
 	Default: 128
 
-UDP variables
+UDP variables:
 
 udp_l3mdev_accept - BOOLEAN
 	Enabling this option allows a "global" bound socket to work

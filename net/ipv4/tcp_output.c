@@ -1490,7 +1490,7 @@ int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
 	 * SO_SNDBUF values.
 	 * Also allow first and last skb in retransmit queue to be split.
 	 */
-	limit = sk->sk_sndbuf + 2 * SKB_TRUESIZE(GSO_LEGACY_MAX_SIZE);
+	limit = sk->sk_sndbuf + 2 * SKB_TRUESIZE(GSO_MAX_SIZE);
 	if (unlikely((sk->sk_wmem_queued >> 1) > limit &&
 		     tcp_queue != TCP_FRAG_IN_WRITE_QUEUE &&
 		     skb != tcp_rtx_queue_head(sk) &&
@@ -1566,14 +1566,12 @@ int tcp_fragment(struct sock *sk, enum tcp_queue tcp_queue,
 				  mss_now, TCP_SKB_CB(skb)->sacked,
 				  tcp_skb_pcount(skb), tcp_skb_pcount(buff),
 				  skb->len, buff->len);
-
-		if (inflight_prev < 0) inflight_prev = 0;
+			inflight_prev = 0;
 		}
 		/* Set 1st tx.in_flight as if 1st were sent by itself: */
 		TCP_SKB_CB(skb)->tx.in_flight = inflight_prev +
 						 tcp_skb_pcount(skb);
 		/* Set 2nd tx.in_flight with new 1st and 2nd pcounts: */
-
 		TCP_SKB_CB(buff)->tx.in_flight = inflight_prev +
 						 tcp_skb_pcount(skb) +
 						 tcp_skb_pcount(buff);
@@ -1927,7 +1925,7 @@ static bool tcp_nagle_check(bool partial, const struct tcp_sock *tp,
 /* Return how many segs we'd like on a TSO packet,
  * to send one TSO packet per ms
  */
-u32 tcp_tso_autosize(const struct sock *sk, unsigned int mss_now,
+static u32 tcp_tso_autosize(const struct sock *sk, unsigned int mss_now,
 			    int min_tso_segs)
 {
 	u32 bytes, segs;
@@ -1945,7 +1943,6 @@ u32 tcp_tso_autosize(const struct sock *sk, unsigned int mss_now,
 
 	return segs;
 }
-EXPORT_SYMBOL(tcp_tso_autosize);
 
 /* Return the number of segments we want in the skb we are transmitting.
  * See if congestion control module wants to decide; otherwise, autosize.

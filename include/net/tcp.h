@@ -14,7 +14,7 @@
 #ifndef _TCP_H
 #define _TCP_H
 
-#define FASTRETRANS_DEBUG 0
+#define FASTRETRANS_DEBUG 1
 
 #include <linux/list.h>
 #include <linux/tcp.h>
@@ -591,8 +591,6 @@ __u32 cookie_v6_init_sequence(const struct sk_buff *skb, __u16 *mss);
 #endif
 /* tcp_output.c */
 
-u32 tcp_tso_autosize(const struct sock *sk, unsigned int mss_now,
-		     int min_tso_segs);
 void __tcp_push_pending_frames(struct sock *sk, unsigned int cur_mss,
 			       int nonagle);
 int __tcp_retransmit_skb(struct sock *sk, struct sk_buff *skb, int segs);
@@ -1085,7 +1083,7 @@ struct rate_sample {
 	u32  prior_lost;	/* tp->lost at "prior_mstamp" */
 	u32  prior_delivered;	/* tp->delivered at "prior_mstamp" */
 	u32  prior_delivered_ce;/* tp->delivered_ce at "prior_mstamp" */
-	u32  tx_in_flight;	/* packets in flight at starting timestamp */
+	u32 tx_in_flight;	/* packets in flight at starting timestamp */
 	s32  lost;		/* number of packets lost over interval */
 	s32  delivered;		/* number of packets delivered over interval */
 	s32  delivered_ce;	/* packets delivered w/ CE mark over interval */
@@ -1096,7 +1094,6 @@ struct rate_sample {
 	int  losses;		/* number of packets marked lost upon ACK */
 	u32  acked_sacked;	/* number of packets newly (S)ACKed upon ACK */
 	u32  prior_in_flight;	/* in flight before this ACK */
-	u32  last_end_seq;	/* end_seq of most recently ACKed packet */
 	bool is_app_limited;	/* is sample from packet with bubble in pipe? */
 	bool is_retrans;	/* is sample from retransmission? */
 	bool is_acking_tlp_retrans_seq;  /* ACKed a TLP retransmit sequence? */
@@ -1130,12 +1127,10 @@ struct tcp_congestion_ops {
 	void (*pkts_acked)(struct sock *sk, const struct ack_sample *sample);
 	/* pick target number of segments per TSO/GSO skb (optional): */
 	u32 (*tso_segs)(struct sock *sk, unsigned int mss_now);
-	/* suggest number of segments for each skb to transmit (optional) */
-	u32 (*tso_segs_goal)(struct sock *sk);
-	/* returns the multiplier used in tcp_sndbuf_expand (optional) */
-	u32 (*sndbuf_expand)(struct sock *sk);
 	/* react to a specific lost skb (optional) */
 	void (*skb_marked_lost)(struct sock *sk, const struct sk_buff *skb);
+	/* returns the multiplier used in tcp_sndbuf_expand (optional) */
+	u32 (*sndbuf_expand)(struct sock *sk);
 	/* call when packets are delivered to update cwnd and pacing rate,
 	 * after all the ca_state processing. (optional)
 	 */
@@ -1376,19 +1371,10 @@ static inline bool tcp_is_cwnd_limited(const struct sock *sk)
  * but is not always installed/used.
  * Return true if TCP stack should pace packets itself.
  */
-#if (defined(CONFIG_DEFAULT_BBR) || defined(CONFIG_DEFAULT_BBR2)) && !defined(CONFIG_DEFAULT_FQ)
-// FORCE ENABLE TCP INTERNAL PACING with default BBR without FQ
-static inline bool tcp_needs_internal_pacing(struct sock *sk)
-{
-	sk->sk_pacing_status = SK_PACING_NEEDED;
-	return true;
-}
-#else
 static inline bool tcp_needs_internal_pacing(const struct sock *sk)
 {
 	return smp_load_acquire(&sk->sk_pacing_status) == SK_PACING_NEEDED;
 }
-#endif
 
 /* Return in jiffies the delay before one skb is sent.
  * If @skb is NULL, we look at EDT for next packet being sent on the socket.

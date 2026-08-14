@@ -984,7 +984,11 @@ static void tcp_check_sack_reordering(struct sock *sk, const u32 low_seq,
 		      ts ? LINUX_MIB_TCPTSREORDER : LINUX_MIB_TCPSACKREORDER);
 }
 
-/* This must be called before lost_out is incremented */
+ /* This must be called before lost_out or retrans_out are updated
+  * on a new loss, because we want to know if all skbs previously
+  * known to be lost have already been retransmitted, indicating
+  * that this newly lost skb is our next skb to retransmit.
+  */
 static void tcp_verify_retransmit_hint(struct tcp_sock *tp, struct sk_buff *skb)
 {
 	if ((!tp->retransmit_skb_hint && tp->retrans_out >= tp->lost_out) ||
@@ -994,46 +998,41 @@ static void tcp_verify_retransmit_hint(struct tcp_sock *tp, struct sk_buff *skb)
 		tp->retransmit_skb_hint = skb;
 }
 
-/* Sum the number of packets on the wire we have marked as lost.
- * There are two cases we care about here:
- * a) Packet hasn't been marked lost (nor retransmitted),
- *    and this is the first loss.
- * b) Packet has been marked both lost and retransmitted,
- *    and this means we think it was lost again.
+/* Sum the number of packets on the wire we have marked as lost, and
+ * notify the congestion control module that the given skb was marked lost.
  */
-static void tcp_sum_lost(struct tcp_sock *tp, struct sk_buff *skb)
+static void tcp_notify_skb_loss_event(struct tcp_sock *tp, const struct sk_buff *skb)
+{
+	struct sock *sk = (struct sock *)tp;
+	const struct tcp_congestion_ops *ca_ops = inet_csk(sk)->icsk_ca_ops;
+
+	tp->lost += tcp_skb_pcount(skb);
+	if (ca_ops->skb_marked_lost)
+		ca_ops->skb_marked_lost(sk, skb);
+}
+
+void tcp_mark_skb_lost(struct sock *sk, struct sk_buff *skb)
 {
 	__u8 sacked = TCP_SKB_CB(skb)->sacked;
+	struct tcp_sock *tp = tcp_sk(sk);
 
-	if (!(sacked & TCPCB_LOST) ||
-	    ((sacked & TCPCB_LOST) && (sacked & TCPCB_SACKED_RETRANS)))
-		tp->lost += tcp_skb_pcount(skb);
-}
+	if (sacked & TCPCB_SACKED_ACKED)
+		return;
 
-static void tcp_skb_mark_lost(struct tcp_sock *tp, struct sk_buff *skb)
-{
-	if (!(TCP_SKB_CB(skb)->sacked & (TCPCB_LOST|TCPCB_SACKED_ACKED))) {
-		tcp_verify_retransmit_hint(tp, skb);
-
-		tp->lost_out += tcp_skb_pcount(skb);
-		tcp_sum_lost(tp, skb);
-		TCP_SKB_CB(skb)->sacked |= TCPCB_LOST;
-	}
-}
-
-void tcp_skb_mark_lost_uncond_verify(struct tcp_sock *tp, struct sk_buff *skb)
-{
 	tcp_verify_retransmit_hint(tp, skb);
-
-	tcp_sum_lost(tp, skb);
-	if (!(TCP_SKB_CB(skb)->sacked & (TCPCB_LOST|TCPCB_SACKED_ACKED))) {
-		struct sock *sk = (struct sock *)tp;
-		const struct tcp_congestion_ops *ca_ops;
+	if (sacked & TCPCB_LOST) {
+		if (sacked & TCPCB_SACKED_RETRANS) {
+			/* Account for retransmits that are lost again */
+			TCP_SKB_CB(skb)->sacked &= ~TCPCB_SACKED_RETRANS;
+			tp->retrans_out -= tcp_skb_pcount(skb);
+			NET_ADD_STATS(sock_net(sk), LINUX_MIB_TCPLOSTRETRANSMIT,
+				      tcp_skb_pcount(skb));
+			tcp_notify_skb_loss_event(tp, skb);
+		}
+	} else {
 		tp->lost_out += tcp_skb_pcount(skb);
 		TCP_SKB_CB(skb)->sacked |= TCPCB_LOST;
-		ca_ops = inet_csk(sk)->icsk_ca_ops;
-		if (ca_ops->skb_marked_lost)
-			ca_ops->skb_marked_lost(sk, skb);
+		tcp_notify_skb_loss_event(tp, skb);
 	}
 }
 
@@ -2324,7 +2323,8 @@ static void tcp_mark_head_lost(struct sock *sk, int packets, int mark_head)
 		if (cnt > packets)
 			break;
 
-		tcp_skb_mark_lost(tp, skb);
+		if (!(TCP_SKB_CB(skb)->sacked & TCPCB_LOST))
+			tcp_mark_skb_lost(sk, skb);
 
 		if (mark_head)
 			break;
@@ -2741,14 +2741,8 @@ void tcp_simple_retransmit(struct sock *sk)
 	unsigned int mss = tcp_current_mss(sk);
 
 	skb_rbtree_walk(skb, &sk->tcp_rtx_queue) {
-		if (tcp_skb_seglen(skb) > mss &&
-		    !(TCP_SKB_CB(skb)->sacked & TCPCB_SACKED_ACKED)) {
-			if (TCP_SKB_CB(skb)->sacked & TCPCB_SACKED_RETRANS) {
-				TCP_SKB_CB(skb)->sacked &= ~TCPCB_SACKED_RETRANS;
-				tp->retrans_out -= tcp_skb_pcount(skb);
-			}
-			tcp_skb_mark_lost_uncond_verify(tp, skb);
-		}
+		if (tcp_skb_seglen(skb) > mss)
+			tcp_mark_skb_lost(sk, skb);
 	}
 
 	tcp_clear_retrans_hints_partial(tp);
@@ -5453,14 +5447,14 @@ static void __tcp_ack_snd_check(struct sock *sk, int ofo_possible)
 	    /* More than one full frame received... */
 	if (((tp->rcv_nxt - tp->rcv_wup) > (inet_csk(sk)->icsk_ack.rcv_mss) *
 					sysctl_tcp_delack_seg &&
-	      (tp->fast_ack_mode == 1 ||
+	     (tp->fast_ack_mode == 1 ||
 	     /* ... and right edge of window advances far enough.
 	      * (tcp_recvmsg() will send ACK otherwise).
 	      * If application uses SO_RCVLOWAT, we want send ack now if
 	      * we have not received enough bytes to satisfy the condition.
 	      */
-	    (tp->rcv_nxt - tp->copied_seq < sk->sk_rcvlowat ||
-	     __tcp_select_window(sk) >= tp->rcv_wnd))) ||
+	      (tp->rcv_nxt - tp->copied_seq < sk->sk_rcvlowat ||
+	       __tcp_select_window(sk) >= tp->rcv_wnd))) ||
 	    /* We ACK each frame or... */
 	    tcp_in_quickack_mode(sk) ||
 	    /* Protocol state mandates a one-time immediate ACK */

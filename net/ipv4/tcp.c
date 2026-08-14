@@ -2718,7 +2718,6 @@ int tcp_disconnect(struct sock *sk, int flags)
 	tp->rcv_ooopack = 0;
 	tp->fast_ack_mode = 0;
 
-
 	/* Clean up fastopen related fields */
 	req = rcu_dereference_protected(tp->fastopen_rsk,
 					lockdep_sock_is_held(sk));
