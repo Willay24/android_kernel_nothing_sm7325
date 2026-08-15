@@ -124,16 +124,6 @@ static unsigned int sched_nr_latency = 8;
 unsigned int sysctl_sched_child_runs_first __read_mostly;
 
 /*
- * Gaming mode integration with Vorpal governor.
- */
-int sched_gaming_active __read_mostly;
-EXPORT_SYMBOL_GPL(sched_gaming_active);
-
-#define GAMING_VRUNTIME_STRETCH         4
-#define GAMING_WAKEUP_GRANULARITY_NS    500000
-
-
-/*
  * SCHED_OTHER wake-up granularity.
  *
  * This option delays the preemption effects of decoupled workloads
@@ -1832,13 +1822,6 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	update_burst_penalty(curr);
 #endif // CONFIG_SCHED_BORE
 
-/* Gaming mode: stretch vruntime for background tasks */
-        if (unlikely(sched_gaming_active && !entity_is_task(curr))) {
-                curr->vruntime += calc_delta_fair(delta_exec * (GAMING_VRUNTIME_STRETCH - 1), curr);
-        } else if (unlikely(sched_gaming_active && entity_is_task(curr) &&
-                            curr->avg.load_avg < 100)) {
-                curr->vruntime += calc_delta_fair(delta_exec, curr);
-        }
 	resched = update_deadline(cfs_rq, curr);
 
 	if (entity_is_task(curr)) {
@@ -7027,21 +7010,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 	for_each_sched_entity(se) {
 		cfs_rq = cfs_rq_of(se);
-
-
-		/*
-		 * Gaming mode: nudge foreground (top-app) tasks to the front
-		 * of the runqueue so the render / game-logic threads schedule
-		 * with less wakeup latency. Foreground is approximated by
-		 * nice <= 0 (static_prio <= DEFAULT_PRIO), the symmetric
-		 * counterpart to the background demotion in check_preempt_tick.
-		 * Reads only, no struct change -> KMI safe. The old comm[]
-		 * string match was a scheduler-hotpath anti-pattern and the
-		 * prio < MAX_RT_PRIO test never fired for CFS tasks; both gone.
-		 */
-		if (unlikely(sched_gaming_active && entity_is_task(se) &&
-			     task_of(se)->static_prio <= DEFAULT_PRIO))
-			se->vruntime -= min_t(u64, se->vruntime, NSEC_PER_MSEC);
 
 
 		update_load_avg(cfs_rq, se, UPDATE_TG);
