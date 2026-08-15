@@ -46,10 +46,8 @@ EXPORT_TRACEPOINT_SYMBOL_GPL(sched_stat_runtime);
  */
 #ifdef CONFIG_SCHED_BORE
 unsigned int sysctl_sched_latency			= 18000000ULL;
-static unsigned int normalized_sysctl_sched_latency	= 18000000ULL;
 #else // CONFIG_SCHED_BORE
 unsigned int sysctl_sched_latency			= 18000000ULL;
-static unsigned int normalized_sysctl_sched_latency	= 18000000ULL;
 #endif // CONFIG_SCHED_BORE
 EXPORT_SYMBOL_GPL(sysctl_sched_latency);
 
@@ -79,32 +77,16 @@ enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_N
  */
 #ifdef CONFIG_SCHED_BORE
 unsigned int sysctl_sched_min_granularity			= 2500000ULL;
-static unsigned int normalized_sysctl_sched_min_granularity	= 2500000ULL;
 #else // CONFIG_SCHED_BORE
 unsigned int sysctl_sched_min_granularity			= 2500000ULL;
-static unsigned int normalized_sysctl_sched_min_granularity	= 2500000ULL;
 #endif // CONFIG_SCHED_BORE
 EXPORT_SYMBOL_GPL(sysctl_sched_min_granularity);
-
-/*
- * This value is kept at sysctl_sched_latency/sysctl_sched_min_granularity
- */
-static unsigned int sched_nr_latency = 8;
 
 /*
  * After fork, child runs first. If set to 0 (default) then
  * parent will (try to) run first.
  */
 unsigned int sysctl_sched_child_runs_first __read_mostly;
-
-/*
- * Gaming mode integration with Vorpal governor.
- */
-int sched_gaming_active __read_mostly;
-EXPORT_SYMBOL_GPL(sched_gaming_active);
-
-#define GAMING_VRUNTIME_STRETCH         4
-#define GAMING_WAKEUP_GRANULARITY_NS    500000
 
 /*
  * Default base time slice (request size r_i) for SCHED_NORMAL/SCHED_BATCH:
@@ -137,10 +119,8 @@ unsigned int sysctl_sched_idle_min_granularity			= 750000ULL;
  */
 #ifdef CONFIG_SCHED_BORE
 unsigned int sysctl_sched_wakeup_granularity			= 4000000UL;
-static unsigned int normalized_sysctl_sched_wakeup_granularity	= 4000000UL;
 #else // CONFIG_SCHED_BORE
 unsigned int sysctl_sched_wakeup_granularity			= 1000000UL;
-static unsigned int normalized_sysctl_sched_wakeup_granularity	= 1000000UL;
 #endif // CONFIG_SCHED_BORE
 
 const_debug unsigned int sysctl_sched_migration_cost	= 250000UL;
@@ -1669,13 +1649,6 @@ static void update_curr(struct cfs_rq *cfs_rq)
 	update_burst_penalty(curr);
 #endif // CONFIG_SCHED_BORE
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
-/* Gaming mode: stretch vruntime for background tasks */
-        if (unlikely(sched_gaming_active && !entity_is_task(curr))) {
-                curr->vruntime += calc_delta_fair(delta_exec * (GAMING_VRUNTIME_STRETCH - 1), curr);
-        } else if (unlikely(sched_gaming_active && entity_is_task(curr) &&
-                            curr->avg.load_avg < 100)) {
-                curr->vruntime += calc_delta_fair(delta_exec, curr);
-        }
 	resched = update_deadline(cfs_rq, curr);
 
 	if (entity_is_task(curr)) {
@@ -6868,21 +6841,6 @@ enqueue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 		cfs_rq = cfs_rq_of(se);
 
 
-		/*
-		 * Gaming mode: nudge foreground (top-app) tasks to the front
-		 * of the runqueue so the render / game-logic threads schedule
-		 * with less wakeup latency. Foreground is approximated by
-		 * nice <= 0 (static_prio <= DEFAULT_PRIO), the symmetric
-		 * counterpart to the background demotion in check_preempt_tick.
-		 * Reads only, no struct change -> KMI safe. The old comm[]
-		 * string match was a scheduler-hotpath anti-pattern and the
-		 * prio < MAX_RT_PRIO test never fired for CFS tasks; both gone.
-		 */
-		if (unlikely(sched_gaming_active && entity_is_task(se) &&
-			     task_of(se)->static_prio <= DEFAULT_PRIO))
-			se->vruntime -= min_t(u64, se->vruntime, NSEC_PER_MSEC);
-
-
 		update_load_avg(cfs_rq, se, UPDATE_TG);
 		se_update_runnable(se);
 		update_cfs_group(se);
@@ -9088,27 +9046,6 @@ static int task_hot(struct task_struct *p, struct lb_env *env)
 		return 0;
 
 	delta = rq_clock_task(env->src_rq) - p->se.exec_start;
-
-	/*
-	 * Gaming task isolation + anti-thrash. A heavy thread (render / game
-	 * logic using a meaningful slice of its current CPU) is kept off a
-	 * smaller-capacity destination - demoting it to a LITTLE core is a common
-	 * frame-drop source. Light tasks stay migratable so the balancer can pack
-	 * them onto LITTLE as usual. Recently-run tasks also get a widened
-	 * cache-hot window to cut lobby migration churn. This is a bias, not a
-	 * hard pin (active balance can still move it), and reads only - KMI-safe.
-	 *
-	 * Threshold is src_cap >> 3 (~12.5%): per-cluster CPU telemetry showed
-	 * render threads being demoted onto LITTLE (LITTLE saturating 60-90%
-	 * while PRIME sat near-idle), so the isolation now catches moderately
-	 * heavy threads, keeping them on Big/Prime where the work belongs.
-	 */
-	if (sched_gaming_active) {
-		if (capacity_orig_of(env->dst_cpu) < capacity_orig_of(env->src_cpu) &&
-		    task_util(p) > (capacity_orig_of(env->src_cpu) >> 3))
-			return 1;
-		return delta < (s64)sysctl_sched_migration_cost * 2;
-	}
 
 
 	return delta < (s64)sysctl_sched_migration_cost;
