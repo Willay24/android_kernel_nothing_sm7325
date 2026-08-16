@@ -31,14 +31,15 @@
 #define SP_V4_NUM_MAX_SPKRS SP_V2_NUM_MAX_SPKRS
 #define MAX_LSM_SESSIONS 8
 
-#define AFE_MODULE_ID_TFADSP_RX			(0x1000B911)
-#define AFE_MODULE_ID_TFADSP_TX			(0x1000B912)
-#define AFE_PARAM_ID_TFADSP_TX_SET_ENABLE	(0x1000B920)
-#define AFE_PARAM_ID_TFADSP_RX_CFG		(0x1000B921)
-#define AFE_PARAM_ID_TFADSP_RX_GET_RESULT	(0x1000B922)
-#define AFE_PARAM_ID_TFADSP_RX_SET_BYPASS	(0x1000B923)
-#define AFE_PORT_ID_TFADSP_RX			(0x1000)
-#define AFE_PORT_ID_TFADSP_TX			(0x1001)
+#define AFE_MODULE_ID_TFADSP_RX             (0x1000B911)
+#define AFE_MODULE_ID_TFADSP_TX             (0x1000B912)
+#define AFE_PARAM_ID_TFADSP_TX_SET_ENABLE         (0x1000B920)
+#define AFE_PARAM_ID_TFADSP_RX_CFG                             (0x1000B921)
+#define AFE_PARAM_ID_TFADSP_RX_GET_RESULT         (0x1000B922)
+#define AFE_PARAM_ID_TFADSP_RX_SET_BYPASS         (0x1000B923)
+#define AFE_PORT_ID_TFADSP_RX              (0x1000)
+#define AFE_PORT_ID_TFADSP_TX              (0x1001)
+
 
 /* Paired Rx Structure Info */
 static struct afe_tdm_intf_paired_rx_cfg afe_tdm_paired_rx_cfg[AFE_TDM_INTERFACE_MAX] = {
@@ -2396,7 +2397,7 @@ static void afe_send_custom_topology(void)
 	this_afe.set_custom_topology = 0;
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
 	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
-		pr_debug("%s cal_block not found!!\n", __func__);
+		pr_err("%s cal_block not found!!\n", __func__);
 		goto unlock;
 	}
 
@@ -3829,7 +3830,7 @@ static int send_afe_cal_type(int cal_index, int port_id)
 				this_afe.cal_data[cal_index]);
 
 	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
-		pr_debug("%s cal_block not found!!\n", __func__);
+		pr_err_ratelimited("%s cal_block not found!!\n", __func__);
 		ret = -EINVAL;
 		goto unlock;
 	}
@@ -8792,7 +8793,7 @@ static int afe_sidetone_iir(u16 tx_port_id)
 	mutex_lock(&this_afe.cal_data[cal_index]->lock);
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
 	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
-		pr_debug("%s: cal_block not found\n ", __func__);
+		pr_err("%s: cal_block not found\n ", __func__);
 		mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 		ret = -EINVAL;
 		goto done;
@@ -8927,7 +8928,7 @@ static int afe_sidetone(u16 tx_port_id, u16 rx_port_id, bool enable)
 	mutex_lock(&this_afe.cal_data[cal_index]->lock);
 	cal_block = cal_utils_get_only_cal_block(this_afe.cal_data[cal_index]);
 	if (cal_block == NULL || cal_utils_is_cal_stale(cal_block)) {
-		pr_debug("%s: cal_block not found\n", __func__);
+		pr_err("%s: cal_block not found\n", __func__);
 		mutex_unlock(&this_afe.cal_data[cal_index]->lock);
 		ret = -EINVAL;
 		goto done;
@@ -10594,7 +10595,6 @@ static int afe_get_sp_th_vi_v_vali_data(
 
 	mutex_lock(&this_afe.afe_cmd_lock);
 	memset(&param_hdr, 0, sizeof(param_hdr));
-	memset(th_vi_v_vali, 0, sizeof(*th_vi_v_vali));
 
 	param_hdr.module_id = AFE_MODULE_SPEAKER_PROTECTION_V2_TH_VI;
 	param_hdr.instance_id = INSTANCE_ID_0;
