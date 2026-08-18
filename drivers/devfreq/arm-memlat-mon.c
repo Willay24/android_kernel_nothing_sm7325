@@ -202,7 +202,6 @@ static void update_counts(struct memlat_cpu_grp *cpu_grp)
 		if (!common_evs[STALL_IDX].pevent)
 			common_evs[STALL_IDX].last_delta =
 				common_evs[CYC_IDX].last_delta;
-
 		else
 			cpu_data->stall_pct = common_evs[CYC_IDX].last_delta ?
 				mult_frac(100, common_evs[STALL_IDX].last_delta,
