@@ -15,6 +15,18 @@ on:
         description: 'Enable KernelSU Next (yes/no)'
         required: false
         default: 'no'
+      enable_nomount:
+        description: 'Integrate maxsteeel/nomount (dev branch, yes/no)'
+        required: false
+        default: 'no'
+      enable_basebandguard:
+        description: 'Integrate Baseband-guard LSM (yes/no)'
+        required: false
+        default: 'no'
+      package_modules:
+        description: 'Pack built .ko modules into the AnyKernel3 zip (yes/no)'
+        required: false
+        default: 'yes'
       build_tag:
         description: 'Build tag for ZIP name (e.g., Test/Perf/Normal)'
         required: false
@@ -131,6 +143,54 @@ jobs:
             echo "⚠️  Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_KSU injection"
           fi
       # -------------------------------------------------------------------
+      # maxsteeel/nomount integration — controlled by the enable_nomount
+      # input. Runs the upstream setup.sh on the dev branch, which vendors
+      # the nomount module sources into the kernel tree and wires up its
+      # Makefile/Kconfig hooks. The resulting nomount.ko is picked up
+      # automatically later by the module-packaging step's workspace-wide
+      # nomount.ko search, no extra config needed here beyond building it.
+      # -------------------------------------------------------------------
+      - name: Setup nomount (if enabled)
+        if: ${{ github.event.inputs.enable_nomount == 'yes' }}
+        run: |
+          set -e
+          echo "🔧 Integrating maxsteeel/nomount (dev)..."
+          curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
+          echo "✅ nomount (dev) setup complete"
+      # -------------------------------------------------------------------
+      # Baseband-guard LSM integration — controlled by the
+      # enable_basebandguard input. Mirrors the upstream quick-start:
+      #   1. Run setup.sh from the vc-teahouse/Baseband-guard repo, which
+      #      vendors the LSM sources into the kernel tree.
+      #   2. Inject CONFIG_BBG=y into the defconfig.
+      #   3. Patch security/Kconfig so the LSM "default" list includes
+      #      baseband_guard alongside selinux — required for CI/cloud
+      #      builds since there's no interactive menuconfig step to
+      #      enable it by hand.
+      # -------------------------------------------------------------------
+      - name: Setup Baseband-guard (if enabled)
+        if: ${{ github.event.inputs.enable_basebandguard == 'yes' }}
+        run: |
+          set -e
+          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
+          echo "🛡️  Integrating Baseband-guard LSM..."
+          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo "✅ Injecting CONFIG_BBG=y into defconfig ($DEFCONFIG_PATH)"
+            echo -e "\n# Baseband-guard\nCONFIG_BBG=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "⚠️  Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_BBG injection"
+          fi
+
+          if [ -f "security/Kconfig" ]; then
+            echo "🩹 Patching security/Kconfig LSM default list..."
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+            echo "✅ security/Kconfig patched (baseband_guard added to LSM default list)"
+          else
+            echo "⚠️  security/Kconfig not found — skipping LSM default patch"
+          fi
+      # -------------------------------------------------------------------
       # Configure + build using IDENTICAL toolchain flags in both make
       # invocations. If CC/LLVM differ between the defconfig step and the
       # build step, clang exposes Kconfig symbols gcc doesn't (POLLY_CLANG,
@@ -225,6 +285,35 @@ jobs:
             "$BOOT_OUT/dtb.img" \
             "$BOOT_OUT/dtbo.img" 2>/dev/null || true
           echo "────────────────────────────────────────"
+      # -------------------------------------------------------------------
+      # Build + install out-of-tree kernel modules (.ko). Uses the exact
+      # same toolchain flags as "Configure and build kernel" so nothing
+      # gets rebuilt with a mismatched compiler. Skipped entirely if
+      # package_modules == 'no', or if the kernel wasn't built with
+      # CONFIG_MODULES (in which case the `modules` target produces
+      # nothing and this step just warns instead of failing).
+      # -------------------------------------------------------------------
+      - name: Build and install kernel modules
+        if: ${{ github.event.inputs.package_modules == 'yes' }}
+        run: |
+          set -e
+          export KBUILD_BUILD_USER="willay"
+          export KBUILD_BUILD_HOST="GNU"
+          MAKE_ARGS="O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 \
+            LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm \
+            OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf \
+            STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu-"
+          echo "🔨 Building kernel modules..."
+          make -j$(nproc --all) $MAKE_ARGS modules
+
+          if find out -name '*.ko' 2>/dev/null | grep -q .; then
+            echo "📦 Installing modules to out/modules..."
+            make -j$(nproc --all) $MAKE_ARGS \
+              INSTALL_MOD_PATH=modules INSTALL_MOD_STRIP=1 modules_install
+            echo "✅ Modules built and staged under out/modules"
+          else
+            echo "⚠️  No .ko files were produced (CONFIG_MODULES may be off in this defconfig) — skipping modules_install"
+          fi
       - name: Prepare AnyKernel3 package
         run: |
           git clone --depth=1 https://github.com/William24hmar/AnyKernel3.git -b master anykernel
@@ -234,6 +323,122 @@ jobs:
           [ -f "$BOOT_OUT/dtb" ]      && cp "$BOOT_OUT/dtb"      anykernel/ && echo "✅ dtb copied"      || echo "⚠️  dtb not found"
           [ -f "$BOOT_OUT/dtb.img" ]  && cp "$BOOT_OUT/dtb.img"  anykernel/ && echo "✅ dtb.img copied"  || echo "⚠️  dtb.img not found"
           [ -f "$BOOT_OUT/dtbo.img" ] && cp "$BOOT_OUT/dtbo.img" anykernel/ && echo "✅ dtbo.img copied" || echo "⚠️  dtbo.img not found"
+      # -------------------------------------------------------------------
+      # Pack the built .ko files into
+      # anykernel/modules/vendor/lib/modules/<kernel_release>/ and rewrite
+      # modules.dep so it points at absolute /vendor/lib/modules/*.ko
+      # paths (Android's module loader expects that, not the kernel build
+      # tree's relative kernel/drivers/... paths).
+      # -------------------------------------------------------------------
+      - name: Package kernel modules for AnyKernel3
+        if: ${{ github.event.inputs.package_modules == 'yes' }}
+        run: |
+          set -e
+          if [ ! -d out/modules ]; then
+            echo "⚠️  out/modules not present — nothing to package (modules_install step skipped or produced no output)"
+            exit 0
+          fi
+
+          KERNEL_RELEASE=$(cat out/include/config/kernel.release 2>/dev/null || true)
+          if [ -z "$KERNEL_RELEASE" ]; then
+            KERNEL_RELEASE=$(find out/modules/lib/modules -maxdepth 1 -mindepth 1 -type d -printf '%f\n' | head -n1)
+          fi
+          if [ -z "$KERNEL_RELEASE" ]; then
+            echo "❌ Could not determine kernel release string — aborting module packaging"
+            exit 1
+          fi
+          echo "📋 Kernel release: $KERNEL_RELEASE"
+
+          MOD_DEST="anykernel/modules/vendor/lib/modules"
+          mkdir -p "$MOD_DEST"
+
+          # Scan the entire out/ tree for .ko files — no need to name
+          # subdirectories by hand, this picks up drivers/, net/,
+          # techpack/, or anywhere else a defconfig happens to build
+          # modules. out/modules/ is excluded: that's the modules_install
+          # output tree (INSTALL_MOD_PATH=modules), which contains
+          # stripped copies of the SAME .ko files under the same
+          # basenames — including it here would just create duplicate
+          # basenames and make the copy step below skip files.
+          KO_FILES=()
+          while IFS= read -r -d '' f; do
+            KO_FILES+=("$f")
+          done < <(find out -path out/modules -prune -o -name '*.ko' -print0 2>/dev/null)
+
+          # nomount.ko (maxsteeel/nomount's mount-hiding module) is often
+          # built outside out/ entirely, e.g. under a top-level nomount/
+          # checkout, so search the whole workspace for it separately and
+          # fold it in if the general out/ scan above didn't already find it.
+          while IFS= read -r -d '' f; do
+            base=$(basename "$f")
+            already=0
+            for existing in "${KO_FILES[@]:-}"; do
+              [ "$(basename "$existing")" = "$base" ] && already=1 && break
+            done
+            [ "$already" -eq 0 ] && KO_FILES+=("$f")
+          done < <(find . -maxdepth 6 -name 'nomount.ko' -not -path './out/*' -print0 2>/dev/null)
+
+          if [ ${#KO_FILES[@]} -eq 0 ]; then
+            echo "⚠️  No .ko files found anywhere in the workspace — skipping"
+            exit 0
+          fi
+
+          # Copy one file at a time, skipping any basename already
+          # copied. This is deliberately not a single bulk `cp` call:
+          # GNU cp aborts an entire multi-file invocation the moment two
+          # different sources map to the same destination filename, so
+          # one stray duplicate anywhere in KO_FILES would fail the whole
+          # step. Copying individually degrades that to "keep the first
+          # match, log the rest" instead.
+          declare -A seen=()
+          copied=0
+          skipped=0
+          for f in "${KO_FILES[@]}"; do
+            base=$(basename "$f")
+            if [ -n "${seen[$base]:-}" ]; then
+              echo "   ↷ skipping duplicate $base (already packed from ${seen[$base]})"
+              skipped=$((skipped + 1))
+              continue
+            fi
+            cp "$f" "$MOD_DEST/$base"
+            seen[$base]="$f"
+            copied=$((copied + 1))
+          done
+          echo "📦 Copied $copied .ko file(s) into $MOD_DEST ($skipped duplicate basename(s) skipped)"
+
+          MODSRC_DIR=$(find out/modules/lib/modules -maxdepth 1 -mindepth 1 -type d | head -n1)
+          if [ -n "$MODSRC_DIR" ]; then
+            for f in modules.alias modules.dep modules.softdep; do
+              [ -f "$MODSRC_DIR/$f" ] && cp "$MODSRC_DIR/$f" "$MOD_DEST/" && echo "✅ $f copied"
+            done
+            if [ -f "$MODSRC_DIR/modules.order" ]; then
+              cp "$MODSRC_DIR/modules.order" "$MOD_DEST/modules.load"
+              echo "✅ modules.order copied as modules.load"
+            fi
+            for f in "$MODSRC_DIR"/modules.*; do
+              base=$(basename "$f")
+              [ -f "$MOD_DEST/$base" ] || cp "$f" "$MOD_DEST/"
+            done
+          fi
+
+          # Rewrite modules.dep entries to point at the flat
+          # /vendor/lib/modules/foo.ko install path Android expects,
+          # instead of the kernel build tree's kernel/drivers/... path.
+          if [ -f "$MOD_DEST/modules.dep" ]; then
+            sed -i 's/\(kernel\/[^: ]*\/\)\([^: ]*\.ko\)/\/vendor\/lib\/modules\/\2/g' "$MOD_DEST/modules.dep"
+            echo "✅ modules.dep paths rewritten to /vendor/lib/modules/*.ko"
+          fi
+
+          # modules.load must list bare filenames only (no path prefix).
+          if [ -f "$MOD_DEST/modules.load" ]; then
+            sed -i 's/.*\///g' "$MOD_DEST/modules.load"
+            echo "✅ modules.load reduced to bare filenames"
+          fi
+
+          echo ""
+          echo "── Packaged modules ────────────────────"
+          ls -lh "$MOD_DEST" | grep -E '\.ko$|modules\.' || true
+          echo "─────────────────────────────────────────"
       # -------------------------------------------------------------------
       # Zip everything inside anykernel/ into a timestamped flashable ZIP.
       # Format: GFClang-<TAG>-<YYYYMMDD>-<HHMM>.zip
@@ -247,6 +452,17 @@ jobs:
           RAW_TAG="${{ github.event.inputs.build_tag }}"
           SAFE_TAG="${RAW_TAG// /-}"       # spaces → hyphens
           SAFE_TAG="${SAFE_TAG//\//-}"     # forward slashes → hyphens
+
+          # Append Baseband-guard suffix when it was integrated
+          if [ "${{ github.event.inputs.enable_basebandguard }}" = "yes" ]; then
+            SAFE_TAG="${SAFE_TAG}-BBG"
+          fi
+
+          # Append nomount suffix when it was integrated
+          if [ "${{ github.event.inputs.enable_nomount }}" = "yes" ]; then
+            SAFE_TAG="${SAFE_TAG}-nomount"
+          fi
+
           cd anykernel
           ZIP_NAME="GFClang-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
           zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md"

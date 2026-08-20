@@ -1,4 +1,4 @@
-name: Build Kernel with Greenforce Clang
+name: Build Kernel with ZyC Clang
 
 on:
   workflow_dispatch:
@@ -33,19 +33,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.kernel_branch }}
-
-      # -------------------------------------------------------------------
-      # Telegram: build-start notification. Fires as soon as we've checked
-      # out the source, so you know a build kicked off even if it fails
-      # in the very first setup step.
-      # -------------------------------------------------------------------
-      - name: Notify Telegram - build start
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d parse_mode="html" \
-            -d disable_web_page_preview=true \
-            -d text="🔨 <b>Kernel Build Triggered</b>%0A<b>Branch:</b> <code>${{ github.event.inputs.kernel_branch }}</code>%0A<b>Defconfig:</b> <code>${{ github.event.inputs.defconfig }}</code>%0A<b>KernelSU Next:</b> <code>${{ github.event.inputs.enable_kernelsu_next }}</code>%0A<b>Signing:</b> <code>${{ github.event.inputs.enable_signing }}</code>%0A<b>Tag:</b> <code>${{ github.event.inputs.build_tag }}</code>%0A<b>Triggered by:</b> <code>${{ github.actor }}</code>"
 
       - name: Install system dependencies
         run: |
@@ -84,28 +71,72 @@ jobs:
             || { echo "❌ mkdtboimg.py verification failed"; exit 1; }
           echo "MKDTBOIMG=$MKDTBOIMG" >> $GITHUB_ENV
       # -------------------------------------------------------------------
-      # Always fetch the latest Greenforce Clang release via the official
-      # get_clang.sh installer (no pinned version/URL to maintain).
-      # Installs into $GITHUB_WORKSPACE/greenforce-clang and exports its
-      # bin dir onto PATH for this step and all subsequent steps.
+      # Download and install a pinned ZyC Clang release.
+      # Version : 16.0.6  |  Release date : 20260716
+      # URL is hardcoded — update ZYC_URL below to upgrade the toolchain.
+      # Exports all required build environment variables afterwards.
       # -------------------------------------------------------------------
-      - name: Setup Greenforce Clang
+      - name: Setup ZyC Clang
         run: |
           set -e
-          echo "📥 Running Greenforce Clang setup script..."
-          bash <(wget -qO- https://raw.githubusercontent.com/greenforce-project/greenforce_clang/refs/heads/main/get_clang.sh)
-          TOOLCHAIN_DIR="$GITHUB_WORKSPACE/greenforce-clang"
-          if [ ! -x "$TOOLCHAIN_DIR/bin/clang" ]; then
+          TOOLCHAIN_DIR="$HOME/toolchains/zyc-clang"
+          echo "📁 Toolchain dir: $TOOLCHAIN_DIR"
+          rm -rf "$TOOLCHAIN_DIR"
+          mkdir -p "$TOOLCHAIN_DIR"
+
+          ZYC_URL="https://github.com/ZyCromerZ/Clang/releases/download/16.0.6-20260716-release/Clang-16.0.6-20260716.tar.gz"
+          echo "📥 Downloading ZyC Clang 16.0.6 (20260716)..."
+          wget -q --show-progress "$ZYC_URL" -O /tmp/zyc-clang.tar.gz
+
+          echo "📦 Extracting ZyC Clang..."
+          tar -xzf /tmp/zyc-clang.tar.gz -C "$TOOLCHAIN_DIR"
+          rm /tmp/zyc-clang.tar.gz
+
+          # Verify clang binary
+          if [ -f "$TOOLCHAIN_DIR/bin/clang" ]; then
+            CLANG_VER=$("$TOOLCHAIN_DIR/bin/clang" --version | head -1)
+            echo "✅ ZyC Clang installed successfully"
+            echo "   Version: $CLANG_VER"
+          else
             echo "❌ clang binary not found in $TOOLCHAIN_DIR/bin/"
             exit 1
           fi
-          CLANG_VER=$("$TOOLCHAIN_DIR/bin/clang" --version | head -1)
-          echo "✅ Greenforce Clang installed successfully"
-          echo "   Version: $CLANG_VER"
-          # ── Export toolchain path for all later steps ───────────────────
-          echo "GF_PATH=$TOOLCHAIN_DIR"       >> $GITHUB_ENV
-          echo "$TOOLCHAIN_DIR/bin"           >> $GITHUB_PATH
-          echo "CLANG_LABEL=Greenforce Clang" >> $GITHUB_ENV
+
+          # ── Export toolchain path ──────────────────────────────────────
+          echo "ZYC_PATH=$TOOLCHAIN_DIR"            >> $GITHUB_ENV
+          echo "$TOOLCHAIN_DIR/bin"                >> $GITHUB_PATH
+          echo "CLANG_LABEL=ZyC Clang"             >> $GITHUB_ENV
+          # ── ccache setup ─────────────────────────────────────────────
+          mkdir -p "$HOME/.ccache"
+          NPROC=$(nproc)
+          # ── Export all build environment variables ─────────────────────
+          cat >> $GITHUB_ENV << EOF
+          ARCH=arm64
+          SUBARCH=arm64
+          LLVM=1
+          LLVM_IAS=1
+          CC=ccache clang
+          AR=llvm-ar
+          NM=llvm-nm
+          LD=ld.lld
+          OBJCOPY=llvm-objcopy
+          OBJDUMP=llvm-objdump
+          STRIP=llvm-strip
+          CLANG_TRIPLE=aarch64-linux-gnu-
+          CROSS_COMPILE=aarch64-linux-gnu-
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          USE_CCACHE=1
+          CCACHE_DIR=$HOME/.ccache
+          CCACHE_SLOPPINESS=file_macro,locale,time_macros
+          CCACHE_MAXSIZE=100G
+          CCACHE_COMPRESS=1
+          MAKE_JOBS=$((NPROC + 2))
+          KBUILD_BUILD_USER=willay
+          KBUILD_BUILD_HOST=GNU
+          KBUILD_BUILD_VERSION=1
+          EOF
+          echo "✅ All build environment variables exported for ZyC Clang"
+          echo "ℹ️  ccache enabled: dir=$HOME/.ccache, max size=100G, jobs=$((NPROC + 2))"
       # -------------------------------------------------------------------
       # KernelSU setup:
       #   1. Run the official tiann KernelSU setup.sh
@@ -130,51 +161,37 @@ jobs:
           else
             echo "⚠️  Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_KSU injection"
           fi
-      # -------------------------------------------------------------------
-      # Configure + build using IDENTICAL toolchain flags in both make
-      # invocations. If CC/LLVM differ between the defconfig step and the
-      # build step, clang exposes Kconfig symbols gcc doesn't (POLLY_CLANG,
-      # THUMB2_COMPAT_VDSO, LTO_CLANG...) and Kconfig is forced to "Restart
-      # config" mid-build, going interactive with no TTY to answer it.
-      # Keeping the flags identical means all resolution happens once,
-      # non-interactively, right here.
-      #
-      # COMPAT_VDSO is force-disabled: its Kconfig default is Y, but
-      # Greenforce Clang ships no thumbv7-unknown-linux-gnueabi target, so
-      # leaving it on (or accepting the default via a piped "yes") fails
-      # the build on arch/arm64/kernel/vdso32/note.o. This mirrors the "n"
-      # answer given manually — everything else can safely use the
-      # defconfig/Kconfig defaults.
-      # ksu.config is only merged in when KernelSU Next is enabled.
-      #
-      # KBUILD_BUILD_USER / KBUILD_BUILD_HOST are overridden here so the
-      # kernel's build string doesn't leak the GitHub Actions runner's
-      # generated username/hostname (e.g. runner@fv-az123-456).
-      # -------------------------------------------------------------------
-      - name: Configure and build kernel
+      - name: Configure kernel (defconfig)
         run: |
-          set -e
-          export KBUILD_BUILD_USER="willay"
-          export KBUILD_BUILD_HOST="GNU"
-          MAKE_ARGS="O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 \
-            LD=ld.lld AS=llvm-as AR=llvm-ar NM=llvm-nm \
-            OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump READELF=llvm-readelf \
-            STRIP=llvm-strip CROSS_COMPILE=aarch64-linux-gnu-"
-          DEFCONFIG="${{ github.event.inputs.defconfig }}"
-          if [ "${{ github.event.inputs.enable_kernelsu_next }}" = "yes" ]; then
-            echo "⚙️  Configuring kernel ($DEFCONFIG + ksu.config)..."
-            make $MAKE_ARGS "$DEFCONFIG" ksu.config
-          else
-            echo "⚙️  Configuring kernel ($DEFCONFIG)..."
-            make $MAKE_ARGS "$DEFCONFIG"
-          fi
-          echo "🔧 Disabling COMPAT_VDSO (unsupported thumbv7 target)..."
-          scripts/config --file out/.config --disable COMPAT_VDSO --disable THUMB2_COMPAT_VDSO
-          make $MAKE_ARGS olddefconfig
-          echo "🔨 Building kernel Image and dtbs..."
-          set -o pipefail
-          make -j$(nproc --all) $MAKE_ARGS Image dtbs 2>&1 | tee build.log
-          echo "✅ Kernel build completed"
+          make O=out \
+            ARCH=$ARCH \
+            CC="$CC" \
+            CROSS_COMPILE=$CROSS_COMPILE \
+            CROSS_COMPILE_COMPAT=$CROSS_COMPILE_ARM32 \
+            AR=$AR NM=$NM LD=$LD \
+            OBJCOPY=$OBJCOPY OBJDUMP=$OBJDUMP STRIP=$STRIP \
+            HOSTCC="$CC" HOSTCXX=$ZYC_PATH/bin/clang++ \
+            CLANG_TRIPLE=$CLANG_TRIPLE \
+            LLVM=$LLVM LLVM_IAS=$LLVM_IAS \
+            KCFLAGS="-Wno-unknown-warning-option" \
+            ${{ github.event.inputs.defconfig }}
+      # -------------------------------------------------------------------
+      # Build kernel Image + dtbs in a single make invocation.
+      # -------------------------------------------------------------------
+      - name: Build kernel Image and dtbs
+        run: |
+          make O=out \
+            ARCH=$ARCH \
+            CC="$CC" \
+            CROSS_COMPILE=$CROSS_COMPILE \
+            CROSS_COMPILE_COMPAT=$CROSS_COMPILE_ARM32 \
+            AR=$AR NM=$NM LD=$LD \
+            OBJCOPY=$OBJCOPY OBJDUMP=$OBJDUMP STRIP=$STRIP \
+            HOSTCC="$CC" HOSTCXX=$ZYC_PATH/bin/clang++ \
+            CLANG_TRIPLE=$CLANG_TRIPLE \
+            LLVM=$LLVM LLVM_IAS=$LLVM_IAS \
+            KCFLAGS="-Wno-unknown-warning-option" \
+            -j$MAKE_JOBS Image dtbs
       - name: Verify Image was produced
         run: |
           if [ -f "out/arch/arm64/boot/Image" ]; then
@@ -236,8 +253,8 @@ jobs:
           [ -f "$BOOT_OUT/dtbo.img" ] && cp "$BOOT_OUT/dtbo.img" anykernel/ && echo "✅ dtbo.img copied" || echo "⚠️  dtbo.img not found"
       # -------------------------------------------------------------------
       # Zip everything inside anykernel/ into a timestamped flashable ZIP.
-      # Format: GFClang-<TAG>-<YYYYMMDD>-<HHMM>.zip
-      # e.g.  : GFClang-Perf-20260529-1432.zip
+      # Format: ZycClang-<TAG>-<YYYYMMDD>-<HHMM>.zip
+      # e.g.  : ZycClang-Perf-20260529-1432.zip
       # Excludes .git metadata and README.md (not needed on device).
       # ZIP_FILE is written to GITHUB_ENV so subsequent steps can find it.
       # -------------------------------------------------------------------
@@ -248,11 +265,12 @@ jobs:
           SAFE_TAG="${RAW_TAG// /-}"       # spaces → hyphens
           SAFE_TAG="${SAFE_TAG//\//-}"     # forward slashes → hyphens
           cd anykernel
-          ZIP_NAME="GFClang-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
+          ZIP_NAME="ZycClang-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
           zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md"
           cd ..
           echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
           echo "✅ Zip created: $ZIP_NAME ($(du -sh $ZIP_NAME | cut -f1))"
+
       # -------------------------------------------------------------------
       # Generate a Tenzo signing keystore (mirrors generate_secure_keystore
       # in build.sh exactly).  Runs only when enable_signing == 'yes'.
@@ -334,6 +352,7 @@ jobs:
           keytool -list -v -keystore "$KEYSTORE" -storepass "$PASS" \
             -alias "$KEYALIAS" 2>/dev/null | grep "SHA256:" || true
           echo "SIGNER_DIR=$SIGNER_DIR" >> $GITHUB_ENV
+
       # -------------------------------------------------------------------
       # Sign the flashable ZIP using jarsigner — mirrors sign_zip() in
       # build.sh exactly:
@@ -375,52 +394,9 @@ jobs:
           }
           # Point upload step at the signed ZIP
           echo "ZIP_FILE=$SIGNED" >> $GITHUB_ENV
+
       - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: GFClang-${{ github.event.inputs.build_tag }}-Kernel
+          name: ZycClang-${{ github.event.inputs.build_tag }}-Kernel
           path: ${{ env.ZIP_FILE }}
-
-      # -------------------------------------------------------------------
-      # Telegram: push the finished, flashable ZIP with build metadata.
-      # Only runs if everything up to here succeeded. Telegram's bot API
-      # caps uploads at 50MB — if your ZIP regularly exceeds that you'll
-      # need a self-hosted Bot API server; this will otherwise fail with
-      # a "Request Entity Too Large" style error from Telegram.
-      # -------------------------------------------------------------------
-      - name: Push ZIP to Telegram
-        if: success()
-        run: |
-          MD5CHECK=$(md5sum "$ZIP_FILE" | cut -d' ' -f1)
-          SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
-          CAPTION="✅ Build Successful
-          Branch: ${{ github.event.inputs.kernel_branch }}
-          Tag: ${{ github.event.inputs.build_tag }}
-          KernelSU Next: ${{ github.event.inputs.enable_kernelsu_next }}
-          Signed: ${{ github.event.inputs.enable_signing }}
-          Compiler: Greenforce Clang
-          Size: $SIZE
-          MD5: $MD5CHECK"
-          curl -s -F document=@"$ZIP_FILE" "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
-            -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -F caption="$CAPTION"
-
-      # -------------------------------------------------------------------
-      # Telegram: failure notification + build.log, if anything in the
-      # job failed. This is the LAST step so it can catch a failure from
-      # any earlier step. build.log only exists once the "Configure and
-      # build kernel" step has run, so we guard for it.
-      # -------------------------------------------------------------------
-      - name: Notify Telegram - build failure
-        if: failure()
-        run: |
-          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
-            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-            -d parse_mode="html" \
-            -d disable_web_page_preview=true \
-            -d text="❌ <b>Build Failed</b>%0A<b>Branch:</b> <code>${{ github.event.inputs.kernel_branch }}</code>%0A<b>Tag:</b> <code>${{ github.event.inputs.build_tag }}</code>%0ACheck the Actions log for full details: %0A${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          if [ -f build.log ]; then
-            curl -s -F document=@build.log "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
-              -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
-              -F caption="Build log for failed run (${{ github.run_id }})"
-          fi
