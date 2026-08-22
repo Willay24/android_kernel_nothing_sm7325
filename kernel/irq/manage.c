@@ -1411,12 +1411,11 @@ static void irq_nmi_teardown(struct irq_desc *desc)
 static int
 setup_irq_thread(struct irqaction *new, unsigned int irq, bool secondary)
 {
-	struct task_struct *t;
-	};
+        struct task_struct *t;
 
-	if (!secondary) {
-		t = kthread_create(irq_thread, new, "irq/%d-%s", irq,
-				   new->name);
+        if (!secondary) {
+                t = kthread_create(irq_thread, new, "irq/%d-%s", irq,
+                                   new->name);
 	} else {
 		t = kthread_create(irq_thread, new, "irq/%d-s-%s", irq,
 				   new->name);
