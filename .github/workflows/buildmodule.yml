@@ -153,9 +153,13 @@ jobs:
       - name: Setup nomount (if enabled)
         if: ${{ github.event.inputs.enable_nomount == 'yes' }}
         run: |
-          set -e
-          echo "🔧 Integrating maxsteeel/nomount (dev)..."
-          curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/refs/heads/dev/kernel/setup.sh" | bash -s dev
+          echo "🔧 Enabling NoMount..."
+          # Step 1: Run the NoMount setup script
+          curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
+          # Step 2: Remove the NoMount folder created by setup
+          rm -rf NoMount
+          # Step 3: Clone Nomount fork (dev branch)
+          git clone -b dev https://github.com/Willay24/nomount.git NoMount
           echo "✅ nomount (dev) setup complete"
       # -------------------------------------------------------------------
       # Baseband-guard LSM integration — controlled by the
