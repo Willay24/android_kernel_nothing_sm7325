@@ -1,11 +1,9 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2010-2021, The Linux Foundation. All rights reserved.
  * Copyright (c) 2010-2019, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 #include <linux/errno.h>
-#include <linux/module.h>
 #include <linux/devfreq.h>
 #include <linux/dma-mapping.h>
 #include <linux/math64.h>
@@ -16,10 +14,8 @@
 #include <linux/mm.h>
 #include <linux/qcom_scm.h>
 #include <asm/cacheflush.h>
-#ifdef CONFIG_QGKI
-#include <drm/drm_refresh_rate.h>
-#endif
 #include <linux/qtee_shmbridge.h>
+#include <drm/drm_refresh_rate.h>
 
 #include "../../devfreq/governor.h"
 #include "msm_adreno_devfreq.h"
@@ -405,12 +401,12 @@ static int tz_get_target_freq(struct devfreq *devfreq, unsigned long *freq)
 			priv->bin.busy_time > CEILING) {
 		val = -1 * level;
 	} else {
-#ifdef CONFIG_QGKI
 		unsigned int refresh_rate = dsi_panel_get_refresh_rate();
 
-		if (refresh_rate > 60)
-			priv->bin.busy_time = priv->bin.busy_time * refresh_rate / 60;
-#endif
+		if (refresh_rate >= 120)
+			priv->bin.busy_time += (priv->bin.busy_time >> 1);
+		else if (refresh_rate == 90)
+			priv->bin.busy_time += (priv->bin.busy_time >> 2);
 
 		val = __secure_tz_update_entry3(level, priv->bin.total_time,
 			priv->bin.busy_time, context_count, priv);
@@ -649,7 +645,7 @@ static struct devfreq_governor msm_adreno_tz = {
 	.event_handler = tz_handler,
 };
 
-static int __init msm_adreno_tz_init(void)
+int msm_adreno_tz_init(void)
 {
 	workqueue = create_freezable_workqueue("governor_msm_adreno_tz_wq");
 
@@ -658,9 +654,8 @@ static int __init msm_adreno_tz_init(void)
 
 	return devfreq_add_governor(&msm_adreno_tz);
 }
-subsys_initcall(msm_adreno_tz_init);
 
-static void __exit msm_adreno_tz_exit(void)
+void msm_adreno_tz_exit(void)
 {
 	int ret = devfreq_remove_governor(&msm_adreno_tz);
 
@@ -670,7 +665,3 @@ static void __exit msm_adreno_tz_exit(void)
 	if (workqueue != NULL)
 		destroy_workqueue(workqueue);
 }
-
-module_exit(msm_adreno_tz_exit);
-
-MODULE_LICENSE("GPL v2");

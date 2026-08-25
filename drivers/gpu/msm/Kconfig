@@ -3,7 +3,7 @@ config QCOM_KGSL
 	tristate "Qualcomm Technologies, Inc. 3D Graphics driver"
 	depends on ARCH_QCOM
 	depends on QCOM_QFPROM
-	select MSM_SUBSYSTEM_RESTART
+	select QCOM_MDT_LOADER
 	help
 	  3D graphics driver for the Adreno family of GPUs from QTI.
 	  Required to use hardware accelerated OpenGL, compute and Vulkan
@@ -45,7 +45,7 @@ config QCOM_KGSL_CORESIGHT
 config QCOM_KGSL_IOCOHERENCY_DEFAULT
 	bool "Enable I/O coherency on cached GPU memory by default"
 	depends on QCOM_KGSL
-	default y if (ARCH_LAHAINA || ARCH_SHIMA || ARCH_YUPIK)
+	default y if ARCH_LAHAINA
 	help
 	 Say 'Y' here to enable I/O cache coherency by default on targets that
 	 support hardware I/O coherency. If enabled all cached GPU memory

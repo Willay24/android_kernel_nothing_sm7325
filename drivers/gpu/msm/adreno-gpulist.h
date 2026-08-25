@@ -1759,7 +1759,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a643 = {
 	.pdc_in_aop = true,
 	.ctxt_record_size = 2496 * 1024,
 };
-
 #if 0
 
 static const struct adreno_reglist a702_hwcg_regs[] = {
@@ -1847,5 +1846,6 @@ static const struct adreno_a6xx_core adreno_gpu_core_a702 = {
 static const struct adreno_gpu_core *adreno_gpulist[] = {
 	&adreno_gpu_core_a660.base,
 	&adreno_gpu_core_a660v2.base,
+	&adreno_gpu_core_a642.base,
 	&adreno_gpu_core_a642l.base,
 };
