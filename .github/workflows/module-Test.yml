@@ -1,0 +1,108 @@
+name: Neutrino
+on:
+  workflow_dispatch:  # Start only manually
+    inputs:
+      branch:
+        description: 'Branch to build from'
+        required: true
+        default: 'Staging-1'
+        type: string
+      compiler:
+        description: 'Compiler to use'
+        required: true
+        default: 'eva_gcc'
+        type: choice
+        options:
+          - eva_gcc
+          - neutron_clang
+      enable_kernelsu_next:
+        description: 'Enable KernelSU?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_basebandguard:
+        description: 'Enable Baseband-guard?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      defconfig:
+        description: 'Defconfig filename (used for KernelSU CONFIG_KSU / Baseband-guard CONFIG_BBG injection)'
+        required: true
+        default: 'phone1_defconfig'
+        type: string
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+      - name: Setup KernelSU (if enabled)
+        if: ${{ github.event.inputs.enable_kernelsu_next == 'yes' }}
+        run: |
+          echo "🔧 Enabling KernelSU..."
+          # Step 1: Run the KernelSU setup script
+          curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s master
+          # Step 2: Remove the KernelSU folder created by setup
+          # (use sudo — setup.sh's stash/checkout steps can leave files with
+          # permissions that a plain `rm -rf` as the runner user can't clear)
+          sudo rm -rf KernelSU
+          # Step 3: Clone KernelSU fork (master-susfs branch)
+          git clone -b master-susfs https://github.com/William24hmar/KernelSU.git KernelSU
+          # Step 4: Inject CONFIG_KSU=y into defconfig
+          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo "✅ Adding CONFIG_KSU=y to defconfig"
+            echo -e "\n# KernelSU\nCONFIG_KSU=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "⚠️  Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_KSU injection"
+          fi
+      - name: Setup Baseband-guard
+        if: ${{ github.event.inputs.enable_basebandguard == 'yes' }}
+        run: |
+          set -e
+          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
+          echo "🛡️  Integrating Baseband-guard LSM..."
+          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo "✅ Injecting CONFIG_BBG=y into defconfig ($DEFCONFIG_PATH)"
+            echo -e "\n# Baseband-guard\nCONFIG_BBG=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "⚠️  Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_BBG injection"
+          fi
+          if [ -f "security/Kconfig" ]; then
+            echo "🩹 Patching security/Kconfig LSM default list..."
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+            echo "✅ security/Kconfig patched (baseband_guard added to LSM default list)"
+          else
+            echo "⚠️  security/Kconfig not found — skipping LSM default patch"
+          fi
+      - name: Make build.sh executable
+        run: chmod +x build.sh
+      - name: Run build.sh
+        env:
+          # build.sh reads COMPILER_CHOICE from the environment; if it's set,
+          # its own interactive prompt is skipped. 1 = Eva GCC, 2 = Neutron Clang.
+          COMPILER_CHOICE: ${{ github.event.inputs.compiler == 'neutron_clang' && '2' || '1' }}
+          # build.sh handles all Telegram notifications itself (start, success
+          # with the signed zip + log, and failure). If either of these is
+          # empty, build.sh's tg_* functions just no-op.
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: ./build.sh
+      - name: Copy built artifacts into accessible directory
+        run: |
+          OUT_PARENT_DIR="$(dirname $GITHUB_WORKSPACE)"
+          mkdir -p artifacts
+          cp "$OUT_PARENT_DIR/SPACEWAR_OUT/AnyKernel3/"*.zip artifacts/ || { echo "INFO: ZIPs not yet available. Continuing." && exit 0; }
+      - name: Upload ZIP files as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          path: artifacts/*.zip
