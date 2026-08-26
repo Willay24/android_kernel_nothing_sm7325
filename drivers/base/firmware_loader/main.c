@@ -457,13 +457,14 @@ static const char * const fw_path[] = {
 	fw_path_para[7],
 	fw_path_para[8],
 	fw_path_para[9],
+#ifdef CONFIG_NOTHING_SPACEWAR
 	"/vendor/firmware",
-	"/vendor/firmware_mnt/image",
-	"/firmware/image",
+#else
 	"/lib/firmware/updates/" UTS_RELEASE,
 	"/lib/firmware/updates",
 	"/lib/firmware/" UTS_RELEASE,
 	"/lib/firmware"
+#endif
 };
 
 static char strpath[PATH_SIZE * CUSTOM_FW_PATH_COUNT];
