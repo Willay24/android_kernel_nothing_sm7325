@@ -5,6 +5,49 @@
 
 #include "nothing-spacewar-audio-overlay.dtsi"
 
+&tlmm {
+	aw210xx_led_pins {
+		led_gpio_en: led_gpio_en {
+			mux {
+				pins = "gpio18";
+				function = "gpio";
+			};
+			config {
+				pins = "gpio18";
+				drive-strength = <2>;
+				output-high;
+				bias-pull-up;
+			};
+		};
+	};
+};
+
+&qupv3_se1_i2c {
+	status = "ok";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	aw210xx_led@20 {
+		compatible = "awinic,aw210xx_led";
+		reg = <0x20>;
+		enable-gpio = <&tlmm 18 0x00>;
+		global_current = <0x20>;
+		osc_clk = <1>;
+		br_res = <3>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&led_gpio_en>;
+		status = "ok";
+
+		aw210xx,led {
+			aw210xx,name = "aw210xx_led";
+			aw210xx,imax = <1>;
+			aw210xx,brightness = <4095>;
+			aw210xx,max_brightness = <4095>;
+		};
+	};
+};
+
+
 &qupv3_se13_i2c {
 	status = "disabled";
 };
