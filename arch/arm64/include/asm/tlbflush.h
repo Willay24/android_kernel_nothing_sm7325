@@ -329,8 +329,8 @@ static inline void __flush_tlb_range(struct vm_area_struct *vma,
 {
 	int num = 0;
 	int scale = 0;
-	unsigned long asid = 0, addr;
-	asid = ASID(vma->vm_mm);
+	unsigned long asid = ASID(vma->vm_mm);
+	unsigned long addr;
 	unsigned long pages;
 
 	start = round_down(start, stride);
