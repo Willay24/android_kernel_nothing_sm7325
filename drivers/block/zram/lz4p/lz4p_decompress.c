@@ -99,17 +99,17 @@
 #define RUN_BITS (8 - ML_BITS)
 #define RUN_MASK ((1U << RUN_BITS) - 1)
 
-extern int _lz4_decompress_asm(uint8_t **dst_ptr, uint8_t *dst_begin,
+extern int _lz4p_decompress_asm(uint8_t **dst_ptr, uint8_t *dst_begin,
 				uint8_t *dst_end, const uint8_t **src_ptr,
 				const uint8_t *src_end, bool dip);
-static inline ssize_t lz4_decompress_asm(
+static inline ssize_t lz4p_decompress_asm(
 	uint8_t **dst_ptr, uint8_t *dst_begin, uint8_t *dst_end,
 	const uint8_t **src_ptr, const uint8_t *src_end, bool dip)
 {
 	int ret;
 
 	kernel_neon_begin();
-	ret = _lz4_decompress_asm(dst_ptr, dst_begin, dst_end,
+	ret = _lz4p_decompress_asm(dst_ptr, dst_begin, dst_end,
 					src_ptr, src_end, dip);
 	kernel_neon_end();
 	return (ssize_t)ret;
@@ -450,8 +450,8 @@ static size_t lz4p_decompress(const void *source,
 
 	/* Go fast if we can, keeping away from the end of buffers */
 	if (outputSize > LZ4_FAST_MARGIN && inputSize > LZ4_FAST_MARGIN &&
-		accel && lz4_decompress_accel_enable()) {
-		ret = lz4_decompress_asm(&dstPtr, dest,
+		accel && lz4p_decompress_accel_enable()) {
+		ret = lz4p_decompress_asm(&dstPtr, dest,
 					dest + outputSize - LZ4_FAST_MARGIN,
 					&srcPtr,
 					source + inputSize - LZ4_FAST_MARGIN,
