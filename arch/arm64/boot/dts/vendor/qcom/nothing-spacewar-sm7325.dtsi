@@ -1,88 +1,16 @@
 // nothing-spacewar-sm7325.dtsi
 // This file is for Nothing Phone (1) "spacewar" (SM7325 "Yupik") only.
-// Touch are provided by the stock Yupik IDP include above.
-// Spacewar uses Goodix Berlin on SPI instead of Yupik IDP's Novatek I2C path.
+// Camera, NFC, flash, and PMIC haptics are provided by the stock Yupik QRD
+// include above. Spacewar uses Goodix Berlin on SPI instead of QRD's default
+// FocalTech SPI node.
 
+#include "yupik-abra-common-overlay.dtsi"
 #include "nothing-spacewar-audio-overlay.dtsi"
-
-&tlmm {
-	aw210xx_led_pins {
-		led_gpio_en: led_gpio_en {
-			mux {
-				pins = "gpio18";
-				function = "gpio";
-			};
-			config {
-				pins = "gpio18";
-				drive-strength = <2>;
-				output-high;
-				bias-pull-up;
-			};
-		};
-	};
-};
-
-&qupv3_se1_i2c {
-	status = "ok";
-	#address-cells = <1>;
-	#size-cells = <0>;
-
-	aw210xx_led@20 {
-		compatible = "awinic,aw210xx_led";
-		reg = <0x20>;
-		enable-gpio = <&tlmm 18 0x00>;
-		global_current = <0x20>;
-		osc_clk = <1>;
-		br_res = <3>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&led_gpio_en>;
-		status = "ok";
-
-		aw210xx,led {
-			aw210xx,name = "aw210xx_led";
-			aw210xx,imax = <1>;
-			aw210xx,brightness = <4095>;
-			aw210xx,max_brightness = <4095>;
-		};
-	};
-};
-
-
-&qupv3_se13_i2c {
-	status = "disabled";
-};
 
 &qupv3_se13_spi {
 	status = "ok";
 	qcom,rt;
 	#address-cells = <1>;
 	#size-cells = <0>;
-
-	goodix_berlin@0 {
-		compatible = "goodix,gt9916S";
-		reg = <0>;
-		spi-max-frequency = <1000000>;
-
-		interrupt-parent = <&tlmm>;
-		interrupts = <81 0x2800>;
-		goodix,reset-gpio = <&tlmm 105 0x00>;
-		goodix,irq-gpio = <&tlmm 81 0x2800>;
-		goodix,irq-flags = <2>;
-
-		goodix,avdd-name = "avdd";
-		avdd-supply = <&L3C>;
-		goodix,iovdd-name = "iovdd";
-		iovdd-supply = <&L8C>;
-
-		goodix,panel-max-x = <1080>;
-		goodix,panel-max-y = <2400>;
-		goodix,panel-max-w = <255>;
-		goodix,panel-max-p = <4096>;
-		goodix,firmware-name = "goodix_firmware.bin";
-		goodix,config-name = "goodix_cfg_group.bin";
-
-		panel = <&dsi_nt36672e_fhd_plus_60_video
-			&dsi_nt36672e_fhd_plus_120_video
-			&dsi_nt36672e_fhd_plus_144_video>;
-	};
+	/delete-node/ focaltech@0;
 };
