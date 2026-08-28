@@ -1209,22 +1209,26 @@ DECLARE_RWSEM(uts_sem);
 #define override_architecture(name)	0
 #endif
 
-static void override_custom_release(char __user *release, size_t len)
+static int override_custom_release(char __user *release, size_t len)
 {
 #ifdef CONFIG_UNAME_OVERRIDE
 	char *buf;
+	int ret = 0;
 
 	buf = kstrdup_quotable_cmdline(current, GFP_KERNEL);
 	if (buf == NULL)
-		return;
+		return 0;
 
 	if (strstr(buf, CONFIG_UNAME_OVERRIDE_TARGET)) {
-		copy_to_user(release, CONFIG_UNAME_OVERRIDE_STRING,
+		ret = copy_to_user(release, CONFIG_UNAME_OVERRIDE_STRING,
 			       strlen(CONFIG_UNAME_OVERRIDE_STRING) + 1);
 	}
 
 	kfree(buf);
-#endif
+	return ret;
+#else
+	return 0;
+ #endif
 }
 
 /*
@@ -1306,6 +1310,10 @@ static int override_version(struct new_utsname __user *name)
 #endif
 }
 
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+extern struct static_key_false susfs_is_uname_spoof_buffer_set;
+extern void susfs_spoof_uname(struct new_utsname* tmp);
+#endif
 SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 {
 	struct new_utsname tmp;
@@ -1314,6 +1322,10 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 
 	down_read(&uts_sem);
 	memcpy(&tmp, utsname(), sizeof(tmp));
+#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
+	if (static_branch_likely(&susfs_is_uname_spoof_buffer_set))
+		susfs_spoof_uname(&tmp);
+#endif
 #ifndef CONFIG_FAKE_UNAME_NONE
 	if (unlikely(should_spoof_uname(current->comm))) {
 		strscpy(tmp.release, FAKE_UNAME, sizeof(tmp.release));
@@ -1338,7 +1350,8 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
 	if (copy_to_user(name, &tmp, sizeof(tmp)))
 		return -EFAULT;
 
-	override_custom_release(name->release, sizeof(name->release));
+	if (override_custom_release(name->release, sizeof(name->release)))
+		return -EFAULT;
 	if (override_release(name->release, sizeof(name->release)))
 		return -EFAULT;
 	if (override_architecture(name))
