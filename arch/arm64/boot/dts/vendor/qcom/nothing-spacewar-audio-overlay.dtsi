@@ -107,3 +107,21 @@
 			   "msm-ext-disp-audio-codec-rx";
 	qcom,wsa-max-devs = <0>;
 };
+
+/* tfa98xx is the active smart PA (wsa883x above is correctly disabled). Not in the ASoC codec list -- i2c-only, driven by userspace. */
+&qupv3_se2_i2c {
+	status = "ok";
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	tfa98xx@34 {
+		compatible = "tfa,tfa98xx";
+		reg = <0x34>;
+		reset-gpio = <&tlmm 101 0x00>;
+	};
+
+	tfa98xx@35 {
+		compatible = "tfa,tfa98xx";
+		reg = <0x35>;
+	};
+};

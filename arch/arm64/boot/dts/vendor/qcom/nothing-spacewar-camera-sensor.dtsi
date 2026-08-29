@@ -155,8 +155,21 @@
 			cell-index = <1>;
 			compatible = "qcom,eeprom";
 			cci-master = <0>;
+			gpio-no-mux = <0>;
+			pinctrl-names = "cam_default", "cam_suspend";
+			pinctrl-0 = <&cam_sensor_front_vana_active &cam_sensor_front_vdig_active>;
+			pinctrl-1 = <&cam_sensor_front_vana_suspend &cam_sensor_front_vdig_suspend>;
+			gpios = <&tlmm 64 0>, <&tlmm 20 0>, <&tlmm 40 0>,
+				<&tlmm 35 0>, <&tlmm 49 0>;
+			gpio-reset = <1>;
+			gpio-vana = <2>;
+			gpio-vdig = <3>;
+			gpio-vio = <4>;
+			gpio-req-tbl-num = <0 1 2 3 4>;
+			gpio-req-tbl-flags = <1 0 0 0 0>;
+			gpio-req-tbl-label = "CAMIF_MCLK1", "CAM_RESET1", "CAM_VANA1", "CAM_VDIG1", "CAM_VIO1";
 			status = "ok";
-			clocks = <&camcc 0x62>;
+			clocks = <&camcc 0x5c>;
 			clock-names = "cam_clk";
 			clock-cntl-level = "nominal";
 			clock-rates = <19200000>;
@@ -218,7 +231,7 @@
 			pinctrl-0 = <&cam_sensor_wide_vana_active &cam_sensor_custom3_active>;
 			pinctrl-1 = <&cam_sensor_wide_vana_suspend &cam_sensor_custom3_suspend>;
 			gpios = <&tlmm 67 0>, <&tlmm 78 0>, <&tlmm 79 0>,
-				<&tlmm 72 0>, <&tlmm 108 0>, <&tlmm 49 0>;
+				<&tlmm 108 0>, <&tlmm 72 0>, <&tlmm 49 0>;
 			gpio-reset = <1>;
 			gpio-vana = <2>;
 			gpio-custom1 = <3>;

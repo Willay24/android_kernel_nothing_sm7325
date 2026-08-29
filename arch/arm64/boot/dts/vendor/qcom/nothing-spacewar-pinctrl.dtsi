@@ -1,1 +1,3 @@
-// Yupik pinctrl is included by is included by yupik-qrd.dtsi.
+// nothing-spacewar-pinctrl.dtsi
+// Intentionally empty — base pinctrl groups already come from yupik-qrd.dtsi.
+// Reserved for spacewar-specific pin muxing if a future revision needs it.
