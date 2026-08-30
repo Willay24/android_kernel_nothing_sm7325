@@ -37,6 +37,7 @@
 #include <linux/of_device.h>
 #include <linux/of_gpio.h>
 #include <linux/of_irq.h>
+#include <linux/power_supply.h>
 #if defined(CONFIG_FB)
 #include <linux/notifier.h>
 #include <linux/fb.h>
@@ -1546,6 +1547,53 @@ static void fts_resume_work(struct work_struct *work)
     fts_ts_resume(ts_data->dev);
 }
 
+static bool fts_get_charging_status(void)
+{
+    static const char * const psy_names[] = { "usb", "wireless", "dc" };
+    struct power_supply *psy;
+    union power_supply_propval val = { 0 };
+    bool charging = false;
+    int i;
+
+    for (i = 0; i < ARRAY_SIZE(psy_names); i++) {
+        psy = power_supply_get_by_name(psy_names[i]);
+        if (!psy)
+            continue;
+        if (!power_supply_get_property(psy, POWER_SUPPLY_PROP_ONLINE, &val))
+            charging |= !!val.intval;
+        power_supply_put(psy);
+        if (charging)
+            break;
+    }
+
+    return charging;
+}
+
+static void fts_charger_work(struct work_struct *work)
+{
+    struct fts_ts_data *ts_data = container_of(work, struct fts_ts_data,
+                                  charger_work);
+    bool charging = fts_get_charging_status();
+
+    FTS_INFO("charger event, charging=%d", charging);
+    fts_charger_mode_set(ts_data, charging);
+}
+
+static int fts_power_supply_callback(struct notifier_block *nb,
+                                     unsigned long event, void *ptr)
+{
+    struct fts_ts_data *ts_data = container_of(nb, struct fts_ts_data,
+                                  power_supply_notifier);
+
+    if (event != PSY_EVENT_PROP_CHANGED)
+        return NOTIFY_OK;
+
+    if (ts_data->ts_workqueue)
+        queue_work(ts_data->ts_workqueue, &ts_data->charger_work);
+
+    return NOTIFY_OK;
+}
+
 #if defined(CONFIG_FB)
 static int fb_notifier_callback(struct notifier_block *self,
                                 unsigned long event, void *data)
@@ -1881,6 +1929,7 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
 
     if (ts_data->ts_workqueue) {
         INIT_WORK(&ts_data->resume_work, fts_resume_work);
+        INIT_WORK(&ts_data->charger_work, fts_charger_work);
     }
 
 #if defined(CONFIG_PM) && FTS_PATCH_COMERR_PM
@@ -1914,6 +1963,11 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
     ts_data->early_suspend.resume = fts_ts_late_resume;
     register_early_suspend(&ts_data->early_suspend);
 #endif
+
+    ts_data->power_supply_notifier.notifier_call = fts_power_supply_callback;
+    ret = power_supply_reg_notifier(&ts_data->power_supply_notifier);
+    if (ret)
+        FTS_ERROR("register power supply notifier fail: %d\n", ret);
 
     FTS_FUNC_EXIT();
     return 0;
@@ -1992,6 +2046,9 @@ static int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 #elif defined(CONFIG_HAS_EARLYSUSPEND)
     unregister_early_suspend(&ts_data->early_suspend);
 #endif
+
+    power_supply_unreg_notifier(&ts_data->power_supply_notifier);
+    cancel_work_sync(&ts_data->charger_work);
 
     if (gpio_is_valid(ts_data->pdata->reset_gpio))
         gpio_free(ts_data->pdata->reset_gpio);
