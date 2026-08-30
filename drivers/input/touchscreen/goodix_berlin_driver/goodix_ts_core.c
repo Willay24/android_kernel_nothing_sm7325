@@ -19,6 +19,7 @@
 #include <linux/proc_fs.h>
 #include <linux/seq_file.h>
 #include <linux/uaccess.h>
+#include <linux/power_supply.h>
 
 #if LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 38)
 #include <linux/input/mt.h>
@@ -1860,6 +1861,56 @@ static int goodix_ts_pm_resume(struct device *dev)
 #endif
 #endif
 
+static int goodix_get_charging_status(void)
+{
+	struct power_supply *usb_psy;
+	union power_supply_propval val;
+	int rc = 0;
+
+	usb_psy = power_supply_get_by_name("usb");
+	if (usb_psy) {
+		rc = power_supply_get_property(usb_psy, POWER_SUPPLY_PROP_ONLINE, &val);
+		power_supply_put(usb_psy);
+		if (!rc)
+			return val.intval;
+	}
+
+	ts_err("Couldn't get usb online status, rc=%d\n", rc);
+	return 0;
+}
+
+static void charger_power_supply_work(struct work_struct *work)
+{
+	struct goodix_ts_core *cd = container_of(work,
+			struct goodix_ts_core, charger_work);
+	int charge_status;
+
+	if (cd->init_stage < CORE_INIT_STAGE2)
+		return;
+
+	charge_status = !!goodix_get_charging_status();
+	if (charge_status != cd->charger_status || cd->charger_status < 0) {
+		cd->charger_status = charge_status;
+		ts_info("charger event, charging=%d", charge_status);
+		goodix_send_ic_config(cd, charge_status ?
+				       CONFIG_TYPE_CHARGER : CONFIG_TYPE_NORMAL);
+	}
+}
+
+static int goodix_power_supply_callback(struct notifier_block *nb,
+					unsigned long event, void *ptr)
+{
+	struct goodix_ts_core *cd = container_of(nb,
+			struct goodix_ts_core, power_supply_notifier);
+
+	if (event != PSY_EVENT_PROP_CHANGED)
+		return NOTIFY_OK;
+
+	schedule_work(&cd->charger_work);
+
+	return NOTIFY_OK;
+}
+
 /**
  * goodix_generic_noti_callback - generic notifier callback
  *  for goodix touch notification event.
@@ -1936,6 +1987,13 @@ int goodix_ts_stage2_init(struct goodix_ts_core *cd)
 
 	/* inspect init */
 	inspect_module_init();
+
+	cd->charger_status = -1;
+	INIT_WORK(&cd->charger_work, charger_power_supply_work);
+	cd->power_supply_notifier.notifier_call = goodix_power_supply_callback;
+	ret = power_supply_reg_notifier(&cd->power_supply_notifier);
+	if (ret)
+		ts_err("failed register power supply notifier, ret=%d", ret);
 
 	return 0;
 exit:
@@ -2187,6 +2245,9 @@ static int goodix_ts_remove(struct platform_device *pdev)
 		if (atomic_read(&core_data->ts_esd.esd_on))
 			goodix_ts_esd_off(core_data);
 		goodix_ts_unregister_notifier(&ts_esd->esd_notifier);
+
+		power_supply_unreg_notifier(&core_data->power_supply_notifier);
+		cancel_work_sync(&core_data->charger_work);
 
 		goodix_fw_update_uninit();
 		goodix_ts_input_dev_remove(core_data);
