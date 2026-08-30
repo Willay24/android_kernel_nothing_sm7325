@@ -256,6 +256,8 @@ struct fts_ts_data {
 #elif defined(CONFIG_HAS_EARLYSUSPEND)
     struct early_suspend early_suspend;
 #endif
+    struct notifier_block power_supply_notifier;
+    struct work_struct charger_work;
     int single_tap_pressed;
 };
 
@@ -354,6 +356,7 @@ void fts_tp_state_recovery(struct fts_ts_data *ts_data);
 int fts_ex_mode_init(struct fts_ts_data *ts_data);
 int fts_ex_mode_exit(struct fts_ts_data *ts_data);
 int fts_ex_mode_recovery(struct fts_ts_data *ts_data);
+void fts_charger_mode_set(struct fts_ts_data *ts_data, bool enable);
 
 void fts_irq_disable(void);
 void fts_irq_enable(void);
