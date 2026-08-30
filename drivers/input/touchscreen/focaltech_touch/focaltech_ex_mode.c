@@ -104,6 +104,17 @@ static int fts_ex_mode_switch(enum _ex_mode mode, u8 value)
     return ret;
 }
 
+void fts_charger_mode_set(struct fts_ts_data *ts_data, bool enable)
+{
+    u8 val = enable ? ENABLE : DISABLE;
+
+    if (ts_data->charger_mode == val)
+        return;
+
+    if (fts_ex_mode_switch(MODE_CHARGER, val) >= 0)
+        ts_data->charger_mode = val;
+}
+
 static ssize_t fts_edge_mode_show(
     struct device *dev, struct device_attribute *attr, char *buf)
 {
