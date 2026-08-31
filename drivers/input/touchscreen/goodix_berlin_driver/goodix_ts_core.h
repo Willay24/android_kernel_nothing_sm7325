@@ -468,10 +468,6 @@ struct goodix_ts_core {
 	struct notifier_block ts_notifier;
 	struct goodix_ts_esd ts_esd;
 
-	struct notifier_block power_supply_notifier;
-	struct work_struct charger_work;
-	int charger_status;
-
 #ifdef CONFIG_FB
 	struct notifier_block fb_notifier;
 #endif
