@@ -6,6 +6,7 @@
 #include <linux/types.h>
 #include <linux/device.h>
 #include <linux/kernel.h>
+#include <linux/module.h>
 #include <linux/of.h>
 #include <linux/miscdevice.h>
 #include <linux/uaccess.h>
@@ -98,8 +99,8 @@ struct nothing_touch_pdata {
 
 struct nothing_touch *nothing_touch_dev_get(int minor);
 struct class *get_nothing_touch_class(void);
-int nothing_touch_register_modedata(int touch_id,
-				 struct nothing_touch_interface *data);
+int nothingtouch_register_modedata(int touch_id,
+					 struct nothing_touch_interface *data);
 int update_nothing_palm_sensor_value(int value);
 int update_nothing_prox_sensor_value(int value);
 

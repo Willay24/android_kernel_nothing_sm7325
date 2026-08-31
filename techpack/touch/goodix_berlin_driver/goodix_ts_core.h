@@ -35,6 +35,7 @@
 #include <linux/of_gpio.h>
 #include <linux/regulator/consumer.h>
 #endif
+#include <linux/pm_runtime.h>
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
 #endif
@@ -56,6 +57,8 @@
 #define GOODIX_NORMAL_RESET_DELAY_MS	100
 #define GOODIX_HOLD_CPU_RESET_DELAY_MS  5
 
+#define GOODIX_LOCKDOWN_SIZE			8
+
 #define GOODIX_RETRY_3					3
 #define GOODIX_RETRY_5					5
 #define GOODIX_RETRY_10					10
@@ -64,6 +67,13 @@
 #define TS_DEFAULT_CFG_BIN				"goodix_cfg_group.bin"
 
 #define GOODIX_NOTHING_TOUCH
+
+enum PANEL_ORIENTATION {
+	PANEL_ORIENTATION_DEGREE_0 = 0,
+	PANEL_ORIENTATION_DEGREE_90,
+	PANEL_ORIENTATION_DEGREE_180,
+	PANEL_ORIENTATION_DEGREE_270,
+};
 
 enum GOODIX_GESTURE_TYP {
 	GESTURE_SINGLE_TAP = (1 << 0),
@@ -469,6 +479,10 @@ struct goodix_ts_hw_ops {
 	int (*after_event_handler)(struct goodix_ts_core *cd);
 	int (*get_capacitance_data)(struct goodix_ts_core *cd,
 			struct ts_rawdata_info *info);
+	int (*charger_on)(struct goodix_ts_core *cd, bool on);
+	int (*palm_on)(struct goodix_ts_core *cd, bool on);
+	int (*game)(struct goodix_ts_core *cd, u8 data0, u8 data1, bool on);
+	int (*switch_report_rate)(struct goodix_ts_core *cd, bool on);
 };
 
 /*
@@ -492,6 +506,12 @@ enum goodix_core_init_stage {
 	CORE_INIT_STAGE2
 };
 
+enum goodix_tp_state {
+	TP_NORMAL,
+	TP_GESTURE,
+	TP_SLEEP,
+};
+
 struct goodix_ic_config {
 	int len;
 	u8 data[GOODIX_CFG_MAX_SIZE];
@@ -509,6 +529,10 @@ struct goodix_ts_core {
 	struct input_dev *pen_dev;
 	/* TODO counld we remove this from core data? */
 	struct goodix_ts_event ts_event;
+
+	/* xiaomi sysfs */
+	struct class *goodix_tp_class;
+	struct device *goodix_touch_dev;
 
 	/* every pointer of this array represent a kind of config */
 	struct goodix_ic_config *ic_configs[GOODIX_MAX_CONFIG_GROUP];
@@ -531,6 +555,31 @@ struct goodix_ts_core {
 	struct notifier_block ts_notifier;
 	struct goodix_ts_esd ts_esd;
 	bool esd_initialized;
+
+	struct notifier_block charger_notifier;
+
+	struct workqueue_struct *event_wq;
+	struct workqueue_struct *gesture_wq;
+	struct workqueue_struct *game_wq;
+	struct work_struct suspend_work;
+	struct work_struct resume_work;
+	struct work_struct charger_work;
+	struct work_struct gesture_work;
+	struct work_struct game_work;
+	struct work_struct power_supply_work;
+
+	u8 lockdown_info[GOODIX_LOCKDOWN_SIZE];
+
+	int work_status;
+	int gesture_enabled;
+	int double_wakeup;
+	int aod_status;
+	int charger_status;
+	int palm_status;
+	int report_rate;
+	bool tp_pm_suspend;
+
+	struct completion pm_resume_completion;
 };
 
 /* external module structures */
