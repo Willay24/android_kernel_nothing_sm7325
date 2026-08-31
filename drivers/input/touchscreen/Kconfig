@@ -1333,8 +1333,6 @@ source "drivers/input/touchscreen/synaptics_dsx/Kconfig"
 
 source "drivers/input/touchscreen/nt36xxx/Kconfig"
 
-source "drivers/input/touchscreen/goodix_berlin_driver/Kconfig"
-
 config TOUCHSCREEN_DWAV_USB_MT
 	tristate "D-WAV Scientific USB MultiTouch"
 	depends on USB_ARCH_HAS_HCD
