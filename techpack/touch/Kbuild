@@ -36,6 +36,12 @@ endif
 
 ######### CONFIG_MSM_TOUCH ########
 
+ifeq ($(CONFIG_MSM_TOUCH), y)
+	LINUX_INC += -include $(TOUCH_ROOT)/nothing/nothing_touch.h
+	nothing_touch-y := nothing/nothing_touch.o
+	obj-$(CONFIG_MSM_TOUCH) += nothing_touch.o
+endif
+
 ifeq ($(CONFIG_TOUCHSCREEN_GOODIX_BRL), y)
 	LINUX_INC += -include $(TOUCH_ROOT)/goodix_berlin_driver/goodix_ts_core.h
 
