@@ -197,9 +197,14 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+	struct drm_panel_notifier panel_notify_data;
+	int panel_blank = DRM_PANEL_BLANK_UNBLANK;
 	struct drm_notify_data g_notify_data;
 	int event = DRM_BLANK_UNBLANK;
 	g_notify_data.data = &event;
+	panel_notify_data.data = &panel_blank;
+	panel_notify_data.id = 0;
+	panel_notify_data.refresh_rate = 0;
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
@@ -224,6 +229,8 @@ static void dsi_bridge_pre_enable(struct drm_bridge *bridge)
 	}
 
 	drm_notifier_call_chain(DRM_EARLY_EVENT_BLANK, &g_notify_data);
+	drm_panel_notifier_call_chain(&c_bridge->display->panel->drm_panel,
+			DRM_PANEL_EVENT_BLANK, &panel_notify_data);
 
 	if (c_bridge->dsi_mode.dsi_mode_flags &
 		(DSI_MODE_FLAG_SEAMLESS | DSI_MODE_FLAG_VRR |
@@ -330,9 +337,14 @@ static void dsi_bridge_post_disable(struct drm_bridge *bridge)
 {
 	int rc = 0;
 	struct dsi_bridge *c_bridge = to_dsi_bridge(bridge);
+	struct drm_panel_notifier panel_notify_data;
+	int panel_blank = DRM_PANEL_BLANK_POWERDOWN;
 	struct drm_notify_data g_notify_data;
 	int event = DRM_BLANK_POWERDOWN;
 	g_notify_data.data = &event;
+	panel_notify_data.data = &panel_blank;
+	panel_notify_data.id = 0;
+	panel_notify_data.refresh_rate = 0;
 
 	if (!bridge) {
 		DSI_ERR("Invalid params\n");
@@ -360,6 +372,8 @@ static void dsi_bridge_post_disable(struct drm_bridge *bridge)
 		return;
 	}
 	SDE_ATRACE_END("dsi_bridge_post_disable");
+	drm_panel_notifier_call_chain(&c_bridge->display->panel->drm_panel,
+			DRM_PANEL_EVENT_BLANK, &panel_notify_data);
 
 	drm_notifier_call_chain(DRM_EVENT_BLANK, &g_notify_data);
 }
