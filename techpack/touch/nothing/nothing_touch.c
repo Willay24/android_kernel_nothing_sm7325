@@ -19,8 +19,8 @@ struct class *get_nothing_touch_class(void)
 }
 EXPORT_SYMBOL_GPL(get_nothing_touch_class);
 
-int nothing_touch_register_modedata(int touch_id,
-				 struct nothing_touch_interface *data)
+int nothingtouch_register_modedata(int touch_id,
+					 struct nothing_touch_interface *data)
 {
 	if (!data)
 		return -EINVAL;
@@ -28,7 +28,7 @@ int nothing_touch_register_modedata(int touch_id,
 	nothing_touch_intf = *data;
 	return 0;
 }
-EXPORT_SYMBOL_GPL(nothing_touch_register_modedata);
+EXPORT_SYMBOL_GPL(nothingtouch_register_modedata);
 
 int update_nothing_palm_sensor_value(int value)
 {
