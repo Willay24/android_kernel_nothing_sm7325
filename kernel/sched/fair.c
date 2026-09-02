@@ -1217,16 +1217,22 @@ static struct sched_entity *pick_eevdf(struct cfs_rq *cfs_rq, bool protect)
 	if (curr && (!curr->on_rq || !entity_eligible(cfs_rq, curr)))
 		curr = NULL;
 
-	if (curr && protect && protect_slice(curr)
+	if (curr && protect && protect_slice(curr)) {
 #ifdef CONFIG_SCHED_BORE
-	    /* Futex waiters should not hold the protected slice; let them
-	     * be preempted promptly by falling through to normal selection. */
-	    && (!static_branch_likely(&sched_bore_key) ||
-		!entity_is_task(curr) ||
-		!task_of(curr)->bore.futex_waiting)
+		if (static_branch_likely(&sched_bore_key)) {
+			/*
+			 * sched_burst_protect_slice_lv == 0 disables slice
+			 * protection; futex waiters never hold it so they can
+			 * be preempted promptly.
+			 */
+			if ((static_branch_likely(&sched_burst_protect_slice_cond_key) ||
+			     static_branch_unlikely(&sched_burst_protect_slice_prefer_key)) &&
+			    (!entity_is_task(curr) || !task_of(curr)->bore.futex_waiting))
+				return curr;
+		} else
 #endif /* CONFIG_SCHED_BORE */
-	)
-		return curr;
+			return curr;
+	}
 
 	/* Pick the leftmost entity if it's eligible */
 	if (se && entity_eligible(cfs_rq, se)) {
@@ -1472,15 +1478,15 @@ static void update_curr(struct cfs_rq *cfs_rq)
 
 	cfs_rq = &rq->cfs;
 
-#ifdef CONFIG_SCHED_BORE
-	update_curr_bore(task_of(curr), delta_exec);
-#endif // CONFIG_SCHED_BORE
 	curr->vruntime += calc_delta_fair(delta_exec, curr);
 	resched = update_deadline(cfs_rq, curr);
 
 	if (entity_is_task(curr)) {
 		struct task_struct *curtask = task_of(curr);
 
+#ifdef CONFIG_SCHED_BORE
+		update_curr_bore(curtask, delta_exec);
+#endif /* CONFIG_SCHED_BORE */
 		trace_sched_stat_runtime(curtask, delta_exec, curr->vruntime);
 		cgroup_account_cputime(curtask, delta_exec);
 		account_group_exec_runtime(curtask, delta_exec);
@@ -6705,16 +6711,6 @@ static void dequeue_hierarchy(struct task_struct *p, int flags)
 	if (task_sleep || task_delayed || !se->sched_delayed)
 		h_nr_runnable = 1;
 
-#ifdef CONFIG_SCHED_BORE
-	if (task_sleep) {
-		struct cfs_rq *cfs_rq = cfs_rq_of(se);
-
-		if (cfs_rq->curr == se)
-			update_curr(cfs_rq);
-		restart_burst_bore(p);
-	}
-#endif // CONFIG_SCHED_BORE
-
 	for_each_sched_entity(se) {
 		struct cfs_rq *cfs_rq = cfs_rq_of(se);
 
@@ -6829,6 +6825,18 @@ static bool dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 {
 	if (!p->se.sched_delayed)
 		util_est_dequeue(&rq->cfs, p);
+
+#ifdef CONFIG_SCHED_BORE
+	/* Restart the burst on sleep, before any delayed-dequeue decision */
+	if (flags & DEQUEUE_SLEEP) {
+		struct sched_entity *se = &p->se;
+		struct cfs_rq *cfs_rq = cfs_rq_of(se);
+
+		if (cfs_rq->curr == se)
+			update_curr(cfs_rq);
+		restart_burst_bore(p);
+	}
+#endif /* CONFIG_SCHED_BORE */
 
 	if (!__dequeue_task(rq, p, flags))
 		return false;
@@ -8246,6 +8254,34 @@ preempt_sync(struct rq *rq, int wake_flags,
 	return PREEMPT_WAKEUP_NONE;
 }
 
+#ifdef CONFIG_SCHED_BORE
+static inline bool do_preempt_weight(struct cfs_rq *cfs_rq,
+				     struct sched_entity *pse, struct sched_entity *se)
+{
+	if (!sched_feat(RUN_TO_PARITY))
+		return false;
+
+	if (!static_branch_likely(&sched_burst_protect_slice_cond_key))
+		return false;
+
+	if (static_branch_unlikely(&sched_burst_protect_slice_prefer_key)
+			? (pse->load.weight <= se->load.weight)
+			: (pse->load.weight <  se->load.weight))
+		return false;
+
+	if (!entity_eligible(cfs_rq, pse))
+		return false;
+
+	if (entity_before(pse, se))
+		return true;
+
+	if (!entity_eligible(cfs_rq, se))
+		return true;
+
+	return false;
+}
+#endif /* CONFIG_SCHED_BORE */
+
 /*
  * Preempt the current task with a newly woken task if needed:
  */
@@ -8344,6 +8380,13 @@ static void check_preempt_wakeup(struct rq *rq, struct task_struct *p, int wake_
 		if (wake_flags & WF_SYNC)
 			preempt_action = preempt_sync(rq, wake_flags, pse, se);
 	}
+
+#ifdef CONFIG_SCHED_BORE
+	/* A heavier (lower burst penalty) wakee may override slice protection */
+	if (preempt_action == PREEMPT_WAKEUP_PICK &&
+	    do_preempt_weight(cfs_rq, pse, se))
+		cancel_protect_slice(se);
+#endif /* CONFIG_SCHED_BORE */
 
 	switch (preempt_action) {
 	case PREEMPT_WAKEUP_NONE:

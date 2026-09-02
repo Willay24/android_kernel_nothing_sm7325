@@ -14,17 +14,13 @@
 DEFINE_STATIC_KEY_TRUE(sched_bore_key);
 u8   __read_mostly sched_bore                   = 1;
 u8   __read_mostly sched_burst_inherit_type     = 2;
+u8   __read_mostly sched_burst_protect_slice_lv = 1;
 u8   __read_mostly sched_burst_smoothness       = 1;
 u8   __read_mostly sched_burst_penalty_offset   = 24;
 uint __read_mostly sched_burst_penalty_scale    = 1536;
 uint __read_mostly sched_burst_cache_lifetime   = 75000000;
 
-static int sysctl_sched_bore = 1;
-static int sysctl_sched_burst_inherit_type = 2;
-static int sysctl_sched_burst_smoothness = 1;
-static int sysctl_sched_burst_penalty_offset = 24;
-static int sysctl_sched_burst_penalty_scale = 1536;
-
+/* extra1/extra2 limits for proc_dou8vec_minmax()/proc_douintvec_minmax() */
 static int zero = 0;
 static int one = 1;
 static int two = 2;
@@ -42,6 +38,8 @@ static u32 bore_reciprocal_lut[BURST_CACHE_SAMPLE_LIMIT + 1];
 
 DEFINE_STATIC_KEY_TRUE(sched_burst_inherit_key);
 DEFINE_STATIC_KEY_TRUE(sched_burst_ancestor_key);
+DEFINE_STATIC_KEY_TRUE (sched_burst_protect_slice_cond_key);
+DEFINE_STATIC_KEY_FALSE(sched_burst_protect_slice_prefer_key);
 
 static inline u32 log2p1_u64_u32fp(u64 v, u8 fp) {
 	int clz;
@@ -97,7 +95,7 @@ static void reweight_task_by_prio(struct task_struct *p, int prio) {
 u8 effective_prio_bore(struct task_struct *p) {
 	int prio = p->static_prio - MAX_RT_PRIO;
 	if (static_branch_likely(&sched_bore_key))
-		prio += p->bore.score;
+		prio += bore_score(p);
 	prio &= ~(prio >> 31);
 	prio = min(prio, maxval_prio);
 	return (u8)prio;
@@ -357,7 +355,7 @@ static void readjust_all_task_weights(void) {
 	struct rq *rq;
 	struct rq_flags rf;
 
-	read_lock(&tasklist_lock);
+	write_lock_irq(&tasklist_lock);
 	for_each_process(task) {
 		if (!task_is_bore_eligible(task)) continue;
 		rq = task_rq_lock(task, &rf);
@@ -365,98 +363,53 @@ static void readjust_all_task_weights(void) {
 		reweight_task_by_prio(task, effective_prio_bore(task));
 		task_rq_unlock(rq, task, &rf);
 	}
-	read_unlock(&tasklist_lock);
+	write_unlock_irq(&tasklist_lock);
 }
 
 int sched_bore_update_handler(struct ctl_table *table,
-		int write, void __user *buffer, size_t *lenp, loff_t *ppos) {
-	int ret;
-	struct ctl_table tmp_table = *table;
-	tmp_table.data = &sysctl_sched_bore;
-	tmp_table.maxlen = sizeof(int);
-	tmp_table.extra1 = &zero;
-	tmp_table.extra2 = &one;
-
-	ret = proc_dointvec_minmax(&tmp_table, write, buffer, lenp, ppos);
+		int write, void *buffer, size_t *lenp, loff_t *ppos) {
+	int ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
 	if (ret || !write)
 		return ret;
 
-	sched_bore = (u8)sysctl_sched_bore;
 	if (sched_bore)
 		static_branch_enable(&sched_bore_key);
 	else
 		static_branch_disable(&sched_bore_key);
 
 	readjust_all_task_weights();
+
 	return 0;
 }
 
 int sched_burst_inherit_type_update_handler(struct ctl_table *table,
-		int write, void __user *buffer, size_t *lenp, loff_t *ppos) {
-	int ret;
-	struct ctl_table tmp_table = *table;
-	tmp_table.data = &sysctl_sched_burst_inherit_type;
-	tmp_table.maxlen = sizeof(int);
-	tmp_table.extra1 = &zero;
-	tmp_table.extra2 = &two;
-
-	ret = proc_dointvec_minmax(&tmp_table, write, buffer, lenp, ppos);
+		int write, void *buffer, size_t *lenp, loff_t *ppos) {
+	int ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
 	if (ret || !write)
 		return ret;
 
-	sched_burst_inherit_type = (u8)sysctl_sched_burst_inherit_type;
 	update_inherit_type();
+
 	return 0;
 }
 
-static int sched_burst_smoothness_update_handler(struct ctl_table *table,
-		int write, void __user *buffer, size_t *lenp, loff_t *ppos) {
-	int ret;
-	struct ctl_table tmp_table = *table;
-	tmp_table.data = &sysctl_sched_burst_smoothness;
-	tmp_table.maxlen = sizeof(int);
-	tmp_table.extra1 = &zero;
-	tmp_table.extra2 = &three;
-
-	ret = proc_dointvec_minmax(&tmp_table, write, buffer, lenp, ppos);
+int sched_burst_protect_slice_lv_update_handler(struct ctl_table *table,
+		int write, void *buffer, size_t *lenp, loff_t *ppos) {
+	int ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
 	if (ret || !write)
 		return ret;
 
-	sched_burst_smoothness = (u8)sysctl_sched_burst_smoothness;
-	return 0;
-}
+	if (sched_burst_protect_slice_lv == 1 ||
+	    sched_burst_protect_slice_lv == 2)
+		static_branch_enable(&sched_burst_protect_slice_cond_key);
+	else
+		static_branch_disable(&sched_burst_protect_slice_cond_key);
 
-static int sched_burst_penalty_offset_update_handler(struct ctl_table *table,
-		int write, void __user *buffer, size_t *lenp, loff_t *ppos) {
-	int ret;
-	struct ctl_table tmp_table = *table;
-	tmp_table.data = &sysctl_sched_burst_penalty_offset;
-	tmp_table.maxlen = sizeof(int);
-	tmp_table.extra1 = &zero;
-	tmp_table.extra2 = &max_penalty_offset;
+	if (sched_burst_protect_slice_lv >= 2)
+		static_branch_enable(&sched_burst_protect_slice_prefer_key);
+	else
+		static_branch_disable(&sched_burst_protect_slice_prefer_key);
 
-	ret = proc_dointvec_minmax(&tmp_table, write, buffer, lenp, ppos);
-	if (ret || !write)
-		return ret;
-
-	sched_burst_penalty_offset = (u8)sysctl_sched_burst_penalty_offset;
-	return 0;
-}
-
-static int sched_burst_penalty_scale_update_handler(struct ctl_table *table,
-		int write, void __user *buffer, size_t *lenp, loff_t *ppos) {
-	int ret;
-	struct ctl_table tmp_table = *table;
-	tmp_table.data = &sysctl_sched_burst_penalty_scale;
-	tmp_table.maxlen = sizeof(int);
-	tmp_table.extra1 = &zero;
-	tmp_table.extra2 = &max_penalty_scale;
-
-	ret = proc_dointvec_minmax(&tmp_table, write, buffer, lenp, ppos);
-	if (ret || !write)
-		return ret;
-
-	sched_burst_penalty_scale = (uint)sysctl_sched_burst_penalty_scale;
 	return 0;
 }
 
@@ -464,8 +417,8 @@ static int sched_burst_penalty_scale_update_handler(struct ctl_table *table,
 static struct ctl_table sched_bore_sysctls[] = {
 	{
 		.procname	= "sched_bore",
-		.data		= &sysctl_sched_bore,
-		.maxlen		= sizeof(int),
+		.data		= &sched_bore,
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
 		.proc_handler = sched_bore_update_handler,
 		.extra1		= &zero,
@@ -473,8 +426,8 @@ static struct ctl_table sched_bore_sysctls[] = {
 	},
 	{
 		.procname	= "sched_burst_inherit_type",
-		.data		= &sysctl_sched_burst_inherit_type,
-		.maxlen		= sizeof(int),
+		.data		= &sched_burst_inherit_type,
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
 		.proc_handler = sched_burst_inherit_type_update_handler,
 		.extra1		= &zero,
@@ -482,28 +435,28 @@ static struct ctl_table sched_bore_sysctls[] = {
 	},
 	{
 		.procname	= "sched_burst_smoothness",
-		.data		= &sysctl_sched_burst_smoothness,
-		.maxlen		= sizeof(int),
+		.data		= &sched_burst_smoothness,
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
-		.proc_handler = sched_burst_smoothness_update_handler,
+		.proc_handler = proc_dou8vec_minmax,
 		.extra1		= &zero,
 		.extra2		= &three,
 	},
 	{
 		.procname	= "sched_burst_penalty_offset",
-		.data		= &sysctl_sched_burst_penalty_offset,
-		.maxlen		= sizeof(int),
+		.data		= &sched_burst_penalty_offset,
+		.maxlen		= sizeof(u8),
 		.mode		= 0644,
-		.proc_handler = sched_burst_penalty_offset_update_handler,
+		.proc_handler = proc_dou8vec_minmax,
 		.extra1		= &zero,
 		.extra2		= &max_penalty_offset,
 	},
 	{
 		.procname	= "sched_burst_penalty_scale",
-		.data		= &sysctl_sched_burst_penalty_scale,
-		.maxlen		= sizeof(int),
+		.data		= &sched_burst_penalty_scale,
+		.maxlen		= sizeof(uint),
 		.mode		= 0644,
-		.proc_handler = sched_burst_penalty_scale_update_handler,
+		.proc_handler = proc_douintvec_minmax,
 		.extra1		= &zero,
 		.extra2		= &max_penalty_scale,
 	},
@@ -513,6 +466,15 @@ static struct ctl_table sched_bore_sysctls[] = {
 		.maxlen		= sizeof(uint),
 		.mode		= 0644,
 		.proc_handler = proc_douintvec,
+	},
+	{
+		.procname	= "sched_burst_protect_slice_lv",
+		.data		= &sched_burst_protect_slice_lv,
+		.maxlen		= sizeof(u8),
+		.mode		= 0644,
+		.proc_handler = sched_burst_protect_slice_lv_update_handler,
+		.extra1		= &zero,
+		.extra2		= &three,
 	},
 	{}
 };
