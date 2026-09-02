@@ -31,6 +31,14 @@ on:
         options:
           - 'yes'
           - 'no'
+      enable_nomount:
+        description: 'Enable NoMount?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
       defconfig:
         description: 'Defconfig filename (used for KernelSU CONFIG_KSU / Baseband-guard CONFIG_BBG injection)'
         required: true
@@ -64,6 +72,17 @@ jobs:
           else
             echo "⚠️  Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_KSU injection"
           fi
+      - name: Setup nomount (if enabled)
+        if: ${{ github.event.inputs.enable_nomount == 'yes' }}
+        run: |
+          echo "🔧 Enabling NoMount..."
+          # Step 1: Run the NoMount setup script
+          curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
+          # Step 2: Remove the NoMount folder created by setup
+          rm -rf NoMount
+          # Step 3: Clone Nomount fork (dev branch)
+          git clone -b dev https://github.com/Willay24/nomount.git NoMount
+          echo " nomount (dev) setup complete"
       - name: Setup Baseband-guard
         if: ${{ github.event.inputs.enable_basebandguard == 'yes' }}
         run: |
