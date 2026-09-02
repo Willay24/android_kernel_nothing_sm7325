@@ -674,13 +674,7 @@ struct bore_ctx {
 	u64				burst_time;
 	u16				prev_penalty;
 	u16				curr_penalty;
-	union {
-		u16			penalty;
-		struct {
-			u8		_;
-			u8		score;
-		};
-	};
+	u16				penalty;
 	bool			stop_update;
 	bool			futex_waiting;
 	struct bore_bc	subtree;
