@@ -2524,7 +2524,6 @@ int a6xx_perfcounter_update(struct adreno_device *adreno_dev,
 
 		offset += 2;
 	}
-	u32 pending_pairs = 2; /* No of pairs to add: <select,value> and <cntl,1> */
 
 	if (cpu_gpu_lock(lock)) {
 		cpu_gpu_unlock(lock);
@@ -2544,13 +2543,6 @@ int a6xx_perfcounter_update(struct adreno_device *adreno_dev,
 	if (select_reg_present) {
 		data[offset + 1] = reg->countable;
 		goto update;
-	}
-
-	/* Ensure there is enough space in the reglist buffer for new pairs */
-	if ((offset + (pending_pairs * 2)) >=
-		(adreno_dev->pwrup_reglist->size / sizeof(u32))) {
-		cpu_gpu_unlock(lock);
-		return -ENOSPC;
 	}
 
 	/*

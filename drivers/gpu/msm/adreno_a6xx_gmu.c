@@ -601,7 +601,7 @@ static int find_vma_block(struct a6xx_gmu_device *gmu, u32 addr, u32 size)
 {
 	int i;
 
-	for (i = 0; i < gmu->num_vmas; i++) {
+	for (i = 0; i < GMU_MEM_TYPE_MAX; i++) {
 		struct gmu_vma_entry *vma = &gmu->vma[i];
 
 		if ((addr >= vma->start) &&
@@ -2686,13 +2686,10 @@ int a6xx_gmu_probe(struct kgsl_device *device,
 	if (ret)
 		goto error;
 
-	if (adreno_is_a650_family(adreno_dev)) {
+	if (adreno_is_a650_family(adreno_dev))
 		gmu->vma = a6xx_gmu_vma;
-		gmu->num_vmas = ARRAY_SIZE(a6xx_gmu_vma);
-	} else {
+	else
 		gmu->vma = a6xx_gmu_vma_legacy;
-		gmu->num_vmas = ARRAY_SIZE(a6xx_gmu_vma_legacy);
-	}
 
 	/* Map and reserve GMU CSRs registers */
 	ret = a6xx_gmu_reg_probe(adreno_dev);
@@ -2941,7 +2938,8 @@ static int a6xx_boot(struct adreno_device *adreno_dev)
 	struct kgsl_device *device = KGSL_DEVICE(adreno_dev);
 	int ret;
 
-	WARN_ON(test_bit(GMU_PRIV_GPU_STARTED, &gmu->flags));
+	if (WARN_ON(test_bit(GMU_PRIV_GPU_STARTED, &gmu->flags)))
+		return 0;
 
 	trace_kgsl_pwr_request_state(device, KGSL_STATE_ACTIVE);
 
@@ -2973,8 +2971,12 @@ static int a6xx_first_boot(struct adreno_device *adreno_dev)
 	int ret;
 	unsigned long priv = 0;
 
-	if (test_bit(GMU_PRIV_FIRST_BOOT_DONE, &gmu->flags))
-		return a6xx_boot(adreno_dev);
+	if (test_bit(GMU_PRIV_FIRST_BOOT_DONE, &gmu->flags)) {
+		if (!test_bit(GMU_PRIV_GPU_STARTED, &gmu->flags))
+			return a6xx_boot(adreno_dev);
+
+		return 0;
+	}
 
 	place_marker("M - DRIVER ADRENO Init");
 
@@ -3340,7 +3342,6 @@ static void a6xx_gmu_touch_wakeup(struct adreno_device *adreno_dev)
 	device->pwrctrl.last_stat_updated = ktime_get();
 
 	kgsl_pwrctrl_set_state(device, KGSL_STATE_ACTIVE);
-
 }
 
 const struct adreno_power_ops a6xx_gmu_power_ops = {
