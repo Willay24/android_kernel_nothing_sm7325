@@ -939,7 +939,7 @@ static irqreturn_t subsys_wdog_bite_irq_handler(int irq, void *drv_data)
 	pr_err("Watchdog bite received from %s!\n", d->subsys_desc.name);
 
 	if (d->subsys_desc.system_debug)
-		panic("%s: System ramdump requested. Triggering device restart!\n",
+		pr_err("%s: System ramdump requested. Ignoring and forcing soft reset!\n",
 							__func__);
 	subsys_set_crash_status(d->subsys, CRASH_STATUS_WDOG_BITE);
 	log_failure_reason(d);
