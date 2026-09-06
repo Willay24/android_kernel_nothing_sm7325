@@ -16,6 +16,7 @@ struct inode;
 struct iocb;
 struct io_event;
 struct iovec;
+struct futex_waitv;
 struct itimerspec;
 struct itimerval;
 struct kexec_segment;
@@ -586,6 +587,9 @@ asmlinkage long sys_futex(u32 __user *uaddr, int op, u32 val,
 asmlinkage long sys_futex_time32(u32 __user *uaddr, int op, u32 val,
 			struct old_timespec32 __user *utime, u32 __user *uaddr2,
 			u32 val3);
+asmlinkage long sys_futex_waitv(struct futex_waitv __user *waiters,
+			unsigned int nr_futexes, unsigned int flags,
+			struct __kernel_timespec __user *timeout, clockid_t clockid);
 asmlinkage long sys_get_robust_list(int pid,
 				    struct robust_list_head __user * __user *head_ptr,
 				    size_t __user *len_ptr);
