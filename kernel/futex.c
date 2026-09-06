@@ -4169,6 +4169,8 @@ SYSCALL_DEFINE5(futex_waitv, struct futex_waitv __user *, waiters,
 		 * absolute value must be translated to the host time namespace.
 		 */
 		time = timespec64_to_ktime(ts);
+		if (clockid == CLOCK_MONOTONIC)
+			time = timens_ktime_to_host(CLOCK_MONOTONIC, time);
 
 		futex_setup_timer(&time, &to, flag_clkid, 0);
 	}
