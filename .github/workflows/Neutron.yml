@@ -1,359 +1,440 @@
-name: Build Kernel with Neutron Clang
+name: Build Kernel LLVM
 
 on:
   workflow_dispatch:
     inputs:
+      compiler:
+        description: 'Toolchain to build with'
+        type: choice
+        required: true
+        default: 'slim'
+        options:
+          - slim
+          - alchemist
       kernel_branch:
-        description: 'Branch to build (e.g., LosKernel-23)'
+        description: 'Branch to build (must match a branch name exactly)'
+        type: string
         required: true
         default: 'Staging-Kernel'
       defconfig:
         description: 'Defconfig name (without path)'
         required: true
         default: 'vendor/lahaina-qgki_defconfig'
-      su_variant:
-        description: 'Root solution to integrate (none / KernelSU / ReSukiSU / KernelSU-Next)'
+      use_ccache:
+        description: 'Use ccache (restore/save cache)'
+        type: boolean
+        default: true
+      build_timestamp:
+        description: 'Custom KBUILD_BUILD_TIMESTAMP (leave empty for current time)'
         required: false
-        default: 'none'
-        type: choice
-        options:
-          - none
-          - KernelSU
-          - ReSukiSU
-          - KernelSU-Next
+        default: ''
+      enable_KernelSU:
+        description: 'Enable KernelSU'
+        type: boolean
+        default: false
+      use_rekernel:
+        description: 'Integrate ReKernel + ReKernel-X (needs KernelSU)'
+        type: boolean
+        default: false
+      enable_nomount:
+        description: 'Integrate nomount'
+        type: boolean
+        default: false
+      enable_eva:
+        description: 'Integrate E.V.A'
+        type: boolean
+        default: false
+      enable_basebandguard:
+        description: 'Integrate Baseband-guard LSM'
+        type: boolean
+        default: false
+      package_modules:
+        description: 'Pack .ko modules into the zip'
+        type: boolean
+        default: false
       build_tag:
         description: 'Build tag for ZIP name (e.g., Test/Perf/Normal)'
-        required: false
         default: 'Normal'
       enable_signing:
-        description: 'Sign the flashable ZIP with Tenzo keystore (yes/no)'
-        required: false
-        default: 'no'
+        description: 'Sign the ZIP with Tenzo keystore'
+        type: boolean
+        default: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
+      - name: Verify branch exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ inputs.kernel_branch }}
+        run: |
+          branches=$(gh api "repos/${{ github.repository }}/branches" --paginate -q '.[].name')
+          if ! printf '%s\n' "$branches" | grep -Fxq -- "$BRANCH"; then
+            echo "::error::Branch '$BRANCH' not found. Available branches:"
+            printf '%s\n' "$branches"
+            exit 1
+          fi
+          echo "Branch '$BRANCH' found."
+
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.kernel_branch }}
+          ref: ${{ inputs.kernel_branch }}
+
+      - name: Notify Telegram - build start
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="html" \
+            -d disable_web_page_preview=true \
+            -d text="🔨 <b>Kernel Build Triggered</b>%0A<b>Compiler:</b> <code>${{ inputs.compiler }}</code>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Defconfig:</b> <code>${{ inputs.defconfig }}</code>%0A<b>KernelSU:</b> <code>${{ inputs.enable_kernelsu_next }}</code>%0A<b>ReKernel:</b> <code>${{ inputs.use_rekernel }}</code>%0A<b>Signing:</b> <code>${{ inputs.enable_signing }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A<b>Triggered by:</b> <code>${{ github.actor }}</code>"
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -yq \
             bc bison flex libssl-dev make libelf-dev lz4 cpio \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
-            build-essential clang lld llvm device-tree-compiler \
-            python3 python3-pip zip git ccache wget xz-utils zstd \
+            build-essential device-tree-compiler \
+            python3 python3-pip zip unzip git ccache wget curl xz-utils zstd aria2 \
+            clang lld golang \
             default-jre openjdk-21-jdk
 
-      # -------------------------------------------------------------------
-      # Use mkdtboimg.py from the kernel tree if present at
-      # scripts/mkdtboimg.py — only fall back to downloading from AOSP
-      # googlesource when it is missing.
-      # -------------------------------------------------------------------
+      - name: Setup build environment and ccache
+        run: |
+          if [ "${{ inputs.use_ccache }}" = "true" ]; then
+            mkdir -p "${{ github.workspace }}/.ccache"
+            echo "CCACHE_DIR=${{ github.workspace }}/.ccache" >> $GITHUB_ENV
+            echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
+            echo "USE_CCACHE=1" >> $GITHUB_ENV
+            echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
+            echo "CCACHE_SLOPPINESS=file_macro,include_file_mtime,time_macros" >> $GITHUB_ENV
+          else
+            echo "USE_CCACHE=0" >> $GITHUB_ENV
+          fi
+          BUILD_TIME="${{ inputs.build_timestamp }}"
+          echo "KBUILD_BUILD_TIMESTAMP=${BUILD_TIME:-$(date -u +'%a %b %d %H:%M:%S UTC %Y')}" >> $GITHUB_ENV
+          echo "GCC_VER=$(aarch64-linux-gnu-gcc --version | head -n1 | awk '{print $NF}')" >> $GITHUB_ENV
+
+      - name: Restore Ccache
+        if: ${{ inputs.use_ccache }}
+        id: cache-restore
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ inputs.compiler }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ inputs.compiler }}-
+
+      - name: Zero ccache stats
+        if: ${{ inputs.use_ccache }}
+        run: ccache -z
+
       - name: Install mkdtboimg
         run: |
           set -e
           MKDTBOIMG="/usr/local/bin/mkdtboimg.py"
-          if [ -f "scripts/mkdtboimg.py" ]; then
-            echo "✅ Found mkdtboimg.py in kernel tree (scripts/mkdtboimg.py) — using it"
-            cp scripts/mkdtboimg.py "$MKDTBOIMG"
-            chmod +x "$MKDTBOIMG"
+          if [ -f scripts/mkdtboimg.py ]; then
+            sudo cp scripts/mkdtboimg.py "$MKDTBOIMG"
           else
-            echo "⚠️  scripts/mkdtboimg.py not found in kernel tree"
-            echo "📥 Downloading mkdtboimg.py from AOSP googlesource..."
-            wget -q \
-              "https://android.googlesource.com/platform/system/libufdt/+/refs/heads/master/utils/src/mkdtboimg.py?format=TEXT" \
-              -O mkdtboimg_b64.txt
-            base64 -d mkdtboimg_b64.txt > "$MKDTBOIMG"
-            chmod +x "$MKDTBOIMG"
+            wget -q "https://android.googlesource.com/platform/system/libufdt/+/refs/heads/master/utils/src/mkdtboimg.py?format=TEXT" -O mkdtboimg_b64.txt
+            base64 -d mkdtboimg_b64.txt | sudo tee "$MKDTBOIMG" > /dev/null
             rm mkdtboimg_b64.txt
           fi
-          python3 "$MKDTBOIMG" --help > /dev/null 2>&1 \
-            && echo "✅ mkdtboimg.py verified successfully" \
-            || { echo "❌ mkdtboimg.py verification failed"; exit 1; }
+          sudo chmod +x "$MKDTBOIMG"
+          python3 "$MKDTBOIMG" --help > /dev/null
           echo "MKDTBOIMG=$MKDTBOIMG" >> $GITHUB_ENV
 
-      # -------------------------------------------------------------------
-      # Download and install Neutron Clang via the antman sync script.
-      # Applies a glibc compatibility patch for the Ubuntu runner.
-      # Exports all required build environment variables afterwards.
-      # -------------------------------------------------------------------
-      - name: Setup Neutron Clang with antman
+      # ---------------------------------------------------------------
+      # Toolchain selection
+      # ---------------------------------------------------------------
+      - name: Setup Slim LLVM toolchain
+        if: ${{ inputs.compiler == 'slim' }}
         run: |
           set -e
-          TOOLCHAIN_DIR="$HOME/toolchains/neutron-clang"
-          echo "📁 Toolchain dir: $TOOLCHAIN_DIR"
-          rm -rf "$TOOLCHAIN_DIR"
-          mkdir -p "$TOOLCHAIN_DIR"
-          cd "$TOOLCHAIN_DIR"
+          PREFIX="$HOME/build_toolchain"
+          CLANG="llvm-23.1.1-x86_64"
+          mkdir -p "$PREFIX"
+          cd "$PREFIX"
+          aria2c -q "https://mirrors.edge.kernel.org/pub/tools/llvm/files/$CLANG.tar.xz"
+          tar -xJf "$CLANG.tar.xz"
 
-          echo "📥 Downloading antman script..."
-          curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
-          chmod +x antman
+          CLANG_DIR="$PREFIX/$CLANG"
+          "$CLANG_DIR/bin/clang" --version | head -1
+          "$CLANG_DIR/bin/ld.lld" --version | head -1
 
-          echo "🔄 Syncing latest Neutron Clang build..."
-          ./antman -S
+          echo "$CLANG_DIR/bin" >> $GITHUB_PATH
+          echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
+          echo "CLANG_LABEL=Slim LLVM 23.1.1" >> $GITHUB_ENV
+          echo "ZIP_PREFIX=SlimLLVM" >> $GITHUB_ENV
 
-          echo "🩹 Applying glibc compatibility patch..."
-          ./antman --patch=glibc || echo "⚠️  glibc patch skipped (not required)"
-
-          # Verify clang binary
-          if [ -f "$TOOLCHAIN_DIR/bin/clang" ]; then
-            CLANG_VER=$("$TOOLCHAIN_DIR/bin/clang" --version | head -1)
-            echo "✅ Neutron Clang installed successfully"
-            echo "   Version: $CLANG_VER"
-          else
-            echo "❌ clang binary not found in $TOOLCHAIN_DIR/bin/"
-            exit 1
-          fi
-
-          echo "NEUTRON_PATH=$TOOLCHAIN_DIR" >> $GITHUB_ENV
-
-      # -------------------------------------------------------------------
-      # Export all build environment variables for Neutron Clang.
-      # Kept as a separate step to mirror the original workflow structure.
-      # -------------------------------------------------------------------
-      - name: Set up environment for Neutron Clang
+      - name: Setup Alchemist-LLVM toolchain
+        if: ${{ inputs.compiler == 'alchemist' }}
         run: |
           set -e
-          TOOLCHAIN_DIR="$NEUTRON_PATH"
-          echo "$TOOLCHAIN_DIR/bin" >> $GITHUB_PATH
+          PREFIX="$HOME/build_toolchain"
+          CLANG_DIR="$PREFIX/clang"
+          mkdir -p "$PREFIX"
 
-          CLANG_VERSION=$("$TOOLCHAIN_DIR/bin/clang" --version | head -n1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-          COMPILER_STRING="Neutron clang version ${CLANG_VERSION} (https://github.com/llvm/llvm-project.git), Neutron LLD ${CLANG_VERSION}"
-          echo "KBUILD_COMPILER_STRING=$COMPILER_STRING" >> $GITHUB_ENV
-          echo "CLANG_LABEL=Neutron Clang" >> $GITHUB_ENV
+          git clone --depth=1 --single-branch \
+            -b clang-22-LTO \
+            https://gitlab.com/nekoshirro/Alchemist-LLVM.git "$CLANG_DIR"
 
-          cat >> $GITHUB_ENV << EOF
-          ARCH=arm64
-          SUBARCH=arm64
-          LLVM=1
-          LLVM_IAS=1
-          CC=$TOOLCHAIN_DIR/bin/clang
-          AR=$TOOLCHAIN_DIR/bin/llvm-ar
-          NM=$TOOLCHAIN_DIR/bin/llvm-nm
-          LD=$TOOLCHAIN_DIR/bin/ld.lld
-          OBJCOPY=$TOOLCHAIN_DIR/bin/llvm-objcopy
-          OBJDUMP=$TOOLCHAIN_DIR/bin/llvm-objdump
-          STRIP=$TOOLCHAIN_DIR/bin/llvm-strip
-          CLANG_TRIPLE=aarch64-linux-gnu-
-          CROSS_COMPILE=aarch64-linux-gnu-
-          CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          KBUILD_BUILD_USER=willay
-          KBUILD_BUILD_HOST=GNU
-          KBUILD_BUILD_VERSION=1
-          EOF
-          echo "✅ All build environment variables exported for Neutron Clang"
+          # Sanity check: make sure the layout is what the kernel build expects
+          for tool in clang ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-strip; do
+            [ -x "$CLANG_DIR/bin/$tool" ] || { echo "Missing $tool in $CLANG_DIR/bin"; ls "$CLANG_DIR"; exit 1; }
+          done
 
-      # -------------------------------------------------------------------
-      # Root solution setup — controlled by the su_variant input:
-      #   none            → skip entirely, vanilla kernel
-      #   KernelSU        → tiann setup.sh → swap folder → backslashxx fork
-      #   ReSukiSU        → ReSukiSU setup.sh (handles everything itself)
-      #   KernelSU-Next   → KernelSU-Next setup.sh → add KSUN remote →
-      #                     fetch → checkout susfs-hookless branch
-      # All variants inject CONFIG_KSU=y into the defconfig afterwards.
-      # -------------------------------------------------------------------
-      - name: Setup root solution (KernelSU / ReSukiSU / KernelSU-Next)
-        if: ${{ github.event.inputs.su_variant != 'none' }}
+          "$CLANG_DIR/bin/clang" --version | head -1
+          "$CLANG_DIR/bin/ld.lld" --version | head -1
+
+          echo "$CLANG_DIR/bin" >> $GITHUB_PATH
+          echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
+          echo "CLANG_LABEL=Alchemist LLVM (clang-22-LTO)" >> $GITHUB_ENV
+          echo "ZIP_PREFIX=AlchemistLLVM" >> $GITHUB_ENV
+
+      - name: Setup KernelSU (if enabled)
+        if: ${{ inputs.enable_kernelsu_next }}
         run: |
-          VARIANT="${{ github.event.inputs.su_variant }}"
-          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
-          echo "🔧 Root variant selected: $VARIANT"
-
-          if [ "$VARIANT" = "KernelSU" ]; then
-            echo "── KernelSU setup ──────────────────────────────────────────"
-            # Step 1: Run the official tiann KernelSU setup script
-            curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s master
-            # Step 2: Remove the KernelSU folder created by the setup script
-            rm -rf KernelSU
-            # Step 3: Clone William24hmar KernelSU fork (master-susfs branch)
-            git clone -b master-susfs https://github.com/William24hmar/KernelSU.git
-            echo "✅ KernelSU (William24hmar/KernelSU) ready"
-
-          elif [ "$VARIANT" = "ReSukiSU" ]; then
-            echo "── ReSukiSU setup ──────────────────────────────────────────"
-            # Step 1: Run the ReSukiSU setup script
-            curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -
-            # Step 2: Remove the KernelSU folder created by the setup script
-            rm -rf KernelSU
-            # Step 3: Clone Will ResukiSU fork (main branch) into the
-            # "KernelSU" folder name — this is the path the setup script's
-            # symlink (drivers/kernelsu) and Makefile/Kconfig patches
-            # already expect, so it must match exactly or the build
-            # can't find drivers/kernelsu/Kconfig.
-            git clone -b main https://github.com/William24hmar/ReSukiSU.git KernelSU
-            echo "✅ ReSukiSU (William24hmar/main) ready"
-
-          elif [ "$VARIANT" = "KernelSU-Next" ]; then
-            echo "── KernelSU-Next setup ─────────────────────────────────────"
-            # Step 1: Run the official KernelSU-Next setup script (clones
-            # into a "KernelSU-Next" folder, symlinks it, patches Makefile
-            # and Kconfig)
-            curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -
-            # Step 2: Add the KSUN fork as a remote and fetch its branches
-            cd KernelSU-Next
-            git remote add KSUN https://github.com/MirahSyakilla/KSUN.git
-            git fetch KSUN
-            # Step 3: Switch to the susfs-hookless branch tracking KSUN
-            git checkout -b susfs-hookless KSUN/susfs-hookless
-            cd ..
-            echo "✅ KernelSU-Next (KSUN/susfs-hookless) ready"
-          fi
-
-          # Inject CONFIG_KSU=y — shared by both variants
+          curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s master-susfs
+          DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
           if [ -f "$DEFCONFIG_PATH" ]; then
-            echo "✅ Injecting CONFIG_KSU=y into defconfig ($DEFCONFIG_PATH)"
-            echo -e "\n# $VARIANT\nCONFIG_KSU=y" >> "$DEFCONFIG_PATH"
+            echo -e "\n# KernelSU\nCONFIG_KSU=y" >> "$DEFCONFIG_PATH"
           else
-            echo "⚠️  Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_KSU injection"
+            echo "Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_KSU"
           fi
 
-      - name: Configure kernel (defconfig)
+      - name: Setup nomount (if enabled)
+        if: ${{ inputs.enable_nomount }}
         run: |
-          make O=out \
-            ARCH=$ARCH \
-            CC=$CC \
-            CROSS_COMPILE=$CROSS_COMPILE \
-            CROSS_COMPILE_COMPAT=$CROSS_COMPILE_ARM32 \
-            AR=$AR NM=$NM LD=$LD \
-            OBJCOPY=$OBJCOPY OBJDUMP=$OBJDUMP STRIP=$STRIP \
-            HOSTCC=$CC HOSTCXX=$NEUTRON_PATH/bin/clang++ \
-            CLANG_TRIPLE=$CLANG_TRIPLE \
-            LLVM=$LLVM LLVM_IAS=$LLVM_IAS \
-            KCFLAGS="-Wno-unknown-warning-option" \
-            ${{ github.event.inputs.defconfig }}
+          curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/dev/kernel/setup.sh" | bash -s dev
 
-      # -------------------------------------------------------------------
-      # Build kernel Image + dtbs in a single make invocation.
-      # -------------------------------------------------------------------
-      - name: Build kernel Image and dtbs
+      - name: Setup E.V.A (if enabled)
+        if: ${{ inputs.enable_eva }}
         run: |
-          make O=out \
-            ARCH=$ARCH \
-            CC=$CC \
-            CROSS_COMPILE=$CROSS_COMPILE \
-            CROSS_COMPILE_COMPAT=$CROSS_COMPILE_ARM32 \
-            AR=$AR NM=$NM LD=$LD \
-            OBJCOPY=$OBJCOPY OBJDUMP=$OBJDUMP STRIP=$STRIP \
-            HOSTCC=$CC HOSTCXX=$NEUTRON_PATH/bin/clang++ \
-            CLANG_TRIPLE=$CLANG_TRIPLE \
-            LLVM=$LLVM LLVM_IAS=$LLVM_IAS \
-            KCFLAGS="-Wno-unknown-warning-option" \
-            -j$(nproc --all) Image dtbs
+          curl -LSs "https://raw.githubusercontent.com/Willay24/E.V.A/main/kernel/setup.sh" | bash -s main
 
-      - name: Verify Image was produced
+      - name: Setup Baseband-guard (if enabled)
+        if: ${{ inputs.enable_basebandguard }}
         run: |
-          if [ -f "out/arch/arm64/boot/Image" ]; then
-            echo "✅ Image found — proceeding to dtb/dtbo packaging"
+          set -e
+          DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
+          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo -e "\n# Baseband-guard\nCONFIG_BBG=y" >> "$DEFCONFIG_PATH"
           else
-            echo "❌ Image not found — kernel build truly failed"
-            exit 1
+            echo "Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_BBG"
           fi
+          if [ -f security/Kconfig ]; then
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+          fi
+
+      - name: Setup ReKernel
+        id: rekernel_setup
+        if: ${{ inputs.use_rekernel }}
+        run: |
+          echo "[+] Setting up ReKernel and ReKernel-X..."
+          REKERNEL_DIR="${{ github.workspace }}/ReKernel"
+          REKERNEL_X_DIR="${{ github.workspace }}/ReKernel_X"
+          DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
+          git clone --filter=blob:none https://github.com/Sakion-Team/Re-Kernel "$REKERNEL_DIR"
+          git clone --filter=blob:none https://github.com/myflavor/ReKernel-X "$REKERNEL_X_DIR"
+          REKERNEL_TAG=$(git -C "$REKERNEL_DIR" describe --tags $(git -C "$REKERNEL_DIR" rev-list --tags -n 1)) && git -C "$REKERNEL_DIR" checkout "tags/$REKERNEL_TAG"
+          REKERNEL_X_TAG=$(git -C "$REKERNEL_X_DIR" describe --tags $(git -C "$REKERNEL_X_DIR" rev-list --tags -n 1)) && git -C "$REKERNEL_X_DIR" checkout "tags/$REKERNEL_X_TAG"
+          cp -r "$REKERNEL_DIR"/LKM-Source drivers/rekernel
+          sed -i 's/depends on MODULES/depends on KSU/' drivers/rekernel/Kconfig
+          sed -i 's/obj-m := rekernel.o/obj-$(CONFIG_REKERNEL) += rekernel.o/' drivers/rekernel/Makefile
+          echo 'obj-$(CONFIG_REKERNEL) += rekernel/' >> drivers/Makefile
+          grep -q "drivers/rekernel/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/rekernel/Kconfig"' drivers/Kconfig
+          cp -r "$REKERNEL_X_DIR"/LKM-Source drivers/rekernel_x
+          sed -i 's/\bstart_rekernel\b/rkx_start/g; s/\bexit_rekernel\b/rkx_exit/g; s/\bsendMessage\b/rkx_sendMessage/g; s/\bnet_uid_add\b/rkx_net_uid_add/g; s/\bnet_uid_del\b/rkx_net_uid_del/g; s/\bregister_signal\b/rkx_register_signal/g; s/\bunregister_signal\b/rkx_unregister_signal/g; s/\bregister_netfilter\b/rkx_register_netfilter/g; s/\bunregister_netfilter\b/rkx_unregister_netfilter/g; s/\bregister_binder\b/rkx_register_binder/g; s/\bunregister_binder\b/rkx_unregister_binder/g' drivers/rekernel_x/*.{c,h}
+          sed -i 's/obj-m += rekernel_x.o/obj-y += rekernel_x.o/' drivers/rekernel_x/Makefile
+          echo 'obj-y += rekernel_x/' >> drivers/Makefile
+          sed -i 's/KERNEL_VERSION(5, 10, 0)/KERNEL_VERSION(5, 4, 0)/g' drivers/rekernel/rekernel_binder.c drivers/rekernel_x/rkx_binder.c 2>/dev/null || true
+          sed -i 's/#include <linux\/uidgid.h>/#include <linux\/uidgid.h>\n#include <linux\/cred.h>\n#include <linux\/seq_file.h>/' drivers/rekernel_x/rkx.h 2>/dev/null || true
+          RKX_TAG_CLEAN="v${REKERNEL_X_TAG#v}"
+          echo "ccflags-y += -DREKERNEL_VERSION=\\\"$REKERNEL_TAG\\\"" >> drivers/rekernel/Makefile
+          echo "ccflags-y += -DRKX_VERSION=\\\"$RKX_TAG_CLEAN\\\"" >> drivers/rekernel_x/Makefile
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo -e "\n# ReKernel\nCONFIG_REKERNEL=y\nCONFIG_REKERNEL_NETWORK=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "Defconfig not found at $DEFCONFIG_PATH"; exit 1
+          fi
+          echo "rekernel_tag=$REKERNEL_TAG" >> $GITHUB_OUTPUT
+          echo "rekernel_x_tag=$REKERNEL_X_TAG" >> $GITHUB_OUTPUT
+          echo "REKERNEL_VERSION=$REKERNEL_TAG" >> $GITHUB_ENV
+          echo "RKX_VERSION=$RKX_TAG_CLEAN" >> $GITHUB_ENV
+          echo "[✓] Re:Kernel (tag $REKERNEL_TAG) and Re:Kernel-X (tag $REKERNEL_X_TAG) integrated successfully!"
+
+      - name: Configure and build kernel
+        run: |
+          set -e
+          echo "Compiler: $CLANG_LABEL"
+          echo "Toolchain: $CLANG_DIR"
+          which clang
+          clang --version | head -1
+          ld.lld --version | head -1
+
+          if [ "${{ inputs.enable_kernelsu_next }}" = "true" ]; then
+            make O=out ARCH=arm64 "${{ inputs.defconfig }}" ksu.config
+          else
+            make O=out ARCH=arm64 "${{ inputs.defconfig }}"
+          fi
+
+          scripts/config --file out/.config --disable COMPAT_VDSO --disable THUMB2_COMPAT_VDSO
+
+          if [ "$USE_CCACHE" = "1" ]; then
+            CC_CMD="ccache clang"
+          else
+            CC_CMD="clang"
+          fi
+
+          BUILD_FLAGS=(
+            ARCH=arm64
+            SUBARCH=arm64
+            O=out
+            CC="$CC_CMD"
+            AR="llvm-ar"
+            NM="llvm-nm"
+            LD="ld.lld -S"
+            OBJCOPY="llvm-objcopy"
+            OBJDUMP="llvm-objdump"
+            STRIP="llvm-strip"
+            CLANG_TRIPLE="aarch64-linux-gnu-"
+            CROSS_COMPILE="aarch64-linux-gnu-"
+            CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
+            CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
+            LLVM=1
+            LLVM_IAS=1
+            INSTALL_MOD_STRIP=1
+            KBUILD_BUILD_USER="$(git rev-parse --short HEAD | cut -c1-7)"
+            KBUILD_BUILD_HOST="$(git symbolic-ref --short HEAD)"
+          )
+
+          set -o pipefail
+          make -j$(nproc --all) "${BUILD_FLAGS[@]}" 2>&1 | tee build.log
+          [ -f out/arch/arm64/boot/Image ] || { echo "Image not found"; exit 1; }
+
+          if [ "${{ inputs.package_modules }}" = "true" ]; then
+            make -j$(nproc --all) "${BUILD_FLAGS[@]}" modules
+            if find out -name '*.ko' | grep -q .; then
+              make -j$(nproc --all) "${BUILD_FLAGS[@]}" INSTALL_MOD_PATH=modules modules_install
+            else
+              echo "No .ko files produced (CONFIG_MODULES may be off)"
+            fi
+          fi
+
+          if [ "$USE_CCACHE" = "1" ]; then
+            ccache -s
+          fi
+
+      - name: Save Ccache
+        if: ${{ always() && inputs.use_ccache }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ steps.cache-restore.outputs.cache-primary-key }}
 
       - name: Build dtb / dtb.img / dtbo.img
         run: |
           set -e
           BOOT_OUT="out/arch/arm64/boot"
           DTS_OUT="$BOOT_OUT/dts"
-          echo "🔗 Merging .dtb files into dtb blob..."
-          if find "$DTS_OUT" -name '*.dtb' 2>/dev/null | grep -q .; then
-            find "$DTS_OUT" -name '*.dtb' -exec cat {} + > "$BOOT_OUT/dtb"
-            echo "✅ dtb blob created ($(wc -c < "$BOOT_OUT/dtb") bytes)"
-          else
-            echo "❌ No .dtb files found — cannot create dtb blob"
-            exit 1
-          fi
-          echo "📦 Creating dtb.img..."
+
           mapfile -t DTB_LIST < <(find "$DTS_OUT" -name '*.dtb' | sort)
-          if [ ${#DTB_LIST[@]} -eq 0 ]; then
-            echo "❌ No .dtb files to pack into dtb.img"
-            exit 1
-          fi
-          python3 "$MKDTBOIMG" create "$BOOT_OUT/dtb.img" "${DTB_LIST[@]}" \
-            && echo "✅ dtb.img created (${#DTB_LIST[@]} dtb entries)" \
-            || { echo "❌ Failed to create dtb.img"; exit 1; }
-          if [ -f "$BOOT_OUT/dtbo.img" ]; then
-            echo "✅ dtbo.img already present (built by kernel)"
-          elif find "$DTS_OUT" -name '*.dtbo' 2>/dev/null | grep -q .; then
-            echo "📦 Creating dtbo.img from .dtbo overlay files..."
+          [ ${#DTB_LIST[@]} -gt 0 ] || { echo "No .dtb files found"; exit 1; }
+
+          cat "${DTB_LIST[@]}" > "$BOOT_OUT/dtb"
+          python3 "$MKDTBOIMG" create "$BOOT_OUT/dtb.img" "${DTB_LIST[@]}"
+
+          if [ ! -f "$BOOT_OUT/dtbo.img" ]; then
             mapfile -t DTBO_LIST < <(find "$DTS_OUT" -name '*.dtbo' | sort)
-            python3 "$MKDTBOIMG" create "$BOOT_OUT/dtbo.img" "${DTBO_LIST[@]}" \
-              && echo "✅ dtbo.img created (${#DTBO_LIST[@]} dtbo entries)" \
-              || echo "⚠️  Failed to create dtbo.img — continuing anyway"
-          else
-            echo "⚠️  No .dtbo files and no pre-built dtbo.img found"
-            echo "    (CONFIG_BUILD_ARM64_DT_OVERLAY may not be set in your defconfig)"
+            if [ ${#DTBO_LIST[@]} -gt 0 ]; then
+              python3 "$MKDTBOIMG" create "$BOOT_OUT/dtbo.img" "${DTBO_LIST[@]}" || echo "dtbo.img creation failed — continuing"
+            else
+              echo "No .dtbo files found — skipping dtbo.img"
+            fi
           fi
-          echo ""
-          echo "── Boot artifacts ──────────────────────"
-          ls -lh \
-            "$BOOT_OUT/Image" \
-            "$BOOT_OUT/dtb" \
-            "$BOOT_OUT/dtb.img" \
-            "$BOOT_OUT/dtbo.img" 2>/dev/null || true
-          echo "────────────────────────────────────────"
+
+          ls -lh "$BOOT_OUT"/{Image,dtb,dtb.img,dtbo.img} 2>/dev/null || true
 
       - name: Prepare AnyKernel3 package
         run: |
           git clone --depth=1 https://github.com/William24hmar/AnyKernel3.git -b master anykernel
           BOOT_OUT="out/arch/arm64/boot"
           cp "$BOOT_OUT/Image" anykernel/
-          echo "✅ Image copied"
-          [ -f "$BOOT_OUT/dtb" ]      && cp "$BOOT_OUT/dtb"      anykernel/ && echo "✅ dtb copied"      || echo "⚠️  dtb not found"
-          [ -f "$BOOT_OUT/dtb.img" ]  && cp "$BOOT_OUT/dtb.img"  anykernel/ && echo "✅ dtb.img copied"  || echo "⚠️  dtb.img not found"
-          [ -f "$BOOT_OUT/dtbo.img" ] && cp "$BOOT_OUT/dtbo.img" anykernel/ && echo "✅ dtbo.img copied" || echo "⚠️  dtbo.img not found"
+          for f in dtb dtb.img dtbo.img; do
+            [ -f "$BOOT_OUT/$f" ] && cp "$BOOT_OUT/$f" anykernel/ || echo "$f not found"
+          done
 
-      # -------------------------------------------------------------------
-      # Zip everything inside anykernel/ into a timestamped flashable ZIP.
-      # Format: NeutronClang-<TAG>-<YYYYMMDD>-<HHMM>.zip
-      # e.g.  : NeutronClang-Perf-20260529-1432.zip
-      # Excludes .git metadata and README.md (not needed on device).
-      # ZIP_FILE is written to GITHUB_ENV so subsequent steps can find it.
-      # -------------------------------------------------------------------
-      - name: Create flashable ZIP
+      - name: Package kernel modules for AnyKernel3
+        if: ${{ inputs.package_modules }}
         run: |
-          # Sanitise the tag — strip spaces and slashes so the filename is safe
-          RAW_TAG="${{ github.event.inputs.build_tag }}"
-          SAFE_TAG="${RAW_TAG// /-}"       # spaces → hyphens
-          SAFE_TAG="${SAFE_TAG//\//-}"     # forward slashes → hyphens
+          set -e
+          [ -d out/modules ] || { echo "out/modules not present — nothing to package"; exit 0; }
 
-          # Append SU variant suffix when a root solution was selected
-          SU_VARIANT="${{ github.event.inputs.su_variant }}"
-          if [ "$SU_VARIANT" != "none" ]; then
-            SAFE_TAG="${SAFE_TAG}-${SU_VARIANT}"
+          MOD_DEST="anykernel/modules/vendor/lib/modules"
+          mkdir -p "$MOD_DEST"
+
+          KO_FILES=()
+          while IFS= read -r -d '' f; do KO_FILES+=("$f"); done \
+            < <(find out -path out/modules -prune -o -name '*.ko' -print0)
+          while IFS= read -r -d '' f; do KO_FILES+=("$f"); done \
+            < <(find . -maxdepth 6 -name 'nomount.ko' -not -path './out/*' -print0)
+
+          [ ${#KO_FILES[@]} -gt 0 ] || { echo "No .ko files found — skipping"; exit 0; }
+
+          declare -A seen=()
+          for f in "${KO_FILES[@]}"; do
+            base=$(basename "$f")
+            [ -n "${seen[$base]:-}" ] && continue
+            cp "$f" "$MOD_DEST/$base"
+            seen[$base]=1
+          done
+          echo "Packed ${#seen[@]} module(s)"
+
+          MODSRC_DIR=$(find out/modules/lib/modules -maxdepth 1 -mindepth 1 -type d | head -n1)
+          if [ -n "$MODSRC_DIR" ]; then
+            for f in "$MODSRC_DIR"/modules.*; do
+              [ -f "$f" ] && cp "$f" "$MOD_DEST/"
+            done
+            [ -f "$MODSRC_DIR/modules.order" ] && cp "$MODSRC_DIR/modules.order" "$MOD_DEST/modules.load"
           fi
 
-          cd anykernel
-          ZIP_NAME="NeutronClang-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
-          zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md"
-          cd ..
-          echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
-          echo "✅ Zip created: $ZIP_NAME ($(du -sh $ZIP_NAME | cut -f1))"
+          if [ -f "$MOD_DEST/modules.dep" ]; then
+            sed -i 's/\(kernel\/[^: ]*\/\)\([^: ]*\.ko\)/\/vendor\/lib\/modules\/\2/g' "$MOD_DEST/modules.dep"
+          fi
+          if [ -f "$MOD_DEST/modules.load" ]; then
+            sed -i 's/.*\///g' "$MOD_DEST/modules.load"
+          fi
 
-      # -------------------------------------------------------------------
-      # Generate a Tenzo signing keystore (mirrors generate_secure_keystore
-      # in build.sh exactly).  Runs only when enable_signing == 'yes'.
-      # The keystore stays in $HOME/.gf — it is NEVER bundled into the
-      # ZIP; it is only used by jarsigner in the next step.
-      # -------------------------------------------------------------------
+      - name: Create flashable ZIP
+        run: |
+          SAFE_TAG="${{ inputs.build_tag }}"
+          SAFE_TAG="${SAFE_TAG// /-}"
+          SAFE_TAG="${SAFE_TAG//\//-}"
+          [ "${{ inputs.enable_basebandguard }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-BBG"
+          [ "${{ inputs.enable_nomount }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-nomount"
+          [ "${{ inputs.enable_eva }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-EVA"
+          [ "${{ inputs.use_rekernel }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-ReKernel"
+
+          ZIP_NAME="${ZIP_PREFIX}-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
+          (cd anykernel && zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md")
+          echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
+          echo "Zip created: $ZIP_NAME ($(du -sh "$ZIP_NAME" | cut -f1))"
+
       - name: Generate signing keystore
-        if: ${{ github.event.inputs.enable_signing == 'yes' }}
+        if: ${{ inputs.enable_signing }}
         run: |
           set -e
           SIGNER_DIR="$HOME/.gf"
           KEYSTORE="$SIGNER_DIR/keystore.p12"
-          # Skip re-generation if the keystore already exists (matches build.sh guard)
-          if [ -f "$KEYSTORE" ]; then
-            echo "✔ Keystore already exists: $KEYSTORE"
-            exit 0
-          fi
-          echo "Creating new keystore and full trust chain..."
+          [ -f "$KEYSTORE" ] && exit 0
+
           rm -rf "$SIGNER_DIR"
           mkdir -p "$SIGNER_DIR" && chmod 700 "$SIGNER_DIR"
           PASS=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 18)
@@ -362,13 +443,13 @@ jobs:
           echo "$PASS"     > "$SIGNER_DIR/.store_pass"
           echo "$KEYALIAS" > "$SIGNER_DIR/.alias"
           chmod 600 "$SIGNER_DIR/.store_pass" "$SIGNER_DIR/.alias"
-          echo "🔑 Generating Root CA..."
+
           openssl genrsa -out "$SIGNER_DIR/rootCA.key" 4096
           openssl req -x509 -new -nodes \
             -key "$SIGNER_DIR/rootCA.key" -sha256 -days 9125 \
             -out "$SIGNER_DIR/rootCA.pem" \
             -subj "/CN=Tenzo Root CA/O=Madara273/C=UA"
-          echo "🔑 Generating Tenzo keypair + CSR..."
+
           openssl genrsa -out "$SIGNER_DIR/tenzo.key" 4096
           openssl req -new \
             -key "$SIGNER_DIR/tenzo.key" \
@@ -381,7 +462,7 @@ jobs:
             -CAcreateserial \
             -out "$SIGNER_DIR/tenzo.crt" \
             -sha256 -days 365
-          echo "📦 Exporting to PKCS#12..."
+
           openssl pkcs12 -export \
             -inkey "$SIGNER_DIR/tenzo.key" \
             -in "$SIGNER_DIR/tenzo.crt" \
@@ -395,52 +476,32 @@ jobs:
             -destkeystore "$KEYSTORE" \
             -deststoretype PKCS12 -deststorepass "$PASS" \
             -alias "$KEYALIAS" -noprompt
-          # Import rootCA into the keystore itself (matches build.sh)
           keytool -importcert -trustcacerts \
             -alias "rootCA_${UNIQUE_ID}" \
             -file "$SIGNER_DIR/rootCA.pem" \
             -keystore "$KEYSTORE" \
             -storepass "$PASS" -noprompt
-          echo "🔑 Adding Root CA to Java truststore..."
-          sudo keytool -list -cacerts -storepass changeit \
-            -alias "tenzoRoot" >/dev/null 2>&1 && \
-            sudo keytool -delete -cacerts -storepass changeit \
-              -alias "tenzoRoot" -noprompt || true
+
+          sudo keytool -delete -cacerts -storepass changeit -alias tenzoRoot -noprompt >/dev/null 2>&1 || true
           sudo keytool -importcert \
-            -alias "tenzoRoot" \
+            -alias tenzoRoot \
             -file "$SIGNER_DIR/rootCA.pem" \
-            -cacerts -storepass changeit -noprompt && \
-            echo "✔ Root CA added to Java truststore" || \
-            echo "⚠️  Failed to add Root CA to Java truststore"
-          echo "✅ Keystore ready: $KEYSTORE"
-          # Print SHA256 fingerprint (matches show_fingerprint in build.sh)
-          keytool -list -v -keystore "$KEYSTORE" -storepass "$PASS" \
-            -alias "$KEYALIAS" 2>/dev/null | grep "SHA256:" || true
+            -cacerts -storepass changeit -noprompt
+
           echo "SIGNER_DIR=$SIGNER_DIR" >> $GITHUB_ENV
 
-      # -------------------------------------------------------------------
-      # Sign the flashable ZIP using jarsigner — mirrors sign_zip() in
-      # build.sh exactly:
-      #   1. Copy the unsigned ZIP to a *-signed.zip
-      #   2. Run jarsigner with SHA256withRSA + DigiCert TSA
-      #   3. Verify the "jar signed." success string
-      #   4. Update ZIP_FILE env var to point at the signed copy
-      # -------------------------------------------------------------------
       - name: Sign flashable ZIP
-        if: ${{ github.event.inputs.enable_signing == 'yes' }}
+        if: ${{ inputs.enable_signing }}
         run: |
           set -e
           SIGNER_DIR="$HOME/.gf"
           KEYSTORE="$SIGNER_DIR/keystore.p12"
           PASS=$(cat "$SIGNER_DIR/.store_pass")
           KEYALIAS=$(cat "$SIGNER_DIR/.alias")
-          UNSIGNED="$ZIP_FILE"
-          SIGNED="${UNSIGNED%.zip}-signed.zip"
-          echo "📋 Unsigned: $UNSIGNED"
-          echo "📋 Signed  : $SIGNED"
-          cp "$UNSIGNED" "$SIGNED"
-          echo "🔏 Signing ZIP with jarsigner + DigiCert TSA..."
-          SIGNING_OUTPUT=$(jarsigner \
+          SIGNED="${ZIP_FILE%.zip}-signed.zip"
+
+          cp "$ZIP_FILE" "$SIGNED"
+          OUTPUT=$(jarsigner \
             -keystore "$KEYSTORE" \
             -storepass "$PASS" \
             -keypass "$PASS" \
@@ -448,20 +509,45 @@ jobs:
             -digestalg SHA-256 \
             -tsa http://timestamp.digicert.com \
             "$SIGNED" "$KEYALIAS" 2>&1)
-          echo "$SIGNING_OUTPUT"
-          echo "$SIGNING_OUTPUT" | grep -q "jar signed." && {
-            echo "✅ ZIP signed successfully: $SIGNED"
-            echo "$SIGNING_OUTPUT" | grep -q "The timestamp will expire" && \
-              echo "⚠️  $(echo "$SIGNING_OUTPUT" | grep 'The timestamp will expire')"
-          } || {
-            echo "❌ Signing failed!"
-            exit 1
-          }
-          # Point upload step at the signed ZIP
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "jar signed." || { echo "Signing failed"; exit 1; }
+
           echo "ZIP_FILE=$SIGNED" >> $GITHUB_ENV
 
       - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: NeutronClang-${{ github.event.inputs.build_tag }}-Kernel
+          name: ${{ env.ZIP_PREFIX }}-Kernel-${{ github.run_number }}
           path: ${{ env.ZIP_FILE }}
+
+      - name: Push ZIP to Telegram
+        if: success()
+        run: |
+          MD5CHECK=$(md5sum "$ZIP_FILE" | cut -d' ' -f1)
+          SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
+          CAPTION="✅ Build Successful
+          Branch: ${{ inputs.kernel_branch }}
+          Tag: ${{ inputs.build_tag }}
+          KernelSU: ${{ inputs.enable_kernelsu_next }}
+          ReKernel: ${{ inputs.use_rekernel }}
+          Signed: ${{ inputs.enable_signing }}
+          Compiler: ${{ env.CLANG_LABEL }}
+          Size: $SIZE
+          MD5: $MD5CHECK"
+          curl -s -F document=@"$ZIP_FILE" "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
+            -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -F caption="$CAPTION"
+
+      - name: Notify Telegram - build failure
+        if: failure()
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+            -d parse_mode="html" \
+            -d disable_web_page_preview=true \
+            -d text="❌ <b>Build Failed</b>%0A<b>Compiler:</b> <code>${{ inputs.compiler }}</code>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ -f build.log ]; then
+            curl -s -F document=@build.log "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
+              -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
+              -F caption="Build log for failed run (${{ github.run_id }})"
+          fi
