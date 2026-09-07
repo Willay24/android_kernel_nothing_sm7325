@@ -26,6 +26,7 @@
 #include <linux/init.h>
 #include <linux/irq_work.h>
 #include <linux/kthread.h>
+#include <linux/ktime.h>
 #include <linux/module.h>
 #include <linux/sched/cpufreq.h>
 #include <linux/slab.h>
@@ -42,7 +43,7 @@
 #define CPUFREQ_REFLEX_PROGNAME "Reflex CPUFreq Governor"
 #define CPUFREQ_REFLEX_AUTHOR   "Masahito Suzuki"
 
-#define CPUFREQ_REFLEX_VERSION  "0.3.0"
+#define CPUFREQ_REFLEX_VERSION  "0.3.3"
 
 /**************************************************************
  * Default tunables
@@ -334,6 +335,24 @@ static void rfx_update_busy_pct(struct rfx_cpu *rfx_c,
 {
 	u64 cur_idle, cur_wall;
 	unsigned int wall_delta, idle_delta;
+
+	/*
+	 * Fast path: hispeed not armed.  The hispeed window can only
+	 * have expired if the wall clock advanced window_us since the
+	 * last full read (prev_wall_time is only updated by full
+	 * reads, i.e. the Phase 1 / Phase 2 paths below).  A vDSO
+	 * clock read is much cheaper than the kcpustat seqcount/
+	 * atomic64 read inside get_cpu_idle_time(), so skip the latter
+	 * unless the window may have expired.  On expiry the full read
+	 * below re-evaluates the window test against the same clock it
+	 * has always used, so the decision semantics are unchanged; in
+	 * the (rare) microsecond boundary race the arming is delayed
+	 * by at most one callback.
+	 */
+	if (!rfx_c->hispeed_active) {
+		if (ktime_to_us(ktime_get()) - rfx_c->prev_wall_time < window_us)
+			return;
+	}
 
 	cur_idle = get_cpu_idle_time(rfx_c->cpu, &cur_wall, 1);
 	wall_delta = (unsigned int)(cur_wall - rfx_c->prev_wall_time);
