@@ -19,6 +19,10 @@ on:
         description: 'Integrate maxsteeel/nomount (dev branch, yes/no)'
         required: false
         default: 'no'
+      enable_eva:
+        description: 'Integrate E.V.A (yes/no)'
+        required: false
+        default: 'no'
       enable_basebandguard:
         description: 'Integrate Baseband-guard LSM (yes/no)'
         required: false
@@ -161,6 +165,16 @@ jobs:
           # Step 3: Clone Nomount fork (dev branch)
           git clone -b dev https://github.com/Willay24/nomount.git NoMount
           echo "✅ nomount (dev) setup complete"
+      # -------------------------------------------------------------------
+      # E.V.A integration — controlled by the enable_eva input.
+      # Runs the setup.sh from the Willay24/E.V.A repo (main branch).
+      # -------------------------------------------------------------------
+      - name: Setup E.V.A (if enabled)
+        if: ${{ github.event.inputs.enable_eva == 'yes' }}
+        run: |
+          echo "🔧 Enabling E.V.A..."
+          curl -LSs "https://raw.githubusercontent.com/Willay24/E.V.A/main/kernel/setup.sh" | bash -s main
+          echo "✅ E.V.A setup complete"
       # -------------------------------------------------------------------
       # Baseband-guard LSM integration — controlled by the
       # enable_basebandguard input. Mirrors the upstream quick-start:
@@ -465,6 +479,11 @@ jobs:
           # Append nomount suffix when it was integrated
           if [ "${{ github.event.inputs.enable_nomount }}" = "yes" ]; then
             SAFE_TAG="${SAFE_TAG}-nomount"
+          fi
+
+          # Append E.V.A suffix when it was integrated
+          if [ "${{ github.event.inputs.enable_eva }}" = "yes" ]; then
+            SAFE_TAG="${SAFE_TAG}-EVA"
           fi
 
           cd anykernel
