@@ -17,6 +17,7 @@
 #include <linux/string.h>
 #include <linux/suspend.h>
 #include <linux/thermal.h>
+#include <linux/platform_device.h> 
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
 #endif
@@ -139,7 +140,7 @@ static unsigned int find_next_max(struct cpufreq_frequency_table *table,
 
 static int cpu_thermal_init(void)
 {
-	int cpu, ret;
+	int cpu, ret = 0;
 	struct cpufreq_policy *policy;
 	struct freq_qos_request *req;
 
@@ -575,6 +576,9 @@ static void create_thermal_message_node(void)
 
 static void destroy_thermal_message_node(void)
 {
+	if (!nt_thermal_dev.dev)
+		return;
+
 	sysfs_remove_group(&nt_thermal_dev.dev->kobj, &nt_thermal_dev.attrs);
 	if (nt_thermal_dev.class != NULL) {
 		device_destroy(nt_thermal_dev.class, 'H');
@@ -685,26 +689,23 @@ static int of_parse_thermal_message(void)
 	return 0;
 }
 
-static int __init nt_thermal_interface_init(void)
+static int nt_thermal_probe(struct platform_device *pdev)
 {
 	int ret = 0;
 #ifdef CONFIG_DRM_PANEL
-	struct device_node *node;
-
-	node = of_find_node_by_name(NULL, NT_THERMAL_DT_NODE);
-	if (!node) {
-		pr_err("%s: Cannot find %s node\n", __func__, NT_THERMAL_DT_NODE);
-		return ret;
-	}
+	struct device_node *node = pdev->dev.of_node;
 
 	ret = thermal_check_panel(node);
-	if (ret == -EPROBE_DEFER) {
-		pr_err("%s: Failed to parse active panel\n", __func__);
-		return ret;
-	}
+	if (ret == -EPROBE_DEFER)
+		return -EPROBE_DEFER;
+	if (ret)
+		pr_warn("%s: panel check failed (%d), continuing without panel notifier\n",
+			__func__, ret);
 #endif
 
-	cpu_thermal_init();
+	ret = cpu_thermal_init();
+	if (ret)
+		pr_err("%s: cpu_thermal_init failed: %d\n", __func__, ret);
 
 	ret = of_parse_thermal_message();
 	if (ret)
@@ -735,18 +736,35 @@ static int __init nt_thermal_interface_init(void)
 
 	return 0;
 }
-late_initcall(nt_thermal_interface_init);
 
-static void __exit nt_thermal_interface_exit(void)
+static int nt_thermal_remove(struct platform_device *pdev)
 {
 #ifdef CONFIG_DRM_PANEL
 	if (active_panel)
 		drm_panel_notifier_unregister(active_panel, &drm_notifier);
 #endif
+	power_supply_unreg_notifier(&usb_state.psy_nb);
 	destroy_thermal_message_node();
 	destory_thermal_cpu();
+
+	return 0;
 }
-module_exit(nt_thermal_interface_exit);
+
+static const struct of_device_id nt_thermal_of_match[] = {
+	{ .compatible = "nothing,nt-thermal-interface" },
+	{ }
+};
+MODULE_DEVICE_TABLE(of, nt_thermal_of_match);
+
+static struct platform_driver nt_thermal_driver = {
+	.probe = nt_thermal_probe,
+	.remove = nt_thermal_remove,
+	.driver = {
+		.name = "nt-thermal-interface",
+		.of_match_table = nt_thermal_of_match,
+	},
+};
+module_platform_driver(nt_thermal_driver);
 
 MODULE_AUTHOR("Nothing kernel");
 MODULE_DESCRIPTION("Nothing thermal control interface");
