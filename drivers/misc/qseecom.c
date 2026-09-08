@@ -481,7 +481,8 @@ static int __qseecom_scm_call2_locked(uint32_t smc_id, struct qseecom_scm_desc *
 		ret = qcom_scm_qseecom_call(smc_id, desc, false);
 		if ((ret == -EBUSY) || (desc && (desc->ret[0] == -QSEE_RESULT_FAIL_APP_BUSY))) {
 			mutex_unlock(&app_access_lock);
-			msleep(QSEECOM_SCM_EBUSY_WAIT_MS);
+			freezable_schedule_timeout_interruptible(
+				msecs_to_jiffies(QSEECOM_SCM_EBUSY_WAIT_MS));
 			mutex_lock(&app_access_lock);
 		}
 		if (retry_count == 33)
