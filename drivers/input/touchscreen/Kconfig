@@ -1335,4 +1335,10 @@ source "drivers/input/touchscreen/synaptics_dsx/Kconfig"
 
 source "drivers/input/touchscreen/nt36xxx/Kconfig"
 
+config TOUCHSCREEN_IL7807S_TOUCH
+        tristate "il7807s touchscreen supports"
+        depends on I2C && INPUT
+        help
+          support for il7807s touchscreen controller.
+
 endif
