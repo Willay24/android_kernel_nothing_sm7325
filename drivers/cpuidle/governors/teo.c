@@ -9,11 +9,6 @@
 /**
  * DOC: teo-description
  *
- */
-
-/**
- * DOC: teo-description
- *
  * The idea of this governor is based on the observation that on many systems
  * timer interrupts are two or more orders of magnitude more frequent than any
  * other interrupt types, so they are likely to dominate CPU wakeup patterns.
@@ -112,6 +107,11 @@
 #include <linux/sched/clock.h>
 #include <linux/tick.h>
 
+/*
+ * Idle state target residency threshold used for deciding whether or not to
+ * check the time till the closest expected timer event.
+ */
+#define RESIDENCY_THRESHOLD_NS	(15 * NSEC_PER_USEC)
 
 /*
  * Idle state exit latency threshold used for deciding whether or not to check
@@ -125,12 +125,6 @@
  */
 #define PULSE		1024
 #define DECAY_SHIFT	3
-
-/*
- * Idle state target residency threshold used for deciding whether or not to
- * check the time till the closest expected timer event.
- */
-#define RESIDENCY_THRESHOLD_US	15
 
 /*
  * If the closest timer is in this range, the governor idle state selection need
@@ -189,7 +183,6 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 {
 	s64 lat_ns = drv->states[dev->last_state_idx].exit_latency_ns;
 	struct teo_cpu *cpu_data = this_cpu_ptr(&teo_cpus);
-	unsigned int sleep_length_us = ktime_to_us(cpu_data->sleep_length_ns);
 	int i, idx_timer = 0, idx_duration = 0;
 	s64 target_residency_ns, measured_ns;
 	unsigned int total = 0;
@@ -204,8 +197,7 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 		 */
 		measured_ns = S64_MAX;
 	} else {
-
-		measured_us = dev->last_residency;
+		measured_ns = dev->last_residency_ns;
 
 		/*
 		 * The delay between the wakeup and the first instruction
@@ -236,11 +228,11 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
 		teo_decay(&bin->intercepts);
 		total += bin->intercepts;
 
-		target_residency = drv->states[i].target_residency;
+		target_residency_ns = drv->states[i].target_residency_ns;
 
-		if (target_residency <= sleep_length_us) {
+		if (target_residency_ns <= cpu_data->sleep_length_ns) {
 			idx_timer = i;
-			if (target_residency <= measured_us)
+			if (target_residency_ns <= measured_ns)
 				idx_duration = i;
 		}
 	}
@@ -299,7 +291,7 @@ static void teo_update(struct cpuidle_driver *drv, struct cpuidle_device *dev)
  * @drv: cpuidle driver containing state data.
  * @dev: Target CPU.
  * @state_idx: Index of the capping idle state.
- * @duration_us: Idle duration value to match.
+ * @duration_ns: Idle duration value to match.
  */
 static int teo_find_shallower_state(struct cpuidle_driver *drv,
 				    struct cpuidle_device *dev, int state_idx,
@@ -312,7 +304,7 @@ static int teo_find_shallower_state(struct cpuidle_driver *drv,
 			continue;
 
 		state_idx = i;
-		if (drv->states[i].target_residency <= duration_us)
+		if (drv->states[i].target_residency_ns <= duration_ns)
 			break;
 	}
 	return state_idx;
@@ -339,7 +331,7 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	int constraint_idx = 0;
 	int idx0 = 0, idx = -1;
 	int i;
-	int duration_us;
+	s64 duration_ns;
 
 	if (dev->last_state_idx >= 0) {
 		teo_update(drv, dev);
@@ -395,7 +387,7 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 
 		idx = i;
 
-		if (s->exit_latency <= latency_req)
+		if (s->exit_latency_ns <= latency_req)
 			constraint_idx = i;
 
 		/* Save the sums for the current state. */
@@ -414,7 +406,7 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		 * Only one idle state is enabled, so use it, but do not
 		 * allow the tick to be stopped it is shallow enough.
 		 */
-		duration_us = drv->states[idx].target_residency;
+		duration_ns = drv->states[idx].target_residency_ns;
 		goto end;
 	}
 
@@ -481,8 +473,8 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	     latency_req < LATENCY_THRESHOLD_NS))
 		goto out_tick;
 
-	cpu_data->sleep_length_ns = tick_nohz_get_sleep_length(&delta_tick);
-	duration_us = ktime_to_us(cpu_data->sleep_length_ns);
+	duration_ns = tick_nohz_get_sleep_length(&delta_tick);
+	cpu_data->sleep_length_ns = duration_ns;
 
 	/*
 	 * If the tick has been stopped and the closest timer is too far away,
@@ -523,9 +515,9 @@ static int teo_select(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 	 * and intercepts occurring before the tick length are the majority of
 	 * total wakeup events, do not stop the tick.
 	 */
-	if (drv->states[idx].target_residency < TICK_USEC &&
+	if (drv->states[idx].target_residency_ns < TICK_NSEC &&
 	     3 * cpu_data->tick_intercepts >= 2 * cpu_data->total)
-		duration_us = TICK_USEC / 2;
+		duration_ns = TICK_NSEC / 2;
 
 end:
 	/*
@@ -534,7 +526,7 @@ end:
 	 * length.
 	 */
 	if ((!(drv->states[idx].flags & CPUIDLE_FLAG_POLLING) &&
-	    duration_us >= TICK_USEC) || tick_nohz_tick_stopped())
+	    duration_ns >= TICK_NSEC) || tick_nohz_tick_stopped())
 		return idx;
 
 	/*
@@ -543,8 +535,8 @@ end:
 	 * timer including the tick, try to correct that.
 	 */
 	if (idx > idx0 &&
-	    drv->states[idx].target_residency > ktime_to_us(delta_tick))
-		idx = teo_find_shallower_state(drv, dev, idx, ktime_to_us(delta_tick), false);
+	    drv->states[idx].target_residency_ns > delta_tick)
+		idx = teo_find_shallower_state(drv, dev, idx, delta_tick);
 
 out_tick:
 	*stop_tick = false;
