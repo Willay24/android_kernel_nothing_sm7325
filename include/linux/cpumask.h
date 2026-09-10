@@ -185,6 +185,8 @@ static inline int cpumask_any_distribute(const struct cpumask *srcp)
 	for ((cpu) = 0; (cpu) < 1; (cpu)++, (void)mask, (void)(start))
 #define for_each_cpu_and(cpu, mask1, mask2)	\
 	for ((cpu) = 0; (cpu) < 1; (cpu)++, (void)mask1, (void)mask2)
+#define for_each_cpu_andnot(cpu, mask1, mask2)	\
+	for ((cpu) = 0; (cpu) < 1; (cpu)++, (void)mask1, (void)mask2)
 #else
 #if NR_CPUS <= BITS_PER_LONG
 static inline unsigned int cpumask_first(const struct cpumask *srcp)
@@ -260,13 +262,32 @@ static inline int cpumask_next_and(int n, const struct cpumask *srcp,
 
 	/* -1 is a legal arg here. */
 	if (n != -1)
-		cpumask_check(n);
-
-	shift = n + 1;
+		shift = n + 1;
+	else
+		shift = 0;
 	if (unlikely(shift >= nr_cpumask_bits))
 		return nr_cpumask_bits;
 
 	bits = *cpumask_bits(srcp) & *cpumask_bits(andp);
+	nr = __builtin_ffsl((bits >> shift) << shift) - 1;
+	return nr > nr_cpumask_bits ? nr_cpumask_bits : nr;
+}
+
+static inline int cpumask_next_andnot(int n, const struct cpumask *srcp,
+				      const struct cpumask *andp)
+{
+	unsigned int nr, shift;
+	unsigned long bits;
+
+	/* -1 is a legal arg here. */
+	if (n != -1)
+		shift = n + 1;
+	else
+		shift = 0;
+	if (unlikely(shift >= nr_cpumask_bits))
+		return nr_cpumask_bits;
+
+	bits = *cpumask_bits(srcp) & ~*cpumask_bits(andp);
 	nr = __builtin_ffsl((bits >> shift) << shift) - 1;
 	return nr > nr_cpumask_bits ? nr_cpumask_bits : nr;
 }
@@ -390,6 +411,26 @@ extern int cpumask_next_wrap(int n, const struct cpumask *mask, int start, bool 
 #define for_each_cpu_and(cpu, mask1, mask2)				\
 	for ((cpu) = -1;						\
 		(cpu) = cpumask_next_and((cpu), (mask1), (mask2)),	\
+		(cpu) < nr_cpu_ids;)
+
+/**
+ * for_each_cpu_andnot - iterate over every cpu present in one mask, excluding
+ *			 those present in another.
+ * @cpu: the (optionally unsigned) integer iterator
+ * @mask1: the first cpumask pointer
+ * @mask2: the second cpumask pointer
+ *
+ * This saves a temporary CPU mask in many places.  It is equivalent to:
+ *	struct cpumask tmp;
+ *	cpumask_andnot(&tmp, &mask1, &mask2);
+ *	for_each_cpu(cpu, &tmp)
+ *		...
+ *
+ * After the loop, cpu is >= nr_cpu_ids.
+ */
+#define for_each_cpu_andnot(cpu, mask1, mask2)				\
+	for ((cpu) = -1;						\
+		(cpu) = cpumask_next_andnot((cpu), (mask1), (mask2)),	\
 		(cpu) < nr_cpu_ids;)
 #endif /* SMP */
 
