@@ -42,6 +42,7 @@
 #include "lpm-levels.h"
 #include <trace/events/power.h>
 #include <linux/clk.h>
+#include <linux/math64.h>
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
 #endif
@@ -1417,11 +1418,13 @@ static void update_history(struct cpuidle_device *dev, int idx)
 		else
 			history->hptr--;
 
-		history->resi[history->hptr] += dev->last_residency;
-		history->htmr_wkup = 0;
-		tmr = 1;
-	} else
-		history->resi[history->hptr] = dev->last_residency;
+		history->resi[history->hptr] +=
+                        div_u64(dev->last_residency_ns, NSEC_PER_USEC);
+                history->htmr_wkup = 0;
+                tmr = 1;
+        } else
+                history->resi[history->hptr] =
+                        div_u64(dev->last_residency_ns, NSEC_PER_USEC);
 
 	history->mode[history->hptr] = idx;
 
@@ -1477,7 +1480,7 @@ exit:
 
 	cluster_unprepare(cpu->parent, cpumask, idx, true, end_time, success);
 	cpu_unprepare(cpu, idx, true);
-	dev->last_residency = ktime_us_delta(ktime_get(), start);
+	dev->last_residency_ns = ktime_to_ns(ktime_sub(ktime_get(), start));
 	update_history(dev, idx);
 	RCU_NONIDLE(trace_cpu_idle_exit(idx, ret));
 	if (lpm_prediction && cpu->lpm_prediction) {
