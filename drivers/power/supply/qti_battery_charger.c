@@ -2456,6 +2456,126 @@ static ssize_t charging_en_store(struct class *c,
 static CLASS_ATTR_RW(charging_en);
 #endif
 
+#ifdef CONFIG_NOTHING
+/*
+ * Charging control nodes, wired up regardless of wireless support.
+ * Both just move FCC (fast-charge current limit) between 0 and its
+ * default via the existing __battery_psy_set_charge_current() —
+ * that's already restrict_chg/restrict_cur's mechanism, so it's safe
+ * on every board this driver targets, wls or not.
+ */
+static ssize_t charging_enabled_store(struct class *c,
+				      struct class_attribute *attr,
+				      const char *buf, size_t count)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+	int rc;
+	bool val;
+
+	if (kstrtobool(buf, &val))
+		return -EINVAL;
+
+	pr_info("%s,val:%d", __func__, val);
+
+	if (val) {
+		rc = __battery_psy_set_charge_current(bcdev,
+				bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
+				DEFAULT_RESTRICT_FCC_UA);
+		if (rc < 0)
+			return rc;
+		bcdev->restrict_fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
+				DEFAULT_RESTRICT_FCC_UA;
+		bcdev->restrict_chg_en = 0;
+	} else {
+		rc = __battery_psy_set_charge_current(bcdev, 0);
+		if (rc < 0)
+			return rc;
+		bcdev->restrict_fcc_ua = 0;
+		bcdev->restrict_chg_en = 1;
+	}
+
+	return count;
+}
+
+static ssize_t charging_enabled_show(struct class *c,
+				     struct class_attribute *attr, char *buf)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+	bool val = !bcdev->restrict_chg_en && bcdev->restrict_fcc_ua;
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", val);
+}
+static CLASS_ATTR_RW(charging_enabled);
+
+static ssize_t bypass_charging_store(struct class *c,
+				     struct class_attribute *attr,
+				     const char *buf, size_t count)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+	int rc;
+	bool val;
+
+	if (kstrtobool(buf, &val))
+		return -EINVAL;
+
+	pr_info("%s,val:%d", __func__, val);
+
+	if (val) {
+		rc = __battery_psy_set_charge_current(bcdev, 0);
+		if (rc < 0)
+			return rc;
+		bcdev->restrict_fcc_ua = 0;
+		bcdev->restrict_chg_en = 1;
+	} else {
+		rc = __battery_psy_set_charge_current(bcdev,
+				bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
+				DEFAULT_RESTRICT_FCC_UA);
+		if (rc < 0)
+			return rc;
+		bcdev->restrict_fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
+				DEFAULT_RESTRICT_FCC_UA;
+		bcdev->restrict_chg_en = 0;
+	}
+
+	return count;
+}
+
+static ssize_t bypass_charging_show(struct class *c,
+				    struct class_attribute *attr, char *buf)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n",
+			bcdev->restrict_chg_en && !bcdev->restrict_fcc_ua);
+}
+static CLASS_ATTR_RW(bypass_charging);
+#endif /* CONFIG_NOTHING */
+
+static struct attribute *nothing_battery_class_attrs[] = {
+#ifdef CONFIG_NT_CHG
+	&class_attr_usb_charger_en.attr,
+	&class_attr_charge_power.attr,
+	&class_attr_slowcharge_en.attr,
+	&class_attr_charge_pump_enable.attr,
+	&class_attr_typec_cc_orientation.attr,
+#endif
+	&class_attr_syssoc.attr,
+	&class_attr_batsoc.attr,
+#ifdef CONFIG_NOTHING
+	&class_attr_charging_enabled.attr,
+	&class_attr_bypass_charging.attr,
+#endif
+	NULL,
+};
+
+static const struct attribute_group nothing_battery_class_group = {
+	.attrs = nothing_battery_class_attrs,
+};
+
 static struct attribute *battery_class_attrs[] = {
 	&class_attr_soh.attr,
 	&class_attr_resistance.attr,
@@ -2468,19 +2588,10 @@ static struct attribute *battery_class_attrs[] = {
 	&class_attr_wireless_fw_version.attr,
 	&class_attr_wireless_fw_crc.attr,
 	&class_attr_ship_mode_en.attr,
-#ifdef CONFIG_NT_CHG
-	&class_attr_usb_charger_en.attr,
-	&class_attr_charge_power.attr,
-	&class_attr_slowcharge_en.attr,
-#endif
 	&class_attr_restrict_chg.attr,
 	&class_attr_restrict_cur.attr,
 	&class_attr_usb_real_type.attr,
 	&class_attr_usb_typec_compliant.attr,
-#ifdef CONFIG_NT_CHG
-	&class_attr_charge_pump_enable.attr,
-	&class_attr_typec_cc_orientation.attr,
-#endif
 #ifdef CONFIG_STWLC38_FW
 	&class_attr_wls_volt_tx.attr,
 	&class_attr_wls_curr_tx.attr,
@@ -2491,15 +2602,18 @@ static struct attribute *battery_class_attrs[] = {
 	&class_attr_wls_en.attr,
 	&class_attr_wls_chg_param.attr,
 #endif
-	&class_attr_syssoc.attr,
-	&class_attr_batsoc.attr,
-
-#if defined(CONFIG_NT_CHG) && defined(CONFIG_STWLC38_FW)
-        &class_attr_charging_en.attr,
-#endif
 	NULL,
 };
-ATTRIBUTE_GROUPS(battery_class);
+
+static const struct attribute_group battery_class_group = {
+	.attrs = battery_class_attrs,
+};
+
+static const struct attribute_group *battery_class_groups[] = {
+	&battery_class_group,
+	&nothing_battery_class_group,
+	NULL,
+};
 
 static struct attribute *battery_class_no_wls_attrs[] = {
 	&class_attr_soh.attr,
@@ -2514,7 +2628,16 @@ static struct attribute *battery_class_no_wls_attrs[] = {
 	&class_attr_usb_typec_compliant.attr,
 	NULL,
 };
-ATTRIBUTE_GROUPS(battery_class_no_wls);
+
+static const struct attribute_group battery_class_no_wls_group = {
+	.attrs = battery_class_no_wls_attrs,
+};
+
+static const struct attribute_group *battery_class_no_wls_groups[] = {
+	&battery_class_no_wls_group,
+	&nothing_battery_class_group,
+	NULL,
+};
 
 #ifdef CONFIG_DEBUG_FS
 static void battery_chg_add_debugfs(struct battery_chg_dev *bcdev)
