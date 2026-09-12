@@ -304,12 +304,16 @@ struct battery_chg_dev {
 	u32				connector_type;
 	u32				usb_prev_mode;
 	bool				restrict_chg_en;
+	bool				charging_suspended;	/* charging_enabled / bypass_charging */
 	/* To track the driver initialization status */
 	bool				initialized;
 	struct delayed_work 	nt_update_status_work;
 	struct wakeup_source *chg_wake;
 	bool				notify_en;
 };
+
+static int __battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
+					u32 fcc_ua);
 
 static const int battery_prop_map[BATT_PROP_MAX] = {
 	[BATT_STATUS]		= POWER_SUPPLY_PROP_STATUS,
@@ -855,6 +859,19 @@ static void nt_update_status_function_work(struct work_struct *work)
 	if (!bcdev) {
 		pr_info("bcdev is null \n");
 		goto out;
+	}
+
+	/* Re-assert charging suspend state in case the ADSP subsystem
+	 * restarted and reset FCC/charge-enable to firmware defaults.
+	 */
+	if (bcdev->charging_suspended) {
+		if (bcdev->last_fcc_ua != 0)
+			__battery_psy_set_charge_current(bcdev, 0);
+		write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_USB],
+					USB_CHARGE_ENABLE, 0);
+		if (!bcdev->wls_not_supported)
+			write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS],
+						WLS_ST38_EN, 0);
 	}
 	pst = &bcdev->psy_list[PSY_TYPE_USB];
 	if (pst && pst->psy) {
@@ -1417,8 +1434,7 @@ static void battery_chg_subsys_up_work(struct work_struct *work)
 	msleep(200);
 
 	if (bcdev->last_fcc_ua) {
-		rc = __battery_psy_set_charge_current(bcdev,
-				bcdev->last_fcc_ua);
+		rc = __battery_psy_set_charge_current(bcdev, bcdev->last_fcc_ua);
 		if (rc < 0)
 			pr_err("Failed to set FCC (%u uA), rc=%d\n",
 				bcdev->last_fcc_ua, rc);
@@ -2478,21 +2494,25 @@ static ssize_t charging_enabled_store(struct class *c,
 
 	pr_info("%s,val:%d", __func__, val);
 
-	if (val) {
-		rc = __battery_psy_set_charge_current(bcdev,
-				bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA);
+	bcdev->charging_suspended = !val;
+
+	rc = __battery_psy_set_charge_current(bcdev, val ?
+			(bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
+			 DEFAULT_RESTRICT_FCC_UA) : 0);
+	if (rc < 0)
+		pr_err("Failed to set FCC for charging_enabled=%d, rc=%d\n",
+			val, rc);
+
+	rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_USB],
+				USB_CHARGE_ENABLE, val);
+	if (rc < 0)
+		pr_err("Failed to write USB_CHARGE_ENABLE=%d, rc=%d\n", val, rc);
+
+	if (!bcdev->wls_not_supported) {
+		rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS],
+					WLS_ST38_EN, val);
 		if (rc < 0)
-			return rc;
-		bcdev->restrict_fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA;
-		bcdev->restrict_chg_en = 0;
-	} else {
-		rc = __battery_psy_set_charge_current(bcdev, 0);
-		if (rc < 0)
-			return rc;
-		bcdev->restrict_fcc_ua = 0;
-		bcdev->restrict_chg_en = 1;
+			pr_err("Failed to write WLS_ST38_EN=%d, rc=%d\n", val, rc);
 	}
 
 	return count;
@@ -2503,9 +2523,8 @@ static ssize_t charging_enabled_show(struct class *c,
 {
 	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
 						battery_class);
-	bool val = !bcdev->restrict_chg_en && bcdev->restrict_fcc_ua;
 
-	return scnprintf(buf, PAGE_SIZE, "%d\n", val);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", !bcdev->charging_suspended);
 }
 static CLASS_ATTR_RW(charging_enabled);
 
@@ -2523,21 +2542,25 @@ static ssize_t bypass_charging_store(struct class *c,
 
 	pr_info("%s,val:%d", __func__, val);
 
-	if (val) {
-		rc = __battery_psy_set_charge_current(bcdev, 0);
+	bcdev->charging_suspended = val;
+
+	rc = __battery_psy_set_charge_current(bcdev, val ? 0 :
+			(bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
+			 DEFAULT_RESTRICT_FCC_UA));
+	if (rc < 0)
+		pr_err("Failed to set FCC for bypass_charging=%d, rc=%d\n",
+			val, rc);
+
+	rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_USB],
+				USB_CHARGE_ENABLE, !val);
+	if (rc < 0)
+		pr_err("Failed to write USB_CHARGE_ENABLE=%d, rc=%d\n", !val, rc);
+
+	if (!bcdev->wls_not_supported) {
+		rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS],
+					WLS_ST38_EN, !val);
 		if (rc < 0)
-			return rc;
-		bcdev->restrict_fcc_ua = 0;
-		bcdev->restrict_chg_en = 1;
-	} else {
-		rc = __battery_psy_set_charge_current(bcdev,
-				bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA);
-		if (rc < 0)
-			return rc;
-		bcdev->restrict_fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA;
-		bcdev->restrict_chg_en = 0;
+			pr_err("Failed to write WLS_ST38_EN=%d, rc=%d\n", !val, rc);
 	}
 
 	return count;
@@ -2549,8 +2572,7 @@ static ssize_t bypass_charging_show(struct class *c,
 	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
 						battery_class);
 
-	return scnprintf(buf, PAGE_SIZE, "%d\n",
-			bcdev->restrict_chg_en && !bcdev->restrict_fcc_ua);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", bcdev->charging_suspended);
 }
 static CLASS_ATTR_RW(bypass_charging);
 #endif /* CONFIG_NOTHING */
@@ -2565,6 +2587,9 @@ static struct attribute *nothing_battery_class_attrs[] = {
 #endif
 	&class_attr_syssoc.attr,
 	&class_attr_batsoc.attr,
+#if defined(CONFIG_NT_CHG) && defined(CONFIG_STWLC38_FW)
+	&class_attr_charging_en.attr,
+#endif
 #ifdef CONFIG_NOTHING
 	&class_attr_charging_enabled.attr,
 	&class_attr_bypass_charging.attr,
