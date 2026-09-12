@@ -238,7 +238,7 @@ static int copy_module_from_user(const void __user *umod, unsigned long len,
 	if (info->len < sizeof(*(info->hdr)))
 		return -ENOEXEC;
 
-	err = security_kernel_load_data(LOADING_MODULE);
+	err = security_kernel_load_data(LOADING_MODULE, true);
 	if (err)
 		return err;
 
@@ -251,10 +251,9 @@ static int copy_module_from_user(const void __user *umod, unsigned long len,
 		err = -EFAULT;
 		goto out;
 	}
-#if 0
+
 	err = security_kernel_post_load_data((char *)info->hdr, info->len,
 					     LOADING_MODULE, "init_module");
-#endif
 out:
 	if (err)
 		vfree(info->hdr);
