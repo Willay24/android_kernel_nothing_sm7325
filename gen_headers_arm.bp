@@ -932,6 +932,7 @@ gen_headers_out_arm = [
     "linux/usb/f_accessory.h",
     "linux/usb/functionfs.h",
     "linux/usb/g_printer.h",
+    "linux/usb/g_uvc-new.h",
     "linux/usb/g_uvc.h",
     "linux/usb/gadgetfs.h",
     "linux/usb/midi.h",
