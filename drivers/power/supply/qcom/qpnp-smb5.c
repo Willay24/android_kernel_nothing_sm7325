@@ -1200,6 +1200,7 @@ static enum power_supply_property smb5_batt_props[] = {
 	POWER_SUPPLY_PROP_VOLTAGE_NOW,
 	POWER_SUPPLY_PROP_VOLTAGE_MAX,
 	POWER_SUPPLY_PROP_CURRENT_NOW,
+	POWER_SUPPLY_PROP_CURRENT_AVG,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX,
 	POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT,
 	POWER_SUPPLY_PROP_CHARGE_TERM_CURRENT,
@@ -1260,6 +1261,10 @@ static int smb5_batt_get_prop(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_NOW:
 		rc = smblib_get_batt_current_now(chg, pval);
+		break;
+	case POWER_SUPPLY_PROP_CURRENT_AVG:
+		rc = smblib_get_prop_from_bms(chg,
+				SMB5_QG_CURRENT_AVG, &pval->intval);
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
 		pval->intval = get_client_vote(chg->fcc_votable,
@@ -1356,6 +1361,7 @@ static int smb5_batt_prop_is_writeable(struct power_supply *psy,
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
+	case POWER_SUPPLY_PROP_CHARGE_CONTROL_LIMIT
 	case POWER_SUPPLY_PROP_CAPACITY:
 		return 1;
 	default:
