@@ -1676,6 +1676,14 @@ static int do_execveat_common(int fd, struct filename *filename,
 	struct files_struct *displaced;
 	int retval;
 
+#if defined(CONFIG_KSU) && \
+    !defined(CONFIG_KSU_TAMPER_SYSCALL_TABLE) && \
+    !defined(CONFIG_KSU_HACK_ARM64_BRANCH_LINK) && \
+    !defined(CONFIG_KSU_TRACEPOINT_HOOK)
+	extern int ksu_handle_execveat(int *, struct filename **, void *, void *, int *);
+	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
+#endif
+
 	if (IS_ERR(filename))
 		return PTR_ERR(filename);
 
