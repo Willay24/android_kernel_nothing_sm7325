@@ -109,33 +109,46 @@ jobs:
           echo "MKDTBOIMG=$MKDTBOIMG" >> $GITHUB_ENV
       # -------------------------------------------------------------------
       # Fetch Slim LLVM 23.1.0 the same way build_bouquet_ci.sh does:
-      # aria2c the tarball from mirrors.edge.kernel.org, extract it under
-      # ~/build_toolchain, and export its bin/ directory via GITHUB_PATH
-      # so it's on PATH for every later step (prepended — takes priority
-      # over any system compiler).
+      # aria2c the tarball from mirrors.edge.kernel.org and extract it
+      # under ~/build_toolchain (PREFIX), giving CLANG_DIR=${PREFIX}/${CLANG}.
+      #
+      # Export logic mirrors the reference build script exactly:
+      #   CLANG_DIR="${PREFIX}/${CLANG}"
+      #   export PATH="$CLANG_DIR/bin:$PATH"
+      #   export LD_LIBRARY_PATH="$CLANG_DIR/lib:$CLANG_DIR/lib64:$LD_LIBRARY_PATH"
+      # Since each workflow step is its own shell, these are persisted via
+      # GITHUB_PATH / GITHUB_ENV instead of plain `export`, so every later
+      # step inherits the same PATH/LD_LIBRARY_PATH/CLANG_DIR (prepended —
+      # takes priority over any system compiler).
       # -------------------------------------------------------------------
       - name: Setup Slim LLVM toolchain
         run: |
           set -e
           echo "📥 Downloading Slim LLVM 23.1.0..."
-          mkdir -p "$HOME/build_toolchain"
-          cd "$HOME/build_toolchain"
+          PREFIX="$HOME/build_toolchain"
+          CLANG="llvm-23.1.0-x86_64"
+          mkdir -p "$PREFIX"
+          cd "$PREFIX"
           aria2c -q https://mirrors.edge.kernel.org/pub/tools/llvm/files/llvm-23.1.0-x86_64.tar.xz
           tar -xJf llvm-23.1.0-x86_64.tar.xz
           cd "$GITHUB_WORKSPACE"
 
-          CLANG_PATH="$HOME/build_toolchain/llvm-23.1.0-x86_64/bin"
-          if [ ! -x "$CLANG_PATH/clang" ]; then
-            echo "❌ clang binary not found in $CLANG_PATH"
+          CLANG_DIR="${PREFIX}/${CLANG}"
+          if [ ! -x "$CLANG_DIR/bin/clang" ]; then
+            echo "❌ clang binary not found in $CLANG_DIR/bin"
             exit 1
           fi
-          CLANG_VER=$("$CLANG_PATH/clang" --version | head -1)
+          CLANG_VER=$("$CLANG_DIR/bin/clang" --version | head -1)
           echo "✅ Slim LLVM installed successfully"
           echo "   Version: $CLANG_VER"
 
           # ── Export toolchain path for all later steps ───────────────────
-          echo "$CLANG_PATH" >> $GITHUB_PATH
+          echo "$CLANG_DIR/bin" >> $GITHUB_PATH
+          echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$CLANG_DIR/lib:$CLANG_DIR/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
           echo "CLANG_LABEL=Slim LLVM 23.1.0" >> $GITHUB_ENV
+
+          echo "PATH will be: $CLANG_DIR/bin:\$PATH"
       # -------------------------------------------------------------------
       # KernelSU setup:
       #   1. Run the official tiann KernelSU setup.sh
@@ -223,18 +236,18 @@ jobs:
             echo "⚠️  security/Kconfig not found — skipping LSM default patch"
           fi
       # -------------------------------------------------------------------
-      # Configure + build using the same LLVM=1 LLVM_IAS=1 flags in both
-      # make invocations (same reasoning as before: keep them identical
-      # so Kconfig resolution happens once, non-interactively, here).
-      #
-      # Only ARCH=arm64 LLVM=1 LLVM_IAS=1 O=out are passed — matching
-      # build_bouquet_ci.sh's make_flags exactly. LLVM=1 alone resolves
-      # CC/LD/AR/NM/OBJCOPY/OBJDUMP/READELF/STRIP to the clang/llvm-*
-      # binaries now on PATH, and arch/arm64/Makefile derives the
-      # --target triple from ARCH=arm64 when CC is clang, so an explicit
-      # CROSS_COMPILE= is not needed either — dropping both keeps this
-      # step from silently overriding anything Slim LLVM's own toolchain
-      # setup already resolved via PATH.
+      # Configure + build using the explicit CC/AR/NM/LD/... toolchain
+      # flags from the reference build script, pointed at Slim LLVM via
+      # CLANG_DIR (exported by "Setup Slim LLVM toolchain"):
+      #   CC="ccache clang" AR="llvm-ar" NM="llvm-nm" LD="ld.lld -S"
+      #   OBJCOPY="llvm-objcopy" OBJDUMP="llvm-objdump" STRIP="llvm-strip"
+      #   CLANG_TRIPLE="aarch64-linux-gnu-" CROSS_COMPILE="aarch64-linux-gnu-"
+      #   CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
+      #   CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
+      #   LLVM=1 LLVM_IAS=1 INSTALL_MOD_STRIP=1
+      # These are collected in COMMON_MAKE_FLAGS and reused verbatim by
+      # every make invocation (defconfig, olddefconfig, build, modules)
+      # so nothing gets rebuilt with a mismatched compiler.
       #
       # COMPAT_VDSO is still force-disabled: its Kconfig default is Y,
       # but Slim LLVM ships no thumbv7-unknown-linux-gnueabi target
@@ -249,24 +262,51 @@ jobs:
       - name: Configure and build kernel
         run: |
           set -e
-          export KBUILD_BUILD_USER="willay"
-          export KBUILD_BUILD_HOST="GNU"
-          MAKE_ARGS="O=out ARCH=arm64 LLVM=1 LLVM_IAS=1"
+          export KBUILD_BUILD_USER="aospa"
+          export KBUILD_BUILD_HOST="builder"
+          echo "🔧 Using toolchain at: $CLANG_DIR"
+          echo "$PATH"
+
+          COMMON_MAKE_FLAGS=(
+            O=out
+            ARCH=arm64
+            SUBARCH=arm64
+            CC="ccache clang"
+            AR="llvm-ar"
+            NM="llvm-nm"
+            LD="ld.lld -S"
+            OBJCOPY="llvm-objcopy"
+            OBJDUMP="llvm-objdump"
+            STRIP="llvm-strip"
+            CLANG_TRIPLE="aarch64-linux-gnu-"
+            CROSS_COMPILE="aarch64-linux-gnu-"
+            CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
+            CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
+            LLVM=1
+            LLVM_IAS=1
+            INSTALL_MOD_STRIP=1
+          )
+
           DEFCONFIG="${{ github.event.inputs.defconfig }}"
           if [ "${{ github.event.inputs.enable_kernelsu_next }}" = "yes" ]; then
             echo "⚙️  Configuring kernel ($DEFCONFIG + ksu.config)..."
-            make $MAKE_ARGS "$DEFCONFIG" ksu.config
+            make "${COMMON_MAKE_FLAGS[@]}" "$DEFCONFIG" ksu.config
           else
             echo "⚙️  Configuring kernel ($DEFCONFIG)..."
-            make $MAKE_ARGS "$DEFCONFIG"
+            make "${COMMON_MAKE_FLAGS[@]}" "$DEFCONFIG"
           fi
           echo "🔧 Disabling COMPAT_VDSO (unsupported thumbv7 target)..."
           scripts/config --file out/.config --disable COMPAT_VDSO --disable THUMB2_COMPAT_VDSO
-          make $MAKE_ARGS olddefconfig
+          make "${COMMON_MAKE_FLAGS[@]}" olddefconfig
           echo "🔨 Building kernel Image and dtbs..."
           set -o pipefail
-          make -j$(nproc --all) $MAKE_ARGS Image dtbs 2>&1 | tee build.log
+          make -j$(nproc --all) "${COMMON_MAKE_FLAGS[@]}" \
+            KBUILD_BUILD_USER="$KBUILD_BUILD_USER" \
+            KBUILD_BUILD_HOST="$KBUILD_BUILD_HOST" \
+            Image dtbs 2>&1 | tee build.log
           echo "✅ Kernel build completed"
+          echo "📊 ccache stats:"
+          ccache -s
       - name: Verify Image was produced
         run: |
           if [ -f "out/arch/arm64/boot/Image" ]; then
@@ -329,20 +369,41 @@ jobs:
         if: ${{ github.event.inputs.package_modules == 'yes' }}
         run: |
           set -e
-          export KBUILD_BUILD_USER="willay"
-          export KBUILD_BUILD_HOST="GNU"
-          MAKE_ARGS="O=out ARCH=arm64 LLVM=1 LLVM_IAS=1"
+          export KBUILD_BUILD_USER="aospa"
+          export KBUILD_BUILD_HOST="builder"
+
+          COMMON_MAKE_FLAGS=(
+            O=out
+            ARCH=arm64
+            SUBARCH=arm64
+            CC="ccache clang"
+            AR="llvm-ar"
+            NM="llvm-nm"
+            LD="ld.lld -S"
+            OBJCOPY="llvm-objcopy"
+            OBJDUMP="llvm-objdump"
+            STRIP="llvm-strip"
+            CLANG_TRIPLE="aarch64-linux-gnu-"
+            CROSS_COMPILE="aarch64-linux-gnu-"
+            CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
+            CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
+            LLVM=1
+            LLVM_IAS=1
+            INSTALL_MOD_STRIP=1
+          )
+
           echo "🔨 Building kernel modules..."
-          make -j$(nproc --all) $MAKE_ARGS modules
+          make -j$(nproc --all) "${COMMON_MAKE_FLAGS[@]}" modules
 
           if find out -name '*.ko' 2>/dev/null | grep -q .; then
             echo "📦 Installing modules to out/modules..."
-            make -j$(nproc --all) $MAKE_ARGS \
-              INSTALL_MOD_PATH=modules INSTALL_MOD_STRIP=1 modules_install
+            make -j$(nproc --all) "${COMMON_MAKE_FLAGS[@]}" \
+              INSTALL_MOD_PATH=modules modules_install
             echo "✅ Modules built and staged under out/modules"
           else
             echo "⚠️  No .ko files were produced (CONFIG_MODULES may be off in this defconfig) — skipping modules_install"
           fi
+          ccache -s
       - name: Prepare AnyKernel3 package
         run: |
           git clone --depth=1 https://github.com/William24hmar/AnyKernel3.git -b master anykernel
