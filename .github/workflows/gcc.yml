@@ -1,0 +1,91 @@
+name: gcc build
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository: { description: 'Repo', required: true, default: 'Willay24/android_kernel_nothing_sm7325' }
+      branch: { description: 'Branch', required: true, default: 'Staging-Kernel' }
+      defconfig: { description: 'Defconfig', required: true, default: 'phone1_defconfig' }
+      kernelsu_branch: { description: 'KSU Branch', required: false, default: 'master-susfs' }
+      anykernel_repo: { description: 'AnyKernel Repo', required: true, default: 'Willay24/AnyKernel3' }
+      anykernel_branch: { description: 'AnyKernel Branch', required: true, default: 'master' }
+
+env:
+  CHAT_ID: ${{ secrets.CHAT_ID }}
+  BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+  KBUILD_BUILD_USER: "aospa"
+  KBUILD_BUILD_HOST: "builder"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        repository: ${{ github.event.inputs.repository }}
+        ref: ${{ github.event.inputs.branch }}
+        submodules: recursive
+
+    - name: Start Notification
+      run: |
+        curl -s -X POST "https://api.telegram.org/bot${{ env.BOT_TOKEN }}/sendMessage" \
+        -d chat_id="${{ env.CHAT_ID }}" \
+        -d text="build is starting sayangg: ${{ github.event.inputs.repository }} [${{ github.event.inputs.branch }}]"
+
+    - name: Setup and Build
+      run: |
+        sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc zip gcc-arm-linux-gnueabi python3 python-is-python3 git wget curl device-tree-compiler zstd xz-utils
+
+        export TZ="Asia/Jakarta"
+        BUILD_TIME=$(date +'%H%M-%d%m%y')
+        echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
+
+        mkdir -p tc/gcc
+        wget -q "https://github.com/mvaisakh/gcc-build/releases/download/13092026/eva-gcc-arm64-13092026.xz" -O tc/gcc.tar.xz
+        tar -xf tc/gcc.tar.xz -C tc/gcc --strip-components=1
+        export PATH=$PWD/tc/gcc/bin:$PATH
+
+        GCC_PREFIX=$(find $PWD/tc/gcc/bin -name '*-gcc' | head -n1 | sed 's/.*\///;s/gcc$//')
+        echo "Detected GCC prefix: $GCC_PREFIX"
+
+        curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s ${{ github.event.inputs.kernelsu_branch }}
+
+        export ARCH=arm64
+        ARGS="O=out ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- KCFLAGS=-Wno-error"
+
+        make $ARGS ${{ github.event.inputs.defconfig }}
+        make -j$(nproc) $ARGS dtbs dtboimage || true
+        make $ARGS dtb.img || true
+        make -j$(nproc) $ARGS 2>&1 | tee compile.log
+
+        if [ -f out/arch/arm64/boot/Image ]; then
+          ZIP_NAME="phone1-kernel-$BUILD_TIME.zip"
+
+          git clone --depth=1 -b ${{ github.event.inputs.anykernel_branch }} https://github.com/${{ github.event.inputs.anykernel_repo }}.git AnyKernel3
+
+          cp out/arch/arm64/boot/Image AnyKernel3/
+          [ -f out/arch/arm64/boot/dtb.img ] && cp out/arch/arm64/boot/dtb.img AnyKernel3/
+          [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img AnyKernel3/
+
+          cd AnyKernel3
+          zip -r9 "../$ZIP_NAME" * -x .git README.md "*placeholder"
+          cd ..
+
+          echo "FINAL_ZIP=$ZIP_NAME" >> $GITHUB_ENV
+        fi
+
+    - name: Upload Artifacts
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: Build-${{ env.BUILD_TIME }}
+        path: |
+          *.log
+          *.zip
+        retention-days: 1
+
+    - name: Telegram Notification
+      if: always()
+      run: |
+        [ -f "compile.log" ] && curl -s -F document=@"compile.log" "https://api.telegram.org/bot${{ env.BOT_TOKEN }}/sendDocument" -F chat_id="${{ env.CHAT_ID }}" -F caption="Build log"
+        [ -f "${{ env.FINAL_ZIP }}" ] && curl -s -F document=@"${{ env.FINAL_ZIP }}" "https://api.telegram.org/bot${{ env.BOT_TOKEN }}/sendDocument" -F chat_id="${{ env.CHAT_ID }}" -F caption="build done sayangg!!!"
