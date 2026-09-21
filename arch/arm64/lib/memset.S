@@ -1,206 +1,170 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Copyright (C) 2013 ARM Ltd.
- * Copyright (C) 2013 Linaro.
+ * __arm_sc_memset - fill memory with a constant byte
  *
- * This code is based on glibc cortex strings work originally authored by Linaro
- * be found @
+ * Copyright (c) 2012-2026, Arm Limited.
  *
- * http://bazaar.launchpad.net/~linaro-toolchain-dev/cortex-strings/trunk/
- * files/head:/src/aarch64/
+ * Adapted from the original at:
+ * https://github.com/ARM-software/optimized-routines/blob/5288c42/string/aarch64/memset-scalar.S
+ */
+
+/* Assumptions:
+ *
+ * ARMv8-a, AArch64, unaligned accesses.
  */
 
 #include <linux/linkage.h>
 #include <asm/assembler.h>
 #include <asm/cache.h>
 
-/*
- * Fill in the buffer with character c (alignment handled by the hardware)
- *
- * Parameters:
- *	x0 - buf
- *	x1 - c
- *	x2 - n
- * Returns:
- *	x0 - buf
- */
+#define dstin	x0
+#define val	x1
+#define valw	w1
+#define count	x2
+#define dst	x3
+#define dstend	x4
+#define zva_val	x5
+#define off	x3
+#define dstend2	x5
 
-dstin		.req	x0
-val		.req	w1
-count		.req	x2
-tmp1		.req	x3
-tmp1w		.req	w3
-tmp2		.req	x4
-tmp2w		.req	w4
-zva_len_x	.req	x5
-zva_len		.req	w5
-zva_bits_x	.req	x6
-
-A_l		.req	x7
-A_lw		.req	w7
-dst		.req	x8
-tmp3w		.req	w9
-tmp3		.req	x9
+/* This implementation is similar to __memset_aarch64 but avoids FP/AdvSIMD
+   register instructions.  */
 
 SYM_FUNC_START_ALIAS(__memset)
 SYM_FUNC_START_WEAK_PI(memset)
-	mov	dst, dstin	/* Preserve return value.  */
-	and	A_lw, val, #255
-	orr	A_lw, A_lw, A_lw, lsl #8
-	orr	A_lw, A_lw, A_lw, lsl #16
-	orr	A_l, A_l, A_l, lsl #32
+	/* Replicate the fill byte across the last half of the word.  */
+	and	valw, valw, 255
+	orr	valw, valw, valw, lsl 8
+	orr	valw, valw, valw, lsl 16
 
-	cmp	count, #15
-	b.hi	.Lover16_proc
-	/*All store maybe are non-aligned..*/
-	tbz	count, #3, 1f
-	str	A_l, [dst], #8
-1:
-	tbz	count, #2, 2f
-	str	A_lw, [dst], #4
-2:
-	tbz	count, #1, 3f
-	strh	A_lw, [dst], #2
-3:
-	tbz	count, #0, 4f
-	strb	A_lw, [dst]
-4:
+	cmp	count, 16
+	b.lo	.Lset_lt16
+
+	/* Replicate the fill byte across the rest of the word.  */
+	orr	val, val, val, lsl 32
+
+	add	dstend, dstin, count
+	cmp	count, 64
+	b.hi	.Lset_gt64
+
+.Lset_16_64:
+	/* Calculate an interior store offset based on half the count, This will be
+	  one of 0, 16 or 32 bytes. Then perform four overlapping stores.  */
+	mov	off, 48
+	and	off, off, count, lsr 1
+	sub	dstend2, dstend, off
+
+	stp	val, val, [dstin]
+	add	off, dstin, off
+	stp	val, val, [off]
+	stp	val, val, [dstend2, -16]
+	stp	val, val, [dstend, -16]
 	ret
 
-.Lover16_proc:
-	/*Whether  the start address is aligned with 16.*/
-	neg	tmp2, dst
-	ands	tmp2, tmp2, #15
-	b.eq	.Laligned
-/*
-* The count is not less than 16, we can use stp to store the start 16 bytes,
-* then adjust the dst aligned with 16.This process will make the current
-* memory address at alignment boundary.
-*/
-	stp	A_l, A_l, [dst] /*non-aligned store..*/
-	/*make the dst aligned..*/
-	sub	count, count, tmp2
-	add	dst, dst, tmp2
+	.p2align 4
+.Lset_lt16:
+	add	dstend, dstin, count
+	cmp	count, 4
+	b.lo	1f
 
-.Laligned:
-	cbz	A_l, .Lzero_mem
-
-.Ltail_maybe_long:
-	cmp	count, #64
-	b.ge	.Lnot_short
-.Ltail63:
-	ands	tmp1, count, #0x30
-	b.eq	3f
-	cmp	tmp1w, #0x20
-	b.eq	1f
-	b.lt	2f
-	stp	A_l, A_l, [dst], #16
-1:
-	stp	A_l, A_l, [dst], #16
-2:
-	stp	A_l, A_l, [dst], #16
-/*
-* The last store length is less than 16,use stp to write last 16 bytes.
-* It will lead some bytes written twice and the access is non-aligned.
-*/
-3:
-	ands	count, count, #15
-	cbz	count, 4f
-	add	dst, dst, count
-	stp	A_l, A_l, [dst, #-16]	/* Repeat some/all of last store. */
-4:
+	/* For sizes 4..15, salculate an interior offset based on the count. Then
+	   perform four overlapping 32 bit stores.  */
+	lsr	off, count, 3				/* off = count >> 3.  */
+	sub	dstend2, dstend, off, lsl 2
+	str	valw, [dstin]
+	str	valw, [dstin, off, lsl 2]
+	str	valw, [dstend2, -4]
+	str	valw, [dstend, -4]
 	ret
 
-	/*
-	* Critical loop. Start at a new cache line boundary. Assuming
-	* 64 bytes per line, this ensures the entire loop is in one line.
-	*/
-	.p2align	L1_CACHE_SHIFT
-.Lnot_short:
-	sub	dst, dst, #16/* Pre-bias.  */
-	sub	count, count, #64
-1:
-	stp	A_l, A_l, [dst, #16]
-	stp	A_l, A_l, [dst, #32]
-	stp	A_l, A_l, [dst, #48]
-	stp	A_l, A_l, [dst, #64]!
-	subs	count, count, #64
-	b.ge	1b
-	tst	count, #0x3f
-	add	dst, dst, #16
-	b.ne	.Ltail63
-.Lexitfunc:
+	/* Potentially overlapping stores for sizes 0..3. */
+1:	cbz	count, 2f		/* Skip stores entirely for a zero-length memset.  */
+	lsr	off, count, 1
+	strb	valw, [dstin]
+	strb	valw, [dstin, off]
+	strb	valw, [dstend, -1]
+2:	ret
+
+	.p2align 4
+.Lset_gt64:
+	bic	dst, dstin, 15		/* Align dst down to 16 bytes.  */
+	cmp	count, 128
+	b.hi	.Lset_gt128
+
+	/* For sizes 64..128, perform eight overlapping 16-byte stores.  */
+	stp	val, val, [dstin]
+	stp	val, val, [dstin, 16]
+	stp	val, val, [dstin, 32]
+	stp	val, val, [dstin, 48]
+	stp	val, val, [dstend, -64]
+	stp	val, val, [dstend, -48]
+	stp	val, val, [dstend, -32]
+	stp	val, val, [dstend, -16]
 	ret
 
-	/*
-	* For zeroing memory, check to see if we can use the ZVA feature to
-	* zero entire 'cache' lines.
-	*/
-.Lzero_mem:
-	cmp	count, #63
-	b.le	.Ltail63
-	/*
-	* For zeroing small amounts of memory, it's not worth setting up
-	* the line-clear code.
-	*/
-	cmp	count, #128
-	b.lt	.Lnot_short /*count is at least  128 bytes*/
+	.p2align 4
+.Lset_gt128:
+	/* For sizes above 128, perform initial stores before entering loop on
+	   aligned addresses.  */
+	stp	val, val, [dstin]
+	stp	val, val, [dst, 16]
 
-	mrs	tmp1, dczid_el0
-	tbnz	tmp1, #4, .Lnot_short
-	mov	tmp3w, #4
-	and	zva_len, tmp1w, #15	/* Safety: other bits reserved.  */
-	lsl	zva_len, tmp3w, zva_len
+	/* We can use DC ZVA to zero memory when the fill byte is zero and the block
+	   size reported by DCZID_EL0 is 64 bytes.  */
+	cbnz valw, .Lno_zva
+#ifndef SKIP_ZVA_CHECK
+	mrs	zva_val, dczid_el0
+	and	zva_val, zva_val, 31
+	cmp	zva_val, 4
+	b.ne	.Lno_zva
+#endif
+	/* Complete stores up to the first 64 byte aligned block.  */
+	stp	val, val, [dst, 32]
+	stp	val, val, [dst, 48]
 
-	ands	tmp3w, zva_len, #63
-	/*
-	* ensure the zva_len is not less than 64.
-	* It is not meaningful to use ZVA if the block size is less than 64.
-	*/
-	b.ne	.Lnot_short
-.Lzero_by_line:
-	/*
-	* Compute how far we need to go to become suitably aligned. We're
-	* already at quad-word alignment.
-	*/
-	cmp	count, zva_len_x
-	b.lt	.Lnot_short		/* Not enough to reach alignment.  */
-	sub	zva_bits_x, zva_len_x, #1
-	neg	tmp2, dst
-	ands	tmp2, tmp2, zva_bits_x
-	b.eq	2f			/* Already aligned.  */
-	/* Not aligned, check that there's enough to copy after alignment.*/
-	sub	tmp1, count, tmp2
-	/*
-	* grantee the remain length to be ZVA is bigger than 64,
-	* avoid to make the 2f's process over mem range.*/
-	cmp	tmp1, #64
-	ccmp	tmp1, zva_len_x, #8, ge	/* NZCV=0b1000 */
-	b.lt	.Lnot_short
-	/*
-	* We know that there's at least 64 bytes to zero and that it's safe
-	* to overrun by 64 bytes.
-	*/
-	mov	count, tmp1
-1:
-	stp	A_l, A_l, [dst]
-	stp	A_l, A_l, [dst, #16]
-	stp	A_l, A_l, [dst, #32]
-	subs	tmp2, tmp2, #64
-	stp	A_l, A_l, [dst, #48]
-	add	dst, dst, #64
-	b.ge	1b
-	/* We've overrun a bit, so adjust dst downwards.*/
-	add	dst, dst, tmp2
-2:
-	sub	count, count, zva_len_x
-3:
-	dc	zva, dst
-	add	dst, dst, zva_len_x
-	subs	count, count, zva_len_x
-	b.ge	3b
-	ands	count, count, zva_bits_x
-	b.ne	.Ltail_maybe_long
+	bic	dst, dstin, 63		/* Align dst down to 64 bytes.  */
+	/* Compute count, accounting for the stores above and bias for the loop
+	   exit.  */
+	sub	count, dstend, dst
+	sub	count, count, 64 + 64
+
+	/* Write last bytes before entering ZVA loop.  */
+	stp	val, val, [dstend, -64]
+	stp	val, val, [dstend, -48]
+	stp	val, val, [dstend, -32]
+	stp	val, val, [dstend, -16]
+
+	.p2align 4
+.Lzva64_loop:
+	add	dst, dst, 64
+	dc	zva, dst		/* Zero the 64-byte cache block containing dst.  */
+	subs	count, count, 64
+	b.hi	.Lzva64_loop
+	ret
+
+	.p2align 3
+.Lno_zva:
+	/* Compute count, accounting for the two stores in set_gt128 and bias for
+	   the loop exit.  */
+	sub	count, dstend, dst
+	sub	count, count, 64 + 32
+
+.Lno_zva_loop:
+	/* Perform eight contiguous 16-byte stores per iteration.  */
+	stp	val, val, [dst, 32]
+	stp	val, val, [dst, 48]
+	stp	val, val, [dst, 64]
+	stp	val, val, [dst, 80]
+	add	dst, dst, 64
+	subs	count, count, 64
+	b.hi	.Lno_zva_loop
+
+	/* Perform final stores for the tail of the range, potentially overlapping
+	   with previous ones.  */
+	stp	val, val, [dstend, -64]
+	stp	val, val, [dstend, -48]
+	stp	val, val, [dstend, -32]
+	stp	val, val, [dstend, -16]
 	ret
 SYM_FUNC_END_PI(memset)
 EXPORT_SYMBOL(memset)
