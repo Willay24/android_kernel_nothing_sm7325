@@ -177,47 +177,28 @@ static void seq_print_vma_name(struct seq_file *m, struct vm_area_struct *vma)
 	seq_putc(m, ']');
 }
 
-static void vma_stop(struct proc_maps_private *priv)
+static struct vm_area_struct *proc_get_vma(struct proc_maps_private *priv,
+						loff_t *ppos)
 {
-	struct mm_struct *mm = priv->mm;
+	struct vm_area_struct *vma = vma_next(&priv->iter);
 
-	release_task_mempolicy(priv);
-	up_read(&mm->mmap_sem);
-	mmput(mm);
-}
+	if (vma) {
+		*ppos = vma->vm_start;
+	} else {
+		*ppos = -2UL;
+		vma = get_gate_vma(priv->mm);
+	}
 
-static struct vm_area_struct *
-m_next_vma(struct proc_maps_private *priv, struct vm_area_struct *vma)
-{
-	struct mm_struct *mm = priv->mm;
-	unsigned long index = vma->vm_end;
-	struct vm_area_struct *next;
-
-	if (vma == priv->tail_vma)
-		return NULL;
-
-	next = mt_find(&mm->mm_mt, &index, ULONG_MAX);
-	if (next)
-		return next;
-
-	return priv->tail_vma;
-}
-
-static void m_cache_vma(struct seq_file *m, struct vm_area_struct *vma)
-{
-	if (m->count < m->size)	/* vma is copied successfully */
-		m->version = m_next_vma(m->private, vma) ? vma->vm_end : -1UL;
+	return vma;
 }
 
 static void *m_start(struct seq_file *m, loff_t *ppos)
 {
 	struct proc_maps_private *priv = m->private;
-	unsigned long last_addr = m->version;
+	unsigned long last_addr = *ppos;
 	struct mm_struct *mm;
-	struct vm_area_struct *vma;
-	unsigned int pos = *ppos;
 
-	/* See m_cache_vma(). Zero at the start or after lseek. */
+	/* See m_next(). Sentinel -1UL marks end of file. */
 	if (last_addr == -1UL)
 		return NULL;
 
@@ -226,70 +207,50 @@ static void *m_start(struct seq_file *m, loff_t *ppos)
 		return ERR_PTR(-ESRCH);
 
 	mm = priv->mm;
-	if (!mm || !mmget_not_zero(mm))
+	if (!mm || !mmget_not_zero(mm)) {
+		put_task_struct(priv->task);
+		priv->task = NULL;
 		return NULL;
+	}
 
 	if (down_read_killable(&mm->mmap_sem)) {
 		mmput(mm);
+		put_task_struct(priv->task);
+		priv->task = NULL;
 		return ERR_PTR(-EINTR);
 	}
 
+	vma_iter_init(&priv->iter, mm, last_addr);
 	hold_task_mempolicy(priv);
-	priv->tail_vma = get_gate_vma(mm);
+	if (last_addr == -2UL)
+		return get_gate_vma(mm);
 
-	if (last_addr) {
-		vma = find_vma(mm, last_addr - 1);
-		if (vma && vma->vm_start <= last_addr)
-			vma = m_next_vma(priv, vma);
-		if (vma)
-			return vma;
-	}
-
-	m->version = 0;
-	if (pos < mm->map_count) {
-		MA_STATE(mas, &mm->mm_mt, 0, 0);
-
-		mas_for_each(&mas, vma, ULONG_MAX) {
-			if (!pos)
-				break;
-			pos--;
-		}
-		if (vma) {
-			m->version = vma->vm_start;
-			return vma;
-		}
-	}
-
-	/* we do not bother to update m->version in this case */
-	if (pos == mm->map_count && priv->tail_vma)
-		return priv->tail_vma;
-
-	vma_stop(priv);
-	return NULL;
+	return proc_get_vma(priv, ppos);
 }
 
 static void *m_next(struct seq_file *m, void *v, loff_t *pos)
 {
-	struct proc_maps_private *priv = m->private;
-	struct vm_area_struct *next;
+	if (*pos == -2UL) {
+		*pos = -1UL;
+		return NULL;
+	}
 
-	(*pos)++;
-	next = m_next_vma(priv, v);
-	if (!next)
-		vma_stop(priv);
-	return next;
+	return proc_get_vma(m->private, pos);
 }
 
 static void m_stop(struct seq_file *m, void *v)
 {
 	struct proc_maps_private *priv = m->private;
+	struct mm_struct *mm = priv->mm;
 
-	if (!IS_ERR_OR_NULL(v))
-		vma_stop(priv);
-	if (priv->task) {
-		put_task_struct(priv->task);
-		priv->task = NULL;
-	}
+	if (!priv->task)
+		return;
+
+	release_task_mempolicy(priv);
+	up_read(&mm->mmap_sem);
+	mmput(mm);
+	put_task_struct(priv->task);
+	priv->task = NULL;
 }
 
 static int proc_maps_open(struct inode *inode, struct file *file,
@@ -447,7 +408,6 @@ static int show_map(struct seq_file *m, void *v)
 	// Fixed: removed pad_vma, cast show_map_vma
 	show_map_pad_vma(vma, m, (void *)show_map_vma, false);
 
-	m_cache_vma(m, v);
 	return 0;
 }
 
@@ -974,7 +934,6 @@ static int show_smap(struct seq_file *m, void *v)
 
 show_pad:
 	show_map_pad_vma(vma, m, (void *)show_smap_vma, true);
-	m_cache_vma(m, v);
 	return 0;
 }
 
@@ -2193,7 +2152,6 @@ static int show_numa_map(struct seq_file *m, void *v)
 	seq_printf(m, " kernelpagesize_kB=%lu", vma_kernel_pagesize(vma) >> 10);
 out:
 	seq_putc(m, '\n');
-	m_cache_vma(m, vma);
 	return 0;
 }
 
