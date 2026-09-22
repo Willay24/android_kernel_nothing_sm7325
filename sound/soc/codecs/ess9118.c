@@ -21,7 +21,8 @@
 #include <linux/of_gpio.h>
 #include <linux/gpio.h>
 #include <linux/i2c.h>
-#include <linux/wakelock.h>
+#include <linux/device.h>
+#include <linux/pm_wakeup.h>
 
 #define INPUT_CONFIG_SOURCE 1
 #define I2S_BIT_FORMAT_MASK (0x03 << 6)
@@ -39,11 +40,11 @@
 #define HEADPHONE_AMPLIFIER_CONTROL 42
 
 struct es9118_priv {
-	struct snd_soc_codec *codec;
+	struct snd_soc_component *component;
 	struct i2c_client *i2c_client;
 	struct es9118_data *es9118_data;
 	struct delayed_work sleep_work;
-} es9118_priv;
+};
 
 struct es9118_data {
 	int reset_gpio;
@@ -66,7 +67,7 @@ struct es9118_reg {
 	unsigned char value;
 };
 
-static struct wake_lock es9118_wakelock;
+static struct wakeup_source *es9118_wakelock;
 static struct mutex es9118_lock;
 static struct delayed_work clk_divider_dwork;
 static int es9118_reg_no = 0;
@@ -128,7 +129,7 @@ static int es9118_read_reg(struct i2c_client *client, int reg);
 		SNDRV_PCM_FMTBIT_S24_LE | SNDRV_PCM_FMTBIT_S24_BE | \
 		SNDRV_PCM_FMTBIT_S32_LE | SNDRV_PCM_FMTBIT_S32_BE)
 
-static int es9118_register_dump_parm_set(const char *val, struct kernel_param *kp)
+static int es9118_register_dump_parm_set(const char *val, const struct kernel_param *kp)
 {
 	int i, reg_val;
 	param_set_int(val, kp);
@@ -215,7 +216,7 @@ static void es9118_power_off_delayed_work(struct work_struct *work)
 		es9118_enable_gpio(es9118_ctrl->cycle_gpio, 0);
 	    es9118_ctrl->b_power_on = false;
 	    es9118_ctrl->b_cycle_on = false;
-	    wake_lock_timeout(&es9118_wakelock, 3*HZ);
+	    __pm_wakeup_event(es9118_wakelock, 3*HZ);
 	}
 	es9118_ctrl->b_closing = false;
 	
@@ -452,7 +453,7 @@ static int es9118_get_master(struct snd_kcontrol *kcontrol,
 static int es9118_set_master(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	u8 reg_val;
+	u8 reg_val = 0;
 	struct es9118_data *es9118_ctrl = g_es9118_priv->es9118_data;
 
 	pr_info("%s: ucontrol->value.integer.value[0]  = %ld\n",
@@ -505,7 +506,7 @@ static int es9118_i2s_length_get(struct snd_kcontrol *kcontrol,
 static int es9118_i2s_length_put(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	u8 reg_val;
+	u8 reg_val = 0;
 	struct es9118_data *es9118_ctrl = g_es9118_priv->es9118_data;
 
 	pr_info("%s: ucontrol->value.integer.value[0]  = %ld\n",
@@ -585,8 +586,8 @@ static int es9118_get_clk_divider(struct snd_kcontrol *kcontrol,
 static int es9118_set_clk_divider(struct snd_kcontrol *kcontrol,
 		struct snd_ctl_elem_value *ucontrol)
 {
-	u8 reg_val;
 	int ret;
+	u8 reg_val = 0;
 	struct es9118_data *es9118_ctrl = g_es9118_priv->es9118_data;
 
 	pr_info("%s: ucontrol->value.integer.value[0]  = %ld\n",
@@ -595,15 +596,16 @@ static int es9118_set_clk_divider(struct snd_kcontrol *kcontrol,
 	mutex_lock(&es9118_lock);
 	es9118_ctrl->divider_value = ucontrol->value.integer.value[0] << 5;
 	if (es9118_ctrl->b_power_on) {
-		reg_val = es9118_read_reg(g_es9118_priv->i2c_client,
+		ret = es9118_read_reg(g_es9118_priv->i2c_client,
 			MASTER_MODE_CONTROL);
-		if (g_es9118_priv->es9118_data->b_power_on && (reg_val < 0)) {
+		if (ret < 0) {
 			pr_info("%s: read fail, scheduled!\n", __func__);
 			schedule_delayed_work(&clk_divider_dwork,
 					usecs_to_jiffies(CLK_DIVIDER_TIMEOUT));
 			mutex_unlock(&es9118_lock);
 			return 0;
 		}
+		reg_val = ret;
 
 		reg_val &= ~(I2S_CLK_DIVID_MASK);
 		reg_val |=  ucontrol->value.integer.value[0] << 5;
@@ -1020,24 +1022,24 @@ err:
 	return -1;
 }
 
-static unsigned int es9118_codec_read(struct snd_soc_codec *codec,
+static unsigned int es9118_codec_read(struct snd_soc_component *component,
 		unsigned int reg)
 {
 	return 0;
 }
 
-static int es9118_codec_write(struct snd_soc_codec *codec, unsigned int reg,
+static int es9118_codec_write(struct snd_soc_component *component, unsigned int reg,
 		unsigned int value)
 {
 	return 0;
 }
 
-static int es9118_suspend(struct snd_soc_codec *codec)
+static int es9118_suspend(struct snd_soc_component *component)
 {
 	return 0;
 }
 
-static int es9118_resume(struct snd_soc_codec *codec)
+static int es9118_resume(struct snd_soc_component *component)
 {
 
 	return 0;
@@ -1124,38 +1126,30 @@ static struct snd_soc_dai_driver es9118_dai = {
 	.ops = &es9118_dai_ops,
 };
 
-static  int es9118_codec_probe(struct snd_soc_codec *codec)
+static int es9118_codec_probe(struct snd_soc_component *component)
 {
 	int rc = 0;
-	struct es9118_priv *priv = snd_soc_codec_get_drvdata(codec);
+	struct es9118_priv *priv = snd_soc_component_get_drvdata(component);
 
 	pr_debug("%s: enter\n", __func__);
 
-	priv->codec = codec;
+	priv->component = component;
 
-	codec->control_data = snd_soc_codec_get_drvdata(codec);
-
-
-	rc = snd_soc_add_codec_controls(codec, es9118_snd_controls,
+	rc = snd_soc_add_component_controls(component, es9118_snd_controls,
 			ARRAY_SIZE(es9118_snd_controls));
 	if (rc)
-		dev_err(codec->dev, "%s(): es9118_snd_controls failed\n",
+		dev_err(component->dev, "%s(): es9118_snd_controls failed\n",
 			__func__);
 
 	return 0;
 }
 
-static int  es9118_codec_remove(struct snd_soc_codec *codec)
+static void es9118_codec_remove(struct snd_soc_component *component)
 {
-	struct es9118_priv *priv = snd_soc_codec_get_drvdata(codec);
-
-
-	kfree(priv);
-
-	return 0;
+	/* priv was allocated with devm_kzalloc() and is freed automatically */
 }
 
-static struct snd_soc_codec_driver soc_codec_dev_es9118 = {
+static struct snd_soc_component_driver soc_component_dev_es9118 = {
 	.probe = es9118_codec_probe,
 	.remove = es9118_codec_remove,
 	.suspend = es9118_suspend,
@@ -1260,8 +1254,8 @@ static int es9118_probe(struct i2c_client *client,const struct i2c_device_id *id
 	if (client->dev.of_node)
 		dev_set_name(&client->dev, "%s", "es9118-codec");
 
-	ret = snd_soc_register_codec(&client->dev, &soc_codec_dev_es9118,
-			&es9118_dai, 1);
+	ret = devm_snd_soc_register_component(&client->dev,
+			&soc_component_dev_es9118, &es9118_dai, 1);
 
 	pdata->b_power_on = false;
 	pdata->b_cycle_on = false;	
@@ -1280,7 +1274,7 @@ static int es9118_probe(struct i2c_client *client,const struct i2c_device_id *id
 	INIT_DELAYED_WORK(&pdata->power_off_dwork, es9118_power_off_delayed_work);
 	mutex_init(&es9118_lock);
 	INIT_DELAYED_WORK(&clk_divider_dwork, clk_divider_delayed_work);
-	wake_lock_init(&es9118_wakelock, WAKE_LOCK_SUSPEND, "es9118_wakelock");
+	es9118_wakelock = wakeup_source_register(&client->dev, "es9118_wakelock");
 
 	dev_err(&client->dev, "%s: exit %d\n", __func__, ret);
 	return ret;
@@ -1294,7 +1288,7 @@ static int es9118_remove(struct i2c_client *client)
 	gpio_free(g_es9118_priv->es9118_data->cycle_gpio);
 	gpio_free(g_es9118_priv->es9118_data->reset_gpio);
 	gpio_free(g_es9118_priv->es9118_data->enable_gpio);
-	wake_lock_destroy(&es9118_wakelock);
+	wakeup_source_unregister(es9118_wakelock);
 	mutex_destroy(&es9118_lock);
 
 	return 0;
@@ -1309,7 +1303,7 @@ static const struct i2c_device_id es9118_id[] = {
 	{ "es9118", 0 },
 	{ },
 };
-MODULE_DEVICE_TABLE(i2c, isa1200_id);
+MODULE_DEVICE_TABLE(i2c, es9118_id);
 
 static struct i2c_driver es9118_i2c_driver = {
 	.driver	= {
