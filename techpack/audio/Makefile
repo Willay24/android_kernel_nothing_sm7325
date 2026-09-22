@@ -7,6 +7,10 @@ ifeq ($(CONFIG_ARCH_SDXPOORWILLS), y)
 include $(srctree)/techpack/audio/config/sdxpoorwillsauto.conf
 export
 endif
+ifeq ($(CONFIG_NOTHING_SPACEWAR), y)
+include $(srctree)/techpack/audio/config/nothingauto.conf
+export
+endif
 ifeq ($(CONFIG_ARCH_SM8150), y)
 include $(srctree)/techpack/audio/config/sm8150auto.conf
 export
@@ -53,6 +57,10 @@ endif
 ifeq ($(CONFIG_ARCH_SDXPOORWILLS), y)
 LINUXINCLUDE    += \
                 -include $(srctree)/techpack/audio/config/sdxpoorwillsautoconf.h
+endif
+ifeq ($(CONFIG_NOTHING_SPACEWAR), y)
+LINUXINCLUDE    += \
+                -include $(srctree)/techpack/audio/config/nothingautoconf.h
 endif
 ifeq ($(CONFIG_ARCH_SM8150), y)
 LINUXINCLUDE    += \
