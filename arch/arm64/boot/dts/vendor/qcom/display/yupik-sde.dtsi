@@ -350,5 +350,6 @@
 	vdda-0p9-supply = <&L10C>;
 	qcom,dsi-pll-ssc-mode = "down-spread";
 	memory-region = <&dfps_data_memory>;
+	qcom,panel-allow-phy-poweroff;
 
 };
