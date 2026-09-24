@@ -1121,4 +1121,6 @@ source "kernel/gcov/Kconfig"
 
 source "scripts/gcc-plugins/Kconfig"
 
+source "kernel/pgo/Kconfig"
+
 endmenu
