@@ -1,7 +1,4 @@
 &tlmm {
-	qcom,gpios-reserved =  <32 33 48 49 50 51>;
-
-
 	qupv3_se13_spi_sleep: qupv3_se13_spi_sleep {
 		mux {
 			pins = "gpio52", "gpio53", "gpio54";
