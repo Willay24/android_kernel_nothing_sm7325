@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2017-2022, The Linux Foundation. All rights reserved.
  * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
  */
 
@@ -20,6 +20,7 @@
 #include <media/cam_defs.h>
 #include <media/cam_ope.h>
 #include <media/cam_cpas.h>
+#include <linux/math64.h>
 
 #include "cam_sync_api.h"
 #include "cam_packet_util.h"
@@ -655,7 +656,7 @@ static bool cam_ope_check_req_delay(struct cam_ope_ctx *ctx_data,
 
 	if (ts_ns - req_time <
 		((ctx_data->req_timer_timeout -
-			ctx_data->req_timer_timeout / 10) * 1000000)) {
+			div_u64(ctx_data->req_timer_timeout, 10)) * 1000000)) {
 		CAM_INFO(CAM_OPE, "ctx: %d, ts_ns : %llu",
 		ctx_data->ctx_id, ts_ns);
 		cam_ope_req_timer_reset(ctx_data);
@@ -782,7 +783,7 @@ static int32_t cam_ope_process_request_timer(void *priv, void *data)
 			.path_data_type -
 			CAM_AXI_PATH_DATA_OPE_START_OFFSET;
 
-		if (path_index < 0 || path_index >= CAM_OPE_MAX_PER_PATH_VOTES) {
+		if (path_index >= CAM_OPE_MAX_PER_PATH_VOTES || path_index < 0) {
 			CAM_DBG(CAM_OPE,
 				"Invalid path %d, start offset=%d, max=%d",
 				ctx_data->clk_info.axi_path[i]
@@ -1465,7 +1466,7 @@ static bool cam_ope_update_bw_v2(struct cam_ope_hw_mgr *hw_mgr,
 		ctx_data->clk_info.axi_path[i].path_data_type -
 		CAM_AXI_PATH_DATA_OPE_START_OFFSET;
 
-		if (path_index < 0 || path_index >= CAM_OPE_MAX_PER_PATH_VOTES) {
+		if (path_index >= CAM_OPE_MAX_PER_PATH_VOTES || path_index < 0) {
 			CAM_DBG(CAM_OPE,
 				"Invalid path %d, start offset=%d, max=%d",
 				ctx_data->clk_info.axi_path[i].path_data_type,
@@ -1502,7 +1503,7 @@ static bool cam_ope_update_bw_v2(struct cam_ope_hw_mgr *hw_mgr,
 		ctx_data->clk_info.axi_path[i].path_data_type -
 			CAM_AXI_PATH_DATA_OPE_START_OFFSET;
 
-		if (path_index < 0 || path_index >= CAM_OPE_MAX_PER_PATH_VOTES) {
+		if (path_index >= CAM_OPE_MAX_PER_PATH_VOTES || path_index < 0) {
 			CAM_DBG(CAM_OPE,
 				"Invalid path %d, start offset=%d, max=%d",
 				ctx_data->clk_info.axi_path[i].path_data_type,
@@ -2899,7 +2900,7 @@ static int cam_ope_mgr_remove_bw(struct cam_ope_hw_mgr *hw_mgr, int ctx_id)
 		ctx_data->clk_info.axi_path[i].path_data_type -
 		CAM_AXI_PATH_DATA_OPE_START_OFFSET;
 
-		if (path_index < 0 || path_index >= CAM_OPE_MAX_PER_PATH_VOTES) {
+		if (path_index >= CAM_OPE_MAX_PER_PATH_VOTES || path_index < 0) {
 			CAM_DBG(CAM_OPE,
 				"Invalid path %d, start offset=%d, max=%d",
 				ctx_data->clk_info.axi_path[i].path_data_type,

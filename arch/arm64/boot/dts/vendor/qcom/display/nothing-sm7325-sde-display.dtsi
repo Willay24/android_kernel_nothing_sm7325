@@ -1,8 +1,9 @@
-// Regulator/GPIO wiring adapted for Nothing Phone (1) "spacewar" (SM7325 Yupik).
-//
-
+#include <dt-bindings/clock/mdss-5nm-pll-clk.h>
+#include <dt-bindings/clock/qcom,dispcc-yupik.h>
 #include "dsi-panel-nothing-m20-36-02-0a-dsc-vid.dtsi"
 #include "dsi-panel-nothing-m20-42-0d-0b-dsc-vid.dtsi"
+#include "dsi-panel-nothing-visionox-rm692e5-1080x2400-120hz-cmd-common.dtsi"
+
 
 &soc {
 	dsi_panel_pwr_supply_nothing_m20: dsi_panel_pwr_supply_nothing_m20 {
@@ -92,15 +93,4 @@
 	qcom,panel-supply-entries = <&dsi_panel_pwr_supply_nothing_m20_0b>;
 	qcom,platform-te-gpio = <&tlmm 80 0>;
 	qcom,platform-reset-gpio = <&tlmm 44 0>;
-};
-
-// The dsi-display driver resolves each "qcom,supply-name" entry (vddio,
-// dvdd, vdd) above to a "<name>-supply" phandle property on the DSI
-// *controller* node (&sde_dsi), not on the panel node itself. The board
-// overlay (nothing-spacewar-sm7325-overlay.dts) already sets
-// vddio-supply = <&L12C> and vdd-supply = <&L13C> on &sde_dsi for the
-// stock rm692e5/r66451 panels -- those match the M20 panel's needs
-// exactly, so only the missing dvdd rail needs to be added here.
-&sde_dsi {
-	dvdd-supply = <&L16B>;
 };

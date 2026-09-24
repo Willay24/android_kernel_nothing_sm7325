@@ -28,10 +28,8 @@ static void cam_cpas_process_bw_overrides(
 	struct cam_cpas_bus_client *bus_client, uint64_t *ab, uint64_t *ib,
 	const struct cam_cpas_debug_settings *cpas_settings)
 {
-#ifdef CONFIG_DEBUG_KERNEL
 	uint64_t curr_ab = *ab;
 	uint64_t curr_ib = *ib;
-#endif
 	size_t name_len = strlen(bus_client->common_data.name);
 
 	if (!cpas_settings) {
@@ -1032,6 +1030,7 @@ static int cam_cpas_util_apply_default_axi_vote(
 	struct cam_cpas *cpas_core = (struct cam_cpas *) cpas_hw->core_info;
 	struct cam_cpas_axi_port *axi_port = NULL;
 	uint64_t mnoc_ab_bw = 0, mnoc_ib_bw = 0;
+	uint64_t applied_ab_bw = 0, applied_ib_bw = 0;
 	int rc = 0, i = 0;
 
 	mutex_lock(&cpas_core->tree_lock);
@@ -1059,6 +1058,8 @@ static int cam_cpas_util_apply_default_axi_vote(
 				mnoc_ab_bw, mnoc_ib_bw, rc);
 			goto unlock_tree;
 		}
+		cpas_core->axi_port[i].applied_ab_bw = applied_ab_bw;
+		cpas_core->axi_port[i].applied_ib_bw = applied_ib_bw;
 	}
 
 unlock_tree:
