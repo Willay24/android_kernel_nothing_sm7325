@@ -704,7 +704,6 @@ static int cam_ife_hw_mgr_free_hw_res(
 	return 0;
 }
 
-#ifdef CONFIG_DEBUG_KERNEL
 static const char *cam_ife_hw_mgr_get_res_state(
 	uint32_t res_state)
 {
@@ -771,7 +770,6 @@ static const char *cam_ife_hw_mgr_get_src_res_id(
 		return "INVALID";
 	}
 }
-#endif
 
 static void cam_ife_hw_mgr_dump_all_ctx(void)
 {
@@ -3632,7 +3630,6 @@ static int cam_ife_mgr_acquire(void *hw_mgr_priv,
 	return rc;
 }
 
-#ifdef CONFIG_DEBUG_KERNEL
 static const char *cam_isp_util_usage_data_to_string(
 	uint32_t usage_data)
 {
@@ -3647,7 +3644,6 @@ static const char *cam_isp_util_usage_data_to_string(
 		return "USAGE_INVALID";
 	}
 }
-#endif
 
 static int cam_isp_classify_vote_info(
 	struct cam_isp_hw_mgr_res            *hw_mgr_res,
@@ -6027,8 +6023,7 @@ static int cam_isp_packet_generic_blob_handler(void *user_data,
 		if (bw_config_u->num_rdi != bw_config->num_rdi) {
 			CAM_ERR(CAM_ISP, "num_rdi changed,userspace:%d, kernel:%d", bw_config_u->num_rdi,
 				bw_config->num_rdi);
-			rc = -EINVAL;
-			goto free_kdup;
+			return -EINVAL;
 		}
 
 		/* Check for integer overflow */
@@ -6040,8 +6035,7 @@ static int cam_isp_packet_generic_blob_handler(void *user_data,
 					"Max size exceeded in bw config num_rdi:%u size per port:%lu",
 					bw_config->num_rdi,
 					sizeof(struct cam_isp_bw_vote));
-				rc = -EINVAL;
-				goto free_kdup;
+				return -EINVAL;
 			}
 		}
 
@@ -6053,16 +6047,14 @@ static int cam_isp_packet_generic_blob_handler(void *user_data,
 				blob_size, sizeof(struct cam_isp_bw_config) +
 				(bw_config->num_rdi - 1) *
 				sizeof(struct cam_isp_bw_vote));
-			rc = -EINVAL;
-			goto free_kdup;
+			return -EINVAL;
 		}
 
 		if (!prepare || !prepare->priv ||
 			(bw_config->usage_type >= CAM_IFE_HW_NUM_MAX)) {
 			CAM_ERR(CAM_ISP, "Invalid inputs usage type %d",
 				bw_config->usage_type);
-			rc = -EINVAL;
-			goto free_kdup;
+			return -EINVAL;
 		}
 
 		prepare_hw_data = (struct cam_isp_prepare_hw_update_data  *)
@@ -6072,9 +6064,6 @@ static int cam_isp_packet_generic_blob_handler(void *user_data,
 			bw_config, sizeof(prepare_hw_data->bw_config[0]));
 		prepare_hw_data->bw_config_version = CAM_ISP_BW_CONFIG_V1;
 		prepare_hw_data->bw_config_valid[bw_config->usage_type] = true;
-free_kdup:
-  		cam_common_mem_free(bw_config);
-  		return rc;
 	}
 		break;
 	case CAM_ISP_GENERIC_BLOB_TYPE_BW_CONFIG_V2: {
@@ -6109,8 +6098,7 @@ free_kdup:
 		if (bw_config_u->num_paths != bw_config->num_paths) {
 			CAM_ERR(CAM_ISP, "num_paths changed,userspace:%d, kernel:%d", bw_config_u->num_paths,
 					bw_config->num_paths);
-			rc = -EINVAL;
-			goto free_kdup_v2;
+			return -EINVAL;
 		}
 
 		/* Check for integer overflow */
@@ -6124,8 +6112,7 @@ free_kdup:
 					bw_config->num_paths - 1,
 					sizeof(
 					struct cam_axi_per_path_bw_vote));
-				rc = -EINVAL;
-				goto free_kdup_v2;
+				return -EINVAL;
 			}
 		}
 
@@ -6138,16 +6125,14 @@ free_kdup:
 				blob_size, bw_config->num_paths,
 				sizeof(struct cam_isp_bw_config_v2),
 				sizeof(struct cam_axi_per_path_bw_vote));
-			rc = -EINVAL;
-			goto free_kdup_v2;
+			return -EINVAL;
 		}
 
 		if (!prepare || !prepare->priv ||
 			(bw_config->usage_type >= CAM_IFE_HW_NUM_MAX)) {
 			CAM_ERR(CAM_ISP, "Invalid inputs usage type %d",
 				bw_config->usage_type);
-			rc = -EINVAL;
-			goto free_kdup_v2;
+			return -EINVAL;
 		}
 
 		prepare_hw_data = (struct cam_isp_prepare_hw_update_data  *)
@@ -6164,9 +6149,6 @@ free_kdup:
 
 		prepare_hw_data->bw_config_version = CAM_ISP_BW_CONFIG_V2;
 		prepare_hw_data->bw_config_valid[bw_config->usage_type] = true;
-free_kdup_v2:
-  		cam_common_mem_free(bw_config);
-  		return rc;
 	}
 		break;
 	case CAM_ISP_GENERIC_BLOB_TYPE_UBWC_CONFIG: {

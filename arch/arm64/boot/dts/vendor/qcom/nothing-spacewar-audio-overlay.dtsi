@@ -63,7 +63,7 @@
 		"AMIC2", "Analog Mic2",
 		"Analog Mic2", "MIC BIAS2",
 		"AMIC3", "Analog Mic3",
-		"Analog Mic3", "MIC BIAS1",
+		"Analog Mic3", "MIC BIAS3", 
 		"AMIC4", "Analog Mic4",
 		"Analog Mic4", "MIC BIAS1",
 		"AMIC5", "Analog Mic5",
