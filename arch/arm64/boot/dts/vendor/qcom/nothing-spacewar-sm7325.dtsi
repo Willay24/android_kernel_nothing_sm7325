@@ -11,6 +11,7 @@
 #include <dt-bindings/iio/qcom,spmi-adc7-pm7325.h>
 #include <dt-bindings/iio/qcom,spmi-adc7-smb139x.h>
 #include <dt-bindings/iio/qcom,spmi-adc7-pm8350b.h>
+#include "camera/nothing-spacewar-camera-sensor.dtsi"
 
 &pm8350b_haptics {
 	nvmem-cell-names = "hap_cl_brake";
@@ -45,20 +46,18 @@
 	#address-cells = <1>;
 	#size-cells = <0>;
 
-	touchscreen@0 {
-		compatible = "goodix,brl-d", "focaltech,fts_ts";
+	goodix-berlin@0 {
+		compatible = "goodix,gt9916S", "goodix,brl-d";
 		reg = <0>;
 		spi-max-frequency = <6000000>;
 
 		panel = <&dsi_rm692e5_visionox_amoled_120hz_cmd
 			 &dsi_r66451_amoled_144hz_video_cphy>;
 
-		/* shared rails */
-		vdd-supply = <&L3C>;		/* fts AVDD 3.3V */
-		avdd-supply = <&L3C>;		/* goodix AVDD  */
-		iovdd-supply = <&L8C>;		/* both, 1.8V   */
+		vdd-supply = <&L3C>;
+		avdd-supply = <&L3C>;
+		iovdd-supply = <&L8C>;
 
-		/* Goodix */
 		goodix,avdd-name = "avdd";
 		goodix,iovdd-name = "iovdd";
 		goodix,reset-gpio = <&tlmm 105 0x00>;
@@ -72,11 +71,7 @@
 		goodix,firmware-name = "goodix_firmware.bin";
 		goodix,config-name = "goodix_cfg_group.bin";
 
-		/* Focaltech */
-		focaltech,reset-gpio = <&tlmm 105 0x00>;
-		focaltech,irq-gpio = <&tlmm 81 0x2800>;
-		focaltech,max-touch-number = <10>;
-		focaltech,display-coords = <0 0 1080 2400>;
+		wakeup-source;
 	};
 };
 
