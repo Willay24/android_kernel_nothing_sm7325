@@ -3,6 +3,7 @@
 
 #include "yupik-qrd.dtsi"
 #include "nothing-spacewar-sm7325.dtsi"
+#include "nothing-spacewar-charge.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. Nothing Phone (1)";
