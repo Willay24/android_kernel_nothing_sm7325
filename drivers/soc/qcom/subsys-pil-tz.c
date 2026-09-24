@@ -945,11 +945,20 @@ static irqreturn_t subsys_err_ready_intr_handler(int irq, void *drv_data)
 static irqreturn_t subsys_err_fatal_intr_handler (int irq, void *drv_data)
 {
 	struct pil_tz_data *d = drv_data;
+	const char *subsys_desc_name = d->subsys_desc.name;
 
-	pr_err("Fatal error on %s!\n", d->subsys_desc.name);
+#if defined(CONFIG_NOTHING) && defined(CONFIG_NOTHING_SPACEWAR)
+	/* Workaround: spurious adsp fatal error causes random shutdowns */
+	if (!strcmp(subsys_desc_name, "adsp")) {
+		pr_warn("Fatal error on %s, ignoring\n", subsys_desc_name);
+		return IRQ_HANDLED;
+	}
+#endif
+
+	pr_err("Fatal error on %s!\n", subsys_desc_name);
 	if (subsys_get_crash_status(d->subsys)) {
 		pr_err("%s: Ignoring error fatal, restart in progress\n",
-							d->subsys_desc.name);
+							subsys_desc_name);
 		return IRQ_HANDLED;
 	}
 #ifdef CONFIG_QGKI_MSM_BOOT_TIME_MARKER
