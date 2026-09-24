@@ -51,7 +51,7 @@
 #define KEY_GESTURE_V                           KEY_V
 #define KEY_GESTURE_C                           KEY_C
 #define KEY_GESTURE_Z                           KEY_Z
-#define KEY_GESTURE_FINGER                 KEY_FINGER
+#define KEY_GESTURE_FINGER                      KEY_FINGER
 
 #define GESTURE_LEFT                            0x20
 #define GESTURE_RIGHT                           0x21
