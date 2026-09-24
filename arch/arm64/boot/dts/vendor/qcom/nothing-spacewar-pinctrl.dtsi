@@ -1,6 +1,5 @@
 &tlmm {
-	qcom,gpios-reserved =  <32 33 48 49 50 51>;
-
+	qcom,gpios-reserved = <32 33 48 51>;
 
 	qupv3_se13_spi_sleep: qupv3_se13_spi_sleep {
 		mux {
@@ -10,7 +9,7 @@
 		config {
 			pins = "gpio52", "gpio53", "gpio54";
 			drive-strength = <2>;
-			bias-disable;
+			bias-pull-down;
 		};
 	};
 
@@ -21,8 +20,8 @@
 		};
 		config {
 			pins = "gpio55";
-			drive-strength = <6>;
-			bias-disable;
+			drive-strength = <2>;
+			bias-pull-up;
 			output-high;
 		};
 	};
