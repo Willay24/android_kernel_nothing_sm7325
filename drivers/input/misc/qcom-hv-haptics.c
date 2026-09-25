@@ -1266,10 +1266,20 @@ static int haptics_get_closeloop_lra_period(struct haptics_chip *chip,
 	return 0;
 }
 
+static int vmax_mv_override;
+module_param_named(vmax_mv_override, vmax_mv_override, int, 0664);
+MODULE_PARM_DESC(vmax_mv_override,
+	"Override playback VMAX in mV for all effects; 0 disables (stock behavior)");
+
 static int haptics_set_vmax_mv(struct haptics_chip *chip, u32 vmax_mv)
 {
 	int rc = 0;
 	u8 val, vmax_step;
+
+	if (vmax_mv_override) {
+		vmax_mv = (vmax_mv_override > chip->max_vmax_mv) ?
+				chip->max_vmax_mv : vmax_mv_override;
+	}
 
 	if (vmax_mv > chip->max_vmax_mv) {
 		dev_err(chip->dev, "vmax (%d) exceed the max value: %d\n",
