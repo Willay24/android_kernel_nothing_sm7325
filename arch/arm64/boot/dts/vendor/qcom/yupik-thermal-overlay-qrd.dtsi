@@ -10,7 +10,6 @@
 
 &thermal_zones {
 	socd {
-		disable-thermal-zone;
 		cooling-maps {
 			socd_cpu4 {
 				trip = <&socd_trip>;
