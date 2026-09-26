@@ -27,8 +27,8 @@
 			};
 			cs0_cdev1 {
 				trip = <&cs0_config1>;
-				cooling-device = <&CPU0 (THERMAL_MAX_LIMIT - 10)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU0 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 10)>;
 			};
 		};
 	};
@@ -59,8 +59,8 @@
 			};
 			cs1_cdev1 {
 				trip = <&cs1_config1>;
-				cooling-device = <&CPU1 (THERMAL_MAX_LIMIT - 10)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU1 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 10)>;
 			};
 		};
 	};
@@ -91,8 +91,8 @@
 			};
 			cs2_cdev1 {
 				trip = <&cs2_config1>;
-				cooling-device = <&CPU2 (THERMAL_MAX_LIMIT - 10)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU2 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 10)>;
 			};
 		};
 	};
@@ -123,8 +123,8 @@
 			};
 			cs3_cdev1 {
 				trip = <&cs3_config1>;
-				cooling-device = <&CPU3 (THERMAL_MAX_LIMIT - 10)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU3 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 10)>;
 			};
 		};
 	};
@@ -155,8 +155,8 @@
 			};
 			cg40_cdev1 {
 				trip = <&cg40_config1>;
-				cooling-device = <&CPU4 (THERMAL_MAX_LIMIT - 8)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU4 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 8)>;
 			};
 			cg40_cdev2 {
 				trip = <&cg40_config1>;
@@ -192,8 +192,8 @@
 			};
 			cg41_cdev1 {
 				trip = <&cg41_config1>;
-				cooling-device = <&CPU4 (THERMAL_MAX_LIMIT - 8)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU4 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 8)>;
 			};
 			cg41_cdev2 {
 				trip = <&cg41_config1>;
@@ -229,8 +229,8 @@
 			};
 			cg50_cdev1 {
 				trip = <&cg50_config1>;
-				cooling-device = <&CPU5 (THERMAL_MAX_LIMIT - 8)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU5 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 8)>;
 			};
 			cg50_cdev2 {
 				trip = <&cg50_config1>;
@@ -266,8 +266,8 @@
 			};
 			cg51_cdev1 {
 				trip = <&cg51_config1>;
-				cooling-device = <&CPU5 (THERMAL_MAX_LIMIT - 8)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU5 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 8)>;
 			};
 			cg51_cdev2 {
 				trip = <&cg51_config1>;
@@ -303,8 +303,8 @@
 			};
 			cg60_cdev1 {
 				trip = <&cg60_config1>;
-				cooling-device = <&CPU6 (THERMAL_MAX_LIMIT - 8)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU6 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 8)>;
 			};
 			cg60_cdev2 {
 				trip = <&cg60_config1>;
@@ -340,8 +340,8 @@
 			};
 			cg61_cdev1 {
 				trip = <&cg61_config1>;
-				cooling-device = <&CPU6 (THERMAL_MAX_LIMIT - 8)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU6 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 8)>;
 			};
 			cg61_cdev2 {
 				trip = <&cg61_config1>;
@@ -377,8 +377,8 @@
 			};
 			cp70_cdev1 {
 				trip = <&cp70_config1>;
-				cooling-device = <&CPU7 (THERMAL_MAX_LIMIT - 6)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU7 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 6)>;
 			};
 			cp70_cdev2 {
 				trip = <&cp70_config1>;
@@ -414,8 +414,8 @@
 			};
 			cp71_cdev1 {
 				trip = <&cp71_config1>;
-				cooling-device = <&CPU7 (THERMAL_MAX_LIMIT - 6)
-						THERMAL_MAX_LIMIT>;
+				cooling-device = <&CPU7 THERMAL_MAX_LIMIT
+						(THERMAL_MAX_LIMIT - 6)>;
 			};
 			cp71_cdev2 {
 				trip = <&cp71_config1>;
