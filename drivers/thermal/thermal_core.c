@@ -1779,7 +1779,7 @@ static int __init thermal_init(void)
 	int result;
 
 	thermal_passive_wq = alloc_workqueue("thermal_passive_wq",
-						WQ_UNBOUND
+						WQ_HIGHPRI | WQ_UNBOUND
 						| WQ_FREEZABLE,
 						THERMAL_MAX_ACTIVE);
 	if (!thermal_passive_wq) {
@@ -1806,6 +1806,7 @@ static int __init thermal_init(void)
 #ifdef CONFIG_DEBUG_FS
 	thermal_debug_init();
 #endif
+
 	return 0;
 
 unregister_class:

@@ -176,9 +176,9 @@
 };
 
 &thermal_zones {
-	quiet-therm-usr {
+	quiet_therm {
 		polling-delay-passive = <0>;
-		polling-delay = <5000>;
+		polling-delay = <0>;
 		thermal-governor = "user_space";
 		thermal-sensors = <&pmk8350_adc_tm PM7325_ADC7_AMUX_THM1_100K_PU>;
 		wake-capable-sensor;
@@ -197,7 +197,7 @@
 		};
 	};
 
-	camera-therm-usr {
+	flash_therm {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-governor = "user_space";
@@ -212,7 +212,7 @@
 		};
 	};
 
-	sdm-skin-therm-usr {
+	cpu_therm {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-governor = "user_space";
@@ -227,7 +227,7 @@
 		};
 	};
 
-	rear-cam-therm-usr {
+	wifi_therm {
 		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-governor = "user_space";

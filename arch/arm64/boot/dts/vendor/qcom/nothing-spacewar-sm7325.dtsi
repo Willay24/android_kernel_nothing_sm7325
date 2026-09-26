@@ -6,10 +6,10 @@
 #include "nothing-spacewar-pinctrl.dtsi"
 #include "nothing-spacewar-audio-overlay.dtsi"
 #include "display/nothing-sm7325-sde-display.dtsi"
+#include "nothing-spacewar-thermal.dtsi"
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/iio/qcom,spmi-adc7-pm7325.h>
-#include <dt-bindings/iio/qcom,spmi-adc7-smb139x.h>
 #include <dt-bindings/iio/qcom,spmi-adc7-pm8350b.h>
 #include "camera/nothing-spacewar-camera-sensor.dtsi"
 
@@ -271,9 +271,6 @@
 	nt-thermal-interface {
 		compatible = "nothing,nt-thermal-interface";
 		board-sensor = "spacewar-board-sensor";
-		/* NEW: zones the driver live-reads for board_sensor_temp */
-		board-sensor-zone = "quiet_therm";
-		board-sensor-second-zone = "usb_therm";
 		qcom,display-panels = <&dsi_rm692e5_visionox_amoled_120hz_cmd
 					&dsi_r66451_amoled_144hz_video_cphy>;
 	};

@@ -19,7 +19,7 @@
 #include <linux/slab.h>
 #include <linux/string.h>
 #include <linux/jiffies.h>
-#ifdef CONFIG_NT_THERMAL_INTERFACE
+#ifdef CONFIG_NOTHING
 #include <linux/vmalloc.h>
 #endif
 
@@ -1169,8 +1169,8 @@ static void cooling_device_stats_setup(struct thermal_cooling_device *cdev)
 	var += sizeof(*stats->time_in_state) * states;
 	var += sizeof(*stats->trans_table) * states * states;
 
-#ifndef CONFIG_NT_THERMAL_INTERFACE
- 	stats = kzalloc(var, GFP_KERNEL);
+#ifndef CONFIG_NOTHING
+	stats = kzalloc(var, GFP_KERNEL);
 #else
 	stats = vzalloc(var);
 #endif
@@ -1195,8 +1195,8 @@ out:
 
 static void cooling_device_stats_destroy(struct thermal_cooling_device *cdev)
 {
-#ifndef CONFIG_NT_THERMAL_INTERFACE
- 	kfree(cdev->stats);
+#ifndef CONFIG_NOTHING
+	kfree(cdev->stats);
 #else
 	vfree(cdev->stats);
 #endif

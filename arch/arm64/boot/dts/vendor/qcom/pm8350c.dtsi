@@ -128,7 +128,7 @@
 					  "all-ramp-up-done-irq";
 			qcom,thermal-derate-current = <200 500>;
 			qcom,hw-strobe-gpios = <&pm8350c_gpios 1 0>;
-			status = "ok";
+			status = "disabled";
 
 			pm8350c_flash0: qcom,flash_0 {
 				label = "flash";
@@ -222,6 +222,17 @@
 				label = "switch";
 				qcom,led-name = "led:switch_2";
 				qcom,default-led-trigger = "switch2_trigger";
+			};
+
+			pm8350c_flashlight: qcom,flashlight {
+				label = "flash";
+				qcom,led-name = "flashlight";
+				qcom,max-current-ma = <1500>;
+				qcom,default-led-trigger = "flashlight_trigger";
+				qcom,id = <4>;
+				qcom,flashlight-current-ma = <300>;		//each torch current
+				qcom,duration-ms = <1280>;
+				qcom,ires-ua = <12500>;
 			};
 		};
 	};
