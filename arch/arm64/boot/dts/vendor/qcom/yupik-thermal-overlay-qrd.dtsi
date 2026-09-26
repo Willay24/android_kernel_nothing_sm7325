@@ -10,7 +10,6 @@
 
 &thermal_zones {
 	socd {
-		disable-thermal-zone;
 		cooling-maps {
 			socd_cpu4 {
 				trip = <&socd_trip>;
@@ -37,7 +36,7 @@
 	pm8350b-ibat-lvl0 {
 		trips {
 			ibat-lvl0 {
-				temperature = <7000>;
+				temperature = <5000>;
 			};
 		};
 	};
