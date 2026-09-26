@@ -2920,12 +2920,12 @@
 
 		pcie0_wake_default: pcie0_wake_default {
 			mux {
-				pins = "";
+				pins = "gpio96";
 				function = "gpio";
 			};
 
 			config {
-				pins = "";
+				pins = "gpio96";
 				drive-strength = <2>;
 				bias-pull-up;
 			};

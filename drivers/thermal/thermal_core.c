@@ -1806,6 +1806,7 @@ static int __init thermal_init(void)
 #ifdef CONFIG_DEBUG_FS
 	thermal_debug_init();
 #endif
+
 	return 0;
 
 unregister_class:
