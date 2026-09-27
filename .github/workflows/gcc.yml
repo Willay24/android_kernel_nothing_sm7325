@@ -1,91 +1,211 @@
-name: gcc build
-
+name: Clang Builder
 on:
-  workflow_dispatch:
+  workflow_dispatch:  # Start only manually
     inputs:
-      repository: { description: 'Repo', required: true, default: 'Willay24/android_kernel_nothing_sm7325' }
-      branch: { description: 'Branch', required: true, default: 'Staging-Kernel' }
-      defconfig: { description: 'Defconfig', required: true, default: 'phone1_defconfig' }
-      kernelsu_branch: { description: 'KSU Branch', required: false, default: 'master-susfs' }
-      anykernel_repo: { description: 'AnyKernel Repo', required: true, default: 'Willay24/AnyKernel3' }
-      anykernel_branch: { description: 'AnyKernel Branch', required: true, default: 'master' }
-
-env:
-  CHAT_ID: ${{ secrets.CHAT_ID }}
-  BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
-  KBUILD_BUILD_USER: "aospa"
-  KBUILD_BUILD_HOST: "builder"
+      branch:
+        description: 'Branch to build from'
+        required: true
+        default: 'Staging-Kernel'
+        type: string
+      compiler:
+        description: 'Compiler to use'
+        required: true
+        default: 'neutron_clang'
+        type: choice
+        options:
+          - neutron_clang
+          - slim_llvm
+      enable_kernelsu_next:
+        description: 'Enable KernelSU?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_basebandguard:
+        description: 'Enable Baseband-guard?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_nomount:
+        description: 'Enable NoMount?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_encore_fas:
+        description: 'Enable Encore FAS?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      defconfig:
+        description: 'Defconfig filename (used for KernelSU CONFIG_KSU / Baseband-guard CONFIG_BBG injection)'
+        required: true
+        default: 'phone1_defconfig'
+        type: string
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-      with:
-        repository: ${{ github.event.inputs.repository }}
-        ref: ${{ github.event.inputs.branch }}
-        submodules: recursive
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
 
-    - name: Start Notification
-      run: |
-        curl -s -X POST "https://api.telegram.org/bot${{ env.BOT_TOKEN }}/sendMessage" \
-        -d chat_id="${{ env.CHAT_ID }}" \
-        -d text="build is starting sayangg: ${{ github.event.inputs.repository }} [${{ github.event.inputs.branch }}]"
+      # Required step to ensure gcc, clang, and kernel dependencies exist
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison flex libssl-dev libelf-dev libncurses-dev build-essential ccache zip unzip curl git aria2
 
-    - name: Setup and Build
-      run: |
-        sudo apt-get update && sudo apt-get install -y build-essential libncurses-dev bison flex libssl-dev libelf-dev bc zip gcc-arm-linux-gnueabi python3 python-is-python3 git wget curl device-tree-compiler zstd xz-utils
+      - name: Setup Neutron Clang with antman
+        if: ${{ github.event.inputs.compiler == 'neutron_clang' }}
+        run: |
+          set -e
+          TOOLCHAIN_DIR="$HOME/toolchains/neutron-clang"
+          echo "Toolchain dir: $TOOLCHAIN_DIR"
+          rm -rf "$TOOLCHAIN_DIR"
+          mkdir -p "$TOOLCHAIN_DIR"
+          cd "$TOOLCHAIN_DIR"
 
-        export TZ="Asia/Jakarta"
-        BUILD_TIME=$(date +'%H%M-%d%m%y')
-        echo "BUILD_TIME=$BUILD_TIME" >> $GITHUB_ENV
+          echo "Downloading antman script..."
+          curl -LO "https://raw.githubusercontent.com/Neutron-Toolchains/antman/main/antman"
+          chmod +x antman
 
-        mkdir -p tc/gcc
-        wget -q "https://github.com/mvaisakh/gcc-build/releases/download/13092026/eva-gcc-arm64-13092026.xz" -O tc/gcc.tar.xz
-        tar -xf tc/gcc.tar.xz -C tc/gcc --strip-components=1
-        export PATH=$PWD/tc/gcc/bin:$PATH
+          echo "Syncing latest Neutron Clang build..."
+          ./antman -S
 
-        GCC_PREFIX=$(find $PWD/tc/gcc/bin -name '*-gcc' | head -n1 | sed 's/.*\///;s/gcc$//')
-        echo "Detected GCC prefix: $GCC_PREFIX"
+          echo "Applying glibc compatibility patch..."
+          ./antman --patch=glibc || echo "glibc patch skipped (not required)"
 
-        curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s ${{ github.event.inputs.kernelsu_branch }}
+          # Verify clang binary
+          if [ -f "$TOOLCHAIN_DIR/bin/clang" ]; then
+            CLANG_VER=$("$TOOLCHAIN_DIR/bin/clang" --version | head -1)
+            echo "Neutron Clang installed successfully"
+            echo "   Version: $CLANG_VER"
+          else
+            echo "clang binary not found in $TOOLCHAIN_DIR/bin/"
+            exit 1
+          fi
 
-        export ARCH=arm64
-        ARGS="O=out ARCH=arm64 CROSS_COMPILE=${GCC_PREFIX} CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- KCFLAGS=-Wno-error"
+          echo "$TOOLCHAIN_DIR/bin" >> $GITHUB_PATH
+          echo "NEUTRON_PATH=$TOOLCHAIN_DIR" >> $GITHUB_ENV
+          echo "CLANG_DIR=$TOOLCHAIN_DIR" >> $GITHUB_ENV
+          echo "CLANG_LABEL=Neutron Clang" >> $GITHUB_ENV
 
-        make $ARGS ${{ github.event.inputs.defconfig }}
-        make -j$(nproc) $ARGS dtbs dtboimage || true
-        make $ARGS dtb.img || true
-        make -j$(nproc) $ARGS 2>&1 | tee compile.log
+      - name: Setup Slim LLVM toolchain
+        if: ${{ github.event.inputs.compiler == 'slim_llvm' }}
+        run: |
+          set -e
+          echo "Downloading Slim LLVM 23.1.1..."
+          PREFIX="$HOME/build_toolchain"
+          CLANG="llvm-23.1.1-x86_64"
+          mkdir -p "$PREFIX"
+          cd "$PREFIX"
+          aria2c -q https://mirrors.edge.kernel.org/pub/tools/llvm/files/llvm-23.1.1-x86_64.tar.xz
+          tar -xJf llvm-23.1.1-x86_64.tar.xz
+          cd "$GITHUB_WORKSPACE"
 
-        if [ -f out/arch/arm64/boot/Image ]; then
-          ZIP_NAME="phone1-kernel-$BUILD_TIME.zip"
+          CLANG_DIR="${PREFIX}/${CLANG}"
+          if [ ! -x "$CLANG_DIR/bin/clang" ]; then
+            echo "clang binary not found in $CLANG_DIR/bin"
+            exit 1
+          fi
+          CLANG_VER=$("$CLANG_DIR/bin/clang" --version | head -1)
+          echo "Slim LLVM installed successfully"
+          echo "   Version: $CLANG_VER"
 
-          git clone --depth=1 -b ${{ github.event.inputs.anykernel_branch }} https://github.com/${{ github.event.inputs.anykernel_repo }}.git AnyKernel3
+          # Export toolchain path for all later steps
+          echo "$CLANG_DIR/bin" >> $GITHUB_PATH
+          echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
+          echo "LD_LIBRARY_PATH=$CLANG_DIR/lib:$CLANG_DIR/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
+          echo "CLANG_LABEL=Slim LLVM 23.1.1" >> $GITHUB_ENV
 
-          cp out/arch/arm64/boot/Image AnyKernel3/
-          [ -f out/arch/arm64/boot/dtb.img ] && cp out/arch/arm64/boot/dtb.img AnyKernel3/
-          [ -f out/arch/arm64/boot/dtbo.img ] && cp out/arch/arm64/boot/dtbo.img AnyKernel3/
+          echo "PATH will be: $CLANG_DIR/bin:\$PATH"
 
-          cd AnyKernel3
-          zip -r9 "../$ZIP_NAME" * -x .git README.md "*placeholder"
-          cd ..
+      - name: Setup KernelSU (if enabled)
+        if: ${{ github.event.inputs.enable_kernelsu_next == 'yes' }}
+        run: |
+          echo "Enabling KernelSU..."
+          curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s master-susfs
+          
+          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo "Adding CONFIG_KSU=y to defconfig"
+            echo -e "\n# KernelSU\nCONFIG_KSU=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "Defconfig not found at $DEFCONFIG_PATH - skipping CONFIG_KSU injection"
+          fi
 
-          echo "FINAL_ZIP=$ZIP_NAME" >> $GITHUB_ENV
-        fi
+      - name: Setup nomount (if enabled)
+        if: ${{ github.event.inputs.enable_nomount == 'yes' }}
+        run: |
+          echo "Enabling NoMount..."
+          curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
+          rm -rf NoMount
+          git clone -b dev https://github.com/Willay24/nomount.git NoMount
+          echo "nomount (dev) setup complete"
 
-    - name: Upload Artifacts
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: Build-${{ env.BUILD_TIME }}
-        path: |
-          *.log
-          *.zip
-        retention-days: 1
+      - name: Setup Encore FAS (if enabled)
+        if: ${{ github.event.inputs.enable_encore_fas == 'yes' }}
+        run: |
+          echo "Enabling Encore FAS..."
+          curl https://raw.githubusercontent.com/rem01project/encore_fas/refs/heads/main/kernel/scripts/setup.sh | bash
 
-    - name: Telegram Notification
-      if: always()
-      run: |
-        [ -f "compile.log" ] && curl -s -F document=@"compile.log" "https://api.telegram.org/bot${{ env.BOT_TOKEN }}/sendDocument" -F chat_id="${{ env.CHAT_ID }}" -F caption="Build log"
-        [ -f "${{ env.FINAL_ZIP }}" ] && curl -s -F document=@"${{ env.FINAL_ZIP }}" "https://api.telegram.org/bot${{ env.BOT_TOKEN }}/sendDocument" -F chat_id="${{ env.CHAT_ID }}" -F caption="build done sayangg!!!"
+      - name: Setup Baseband-guard
+        if: ${{ github.event.inputs.enable_basebandguard == 'yes' }}
+        run: |
+          set -e
+          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
+          echo "Integrating Baseband-guard LSM..."
+          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo "Injecting CONFIG_BBG=y into defconfig ($DEFCONFIG_PATH)"
+            echo -e "\n# Baseband-guard\nCONFIG_BBG=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "Defconfig not found at $DEFCONFIG_PATH - skipping CONFIG_BBG injection"
+          fi
+          if [ -f "security/Kconfig" ]; then
+            echo "Patching security/Kconfig LSM default list..."
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+            echo "security/Kconfig patched (baseband_guard added to LSM default list)"
+          else
+            echo "security/Kconfig not found - skipping LSM default patch"
+          fi
+
+      - name: Make build_clang.sh executable
+        run: chmod +x build_clang.sh
+
+      - name: Run build_clang.sh
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ "${{ github.event.inputs.compiler }}" == "slim_llvm" ]; then
+            ./build_clang.sh --compiler=slim-clang --device=Spacewar
+          else
+            ./build_clang.sh --compiler=clang --device=Spacewar
+          fi
+
+      - name: Copy built artifacts into accessible directory
+        run: |
+          mkdir -p artifacts
+          if [ -d "$GITHUB_WORKSPACE/out" ]; then
+            cp "$GITHUB_WORKSPACE/out/"*.zip artifacts/ || true
+          fi
+
+      - name: Upload ZIP files as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-kernel
+          path: artifacts/*.zip

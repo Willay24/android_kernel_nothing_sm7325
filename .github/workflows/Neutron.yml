@@ -13,31 +13,24 @@ on:
         default: 'vendor/lahaina-qgki_defconfig'
       enable_kernelsu_next:
         description: 'Enable KernelSU Next (yes/no)'
-        required: false
         default: 'no'
       enable_nomount:
-        description: 'Integrate maxsteeel/nomount (dev branch, yes/no)'
-        required: false
+        description: 'Integrate nomount (yes/no)'
         default: 'no'
       enable_eva:
         description: 'Integrate E.V.A (yes/no)'
-        required: false
         default: 'no'
       enable_basebandguard:
         description: 'Integrate Baseband-guard LSM (yes/no)'
-        required: false
         default: 'no'
       package_modules:
-        description: 'Pack built .ko modules into the AnyKernel3 zip (yes/no)'
-        required: false
+        description: 'Pack .ko modules into the zip (yes/no)'
         default: 'yes'
       build_tag:
         description: 'Build tag for ZIP name (e.g., Test/Perf/Normal)'
-        required: false
         default: 'Normal'
       enable_signing:
-        description: 'Sign the flashable ZIP with Tenzo keystore (yes/no)'
-        required: false
+        description: 'Sign the ZIP with Tenzo keystore (yes/no)'
         default: 'no'
 
 jobs:
@@ -48,29 +41,16 @@ jobs:
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.kernel_branch }}
+          ref: ${{ inputs.kernel_branch }}
 
-      # -------------------------------------------------------------------
-      # Telegram: build-start notification. Fires as soon as we've checked
-      # out the source, so you know a build kicked off even if it fails
-      # in the very first setup step.
-      # -------------------------------------------------------------------
       - name: Notify Telegram - build start
         run: |
           curl -s -X POST "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -d parse_mode="html" \
             -d disable_web_page_preview=true \
-            -d text="🔨 <b>Kernel Build Triggered</b>%0A<b>Branch:</b> <code>${{ github.event.inputs.kernel_branch }}</code>%0A<b>Defconfig:</b> <code>${{ github.event.inputs.defconfig }}</code>%0A<b>KernelSU Next:</b> <code>${{ github.event.inputs.enable_kernelsu_next }}</code>%0A<b>Signing:</b> <code>${{ github.event.inputs.enable_signing }}</code>%0A<b>Tag:</b> <code>${{ github.event.inputs.build_tag }}</code>%0A<b>Triggered by:</b> <code>${{ github.actor }}</code>"
+            -d text="🔨 <b>Kernel Build Triggered</b>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Defconfig:</b> <code>${{ inputs.defconfig }}</code>%0A<b>KernelSU Next:</b> <code>${{ inputs.enable_kernelsu_next }}</code>%0A<b>Signing:</b> <code>${{ inputs.enable_signing }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A<b>Triggered by:</b> <code>${{ github.actor }}</code>"
 
-      # -------------------------------------------------------------------
-      # clang/lld/llvm apt packages were only needed as a fallback for
-      # Greenforce Clang's host toolchain. The Slim LLVM prebuilt tarball
-      # brings its own clang/lld/llvm-* binaries and is prepended to PATH
-      # in the "Setup Slim LLVM toolchain" step, so those apt packages are
-      # dropped. aria2 is added to fetch the toolchain tarball, matching
-      # build_bouquet_ci.sh.
-      # -------------------------------------------------------------------
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -80,197 +60,99 @@ jobs:
             build-essential device-tree-compiler \
             python3 python3-pip zip git ccache wget xz-utils zstd aria2 \
             default-jre openjdk-21-jdk
-      # -------------------------------------------------------------------
-      # Use mkdtboimg.py from the kernel tree if present at
-      # scripts/mkdtboimg.py — only fall back to downloading from AOSP
-      # googlesource when it is missing.
-      # -------------------------------------------------------------------
+
       - name: Install mkdtboimg
         run: |
           set -e
           MKDTBOIMG="/usr/local/bin/mkdtboimg.py"
-          if [ -f "scripts/mkdtboimg.py" ]; then
-            echo "✅ Found mkdtboimg.py in kernel tree (scripts/mkdtboimg.py) — using it"
-            cp scripts/mkdtboimg.py "$MKDTBOIMG"
-            chmod +x "$MKDTBOIMG"
+          if [ -f scripts/mkdtboimg.py ]; then
+            sudo cp scripts/mkdtboimg.py "$MKDTBOIMG"
           else
-            echo "⚠️  scripts/mkdtboimg.py not found in kernel tree"
-            echo "📥 Downloading mkdtboimg.py from AOSP googlesource..."
-            wget -q \
-              "https://android.googlesource.com/platform/system/libufdt/+/refs/heads/master/utils/src/mkdtboimg.py?format=TEXT" \
-              -O mkdtboimg_b64.txt
-            base64 -d mkdtboimg_b64.txt > "$MKDTBOIMG"
-            chmod +x "$MKDTBOIMG"
+            wget -q "https://android.googlesource.com/platform/system/libufdt/+/refs/heads/master/utils/src/mkdtboimg.py?format=TEXT" -O mkdtboimg_b64.txt
+            base64 -d mkdtboimg_b64.txt | sudo tee "$MKDTBOIMG" > /dev/null
             rm mkdtboimg_b64.txt
           fi
-          python3 "$MKDTBOIMG" --help > /dev/null 2>&1 \
-            && echo "✅ mkdtboimg.py verified successfully" \
-            || { echo "❌ mkdtboimg.py verification failed"; exit 1; }
+          sudo chmod +x "$MKDTBOIMG"
+          python3 "$MKDTBOIMG" --help > /dev/null
           echo "MKDTBOIMG=$MKDTBOIMG" >> $GITHUB_ENV
-      # -------------------------------------------------------------------
-      # Fetch Slim LLVM 23.1.0 the same way build_bouquet_ci.sh does:
-      # aria2c the tarball from mirrors.edge.kernel.org and extract it
-      # under ~/build_toolchain (PREFIX), giving CLANG_DIR=${PREFIX}/${CLANG}.
-      #
-      # Export logic mirrors the reference build script exactly:
-      #   CLANG_DIR="${PREFIX}/${CLANG}"
-      #   export PATH="$CLANG_DIR/bin:$PATH"
-      #   export LD_LIBRARY_PATH="$CLANG_DIR/lib:$CLANG_DIR/lib64:$LD_LIBRARY_PATH"
-      # Since each workflow step is its own shell, these are persisted via
-      # GITHUB_PATH / GITHUB_ENV instead of plain `export`, so every later
-      # step inherits the same PATH/LD_LIBRARY_PATH/CLANG_DIR (prepended —
-      # takes priority over any system compiler).
-      # -------------------------------------------------------------------
+
       - name: Setup Slim LLVM toolchain
         run: |
           set -e
-          echo "📥 Downloading Slim LLVM 23.1.0..."
           PREFIX="$HOME/build_toolchain"
-          CLANG="llvm-23.1.0-x86_64"
+          CLANG="llvm-23.1.1-x86_64"
           mkdir -p "$PREFIX"
           cd "$PREFIX"
-          aria2c -q https://mirrors.edge.kernel.org/pub/tools/llvm/files/llvm-23.1.0-x86_64.tar.xz
-          tar -xJf llvm-23.1.0-x86_64.tar.xz
-          cd "$GITHUB_WORKSPACE"
+          aria2c -q "https://mirrors.edge.kernel.org/pub/tools/llvm/files/$CLANG.tar.xz"
+          tar -xJf "$CLANG.tar.xz"
 
-          CLANG_DIR="${PREFIX}/${CLANG}"
-          if [ ! -x "$CLANG_DIR/bin/clang" ]; then
-            echo "❌ clang binary not found in $CLANG_DIR/bin"
-            exit 1
-          fi
-          CLANG_VER=$("$CLANG_DIR/bin/clang" --version | head -1)
-          echo "✅ Slim LLVM installed successfully"
-          echo "   Version: $CLANG_VER"
+          CLANG_DIR="$PREFIX/$CLANG"
+          "$CLANG_DIR/bin/clang" --version | head -1
+          "$CLANG_DIR/bin/ld.lld" --version | head -1
 
-          # ── Export toolchain path for all later steps ───────────────────
           echo "$CLANG_DIR/bin" >> $GITHUB_PATH
           echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
-          echo "LD_LIBRARY_PATH=$CLANG_DIR/lib:$CLANG_DIR/lib64:$LD_LIBRARY_PATH" >> $GITHUB_ENV
-          echo "CLANG_LABEL=Slim LLVM 23.1.0" >> $GITHUB_ENV
+          echo "CLANG_LABEL=Slim LLVM 23.1.1" >> $GITHUB_ENV
 
-          echo "PATH will be: $CLANG_DIR/bin:\$PATH"
-      # -------------------------------------------------------------------
-      # KernelSU setup:
-      #   1. Run the official tiann KernelSU setup.sh
-      #   2. Remove the KernelSU folder it created
-      #   3. Clone backslashxx's KernelSU fork (master branch)
-      # -------------------------------------------------------------------
       - name: Setup KernelSU (if enabled)
-        if: ${{ github.event.inputs.enable_kernelsu_next == 'yes' }}
+        if: ${{ inputs.enable_kernelsu_next == 'yes' }}
         run: |
-          echo "🔧 Enabling KernelSU..."
-          # Step 1: Run the official tiann KernelSU setup script
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-          # Step 2: Remove the KernelSU folder created by setup
           rm -rf KernelSU
-          # Step 3: Clone backslashxx's KernelSU fork (master branch)
           git clone -b master-susfs https://github.com/William24hmar/KernelSU.git KernelSU
-          # Step 4: Inject CONFIG_KSU=y into defconfig
-          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
+          DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
           if [ -f "$DEFCONFIG_PATH" ]; then
-            echo "✅ Adding CONFIG_KSU=y to defconfig"
             echo -e "\n# KernelSU\nCONFIG_KSU=y" >> "$DEFCONFIG_PATH"
           else
-            echo "⚠️  Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_KSU injection"
+            echo "Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_KSU"
           fi
-      # -------------------------------------------------------------------
-      # maxsteeel/nomount integration — controlled by the enable_nomount
-      # input. Runs the upstream setup.sh on the dev branch, which vendors
-      # the nomount module sources into the kernel tree and wires up its
-      # Makefile/Kconfig hooks. The resulting nomount.ko is picked up
-      # automatically later by the module-packaging step's workspace-wide
-      # nomount.ko search, no extra config needed here beyond building it.
-      # -------------------------------------------------------------------
+
       - name: Setup nomount (if enabled)
-        if: ${{ github.event.inputs.enable_nomount == 'yes' }}
+        if: ${{ inputs.enable_nomount == 'yes' }}
         run: |
-          echo "🔧 Enabling NoMount..."
-          # Step 1: Run the NoMount setup script
           curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
-          # Step 2: Remove the NoMount folder created by setup
           rm -rf NoMount
-          # Step 3: Clone Nomount fork (dev branch)
           git clone -b dev https://github.com/Willay24/nomount.git NoMount
-          echo "✅ nomount (dev) setup complete"
-      # -------------------------------------------------------------------
-      # E.V.A integration — controlled by the enable_eva input.
-      # Runs the setup.sh from the Willay24/E.V.A repo (main branch).
-      # -------------------------------------------------------------------
+
       - name: Setup E.V.A (if enabled)
-        if: ${{ github.event.inputs.enable_eva == 'yes' }}
+        if: ${{ inputs.enable_eva == 'yes' }}
         run: |
-          echo "🔧 Enabling E.V.A..."
           curl -LSs "https://raw.githubusercontent.com/Willay24/E.V.A/main/kernel/setup.sh" | bash -s main
-          echo "✅ E.V.A setup complete"
-      # -------------------------------------------------------------------
-      # Baseband-guard LSM integration — controlled by the
-      # enable_basebandguard input. Mirrors the upstream quick-start:
-      #   1. Run setup.sh from the vc-teahouse/Baseband-guard repo, which
-      #      vendors the LSM sources into the kernel tree.
-      #   2. Inject CONFIG_BBG=y into the defconfig.
-      #   3. Patch security/Kconfig so the LSM "default" list includes
-      #      baseband_guard alongside selinux — required for CI/cloud
-      #      builds since there's no interactive menuconfig step to
-      #      enable it by hand.
-      # -------------------------------------------------------------------
+
       - name: Setup Baseband-guard (if enabled)
-        if: ${{ github.event.inputs.enable_basebandguard == 'yes' }}
+        if: ${{ inputs.enable_basebandguard == 'yes' }}
         run: |
           set -e
-          DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
-          echo "🛡️  Integrating Baseband-guard LSM..."
+          DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
           wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
-
           if [ -f "$DEFCONFIG_PATH" ]; then
-            echo "✅ Injecting CONFIG_BBG=y into defconfig ($DEFCONFIG_PATH)"
             echo -e "\n# Baseband-guard\nCONFIG_BBG=y" >> "$DEFCONFIG_PATH"
           else
-            echo "⚠️  Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_BBG injection"
+            echo "Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_BBG"
+          fi
+          if [ -f security/Kconfig ]; then
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
           fi
 
-          if [ -f "security/Kconfig" ]; then
-            echo "🩹 Patching security/Kconfig LSM default list..."
-            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
-            echo "✅ security/Kconfig patched (baseband_guard added to LSM default list)"
-          else
-            echo "⚠️  security/Kconfig not found — skipping LSM default patch"
-          fi
-      # -------------------------------------------------------------------
-      # Configure + build using the explicit CC/AR/NM/LD/... toolchain
-      # flags from the reference build script, pointed at Slim LLVM via
-      # CLANG_DIR (exported by "Setup Slim LLVM toolchain"):
-      #   CC="ccache clang" AR="llvm-ar" NM="llvm-nm" LD="ld.lld -S"
-      #   OBJCOPY="llvm-objcopy" OBJDUMP="llvm-objdump" STRIP="llvm-strip"
-      #   CLANG_TRIPLE="aarch64-linux-gnu-" CROSS_COMPILE="aarch64-linux-gnu-"
-      #   CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
-      #   CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
-      #   LLVM=1 LLVM_IAS=1 INSTALL_MOD_STRIP=1
-      # These are collected in COMMON_MAKE_FLAGS and reused verbatim by
-      # every make invocation (defconfig, olddefconfig, build, modules)
-      # so nothing gets rebuilt with a mismatched compiler.
-      #
-      # COMPAT_VDSO is still force-disabled: its Kconfig default is Y,
-      # but Slim LLVM ships no thumbv7-unknown-linux-gnueabi target
-      # either, so leaving it on still fails the build on
-      # arch/arm64/kernel/vdso32/note.o.
-      # ksu.config is only merged in when KernelSU Next is enabled.
-      #
-      # KBUILD_BUILD_USER / KBUILD_BUILD_HOST are overridden here so the
-      # kernel's build string doesn't leak the GitHub Actions runner's
-      # generated username/hostname (e.g. runner@fv-az123-456).
-      # -------------------------------------------------------------------
       - name: Configure and build kernel
         run: |
           set -e
-          export KBUILD_BUILD_USER="aospa"
-          export KBUILD_BUILD_HOST="builder"
-          echo "🔧 Using toolchain at: $CLANG_DIR"
-          echo "$PATH"
+          echo "Toolchain: $CLANG_DIR"
+          clang --version | head -1
+          ld.lld --version | head -1
 
-          COMMON_MAKE_FLAGS=(
-            O=out
+          if [ "${{ inputs.enable_kernelsu_next }}" = "yes" ]; then
+            make O=out ARCH=arm64 "${{ inputs.defconfig }}" ksu.config
+          else
+            make O=out ARCH=arm64 "${{ inputs.defconfig }}"
+          fi
+
+          scripts/config --file out/.config --disable COMPAT_VDSO --disable THUMB2_COMPAT_VDSO
+
+          BUILD_FLAGS=(
             ARCH=arm64
             SUBARCH=arm64
+            O=out
             CC="ccache clang"
             AR="llvm-ar"
             NM="llvm-nm"
@@ -285,303 +167,120 @@ jobs:
             LLVM=1
             LLVM_IAS=1
             INSTALL_MOD_STRIP=1
+            KBUILD_BUILD_USER="$(git rev-parse --short HEAD | cut -c1-7)"
+            KBUILD_BUILD_HOST="$(git symbolic-ref --short HEAD)"
           )
 
-          DEFCONFIG="${{ github.event.inputs.defconfig }}"
-          if [ "${{ github.event.inputs.enable_kernelsu_next }}" = "yes" ]; then
-            echo "⚙️  Configuring kernel ($DEFCONFIG + ksu.config)..."
-            make "${COMMON_MAKE_FLAGS[@]}" "$DEFCONFIG" ksu.config
-          else
-            echo "⚙️  Configuring kernel ($DEFCONFIG)..."
-            make "${COMMON_MAKE_FLAGS[@]}" "$DEFCONFIG"
-          fi
-          echo "🔧 Disabling COMPAT_VDSO (unsupported thumbv7 target)..."
-          scripts/config --file out/.config --disable COMPAT_VDSO --disable THUMB2_COMPAT_VDSO
-          make "${COMMON_MAKE_FLAGS[@]}" olddefconfig
-          echo "🔨 Building kernel Image and dtbs..."
           set -o pipefail
-          make -j$(nproc --all) "${COMMON_MAKE_FLAGS[@]}" \
-            KBUILD_BUILD_USER="$KBUILD_BUILD_USER" \
-            KBUILD_BUILD_HOST="$KBUILD_BUILD_HOST" \
-            Image dtbs 2>&1 | tee build.log
-          echo "✅ Kernel build completed"
-          echo "📊 ccache stats:"
-          ccache -s
-      - name: Verify Image was produced
-        run: |
-          if [ -f "out/arch/arm64/boot/Image" ]; then
-            echo "✅ Image found — proceeding to dtb/dtbo packaging"
-          else
-            echo "❌ Image not found — kernel build truly failed"
-            exit 1
+          make -j$(nproc --all) "${BUILD_FLAGS[@]}" 2>&1 | tee build.log
+          [ -f out/arch/arm64/boot/Image ] || { echo "Image not found"; exit 1; }
+
+          if [ "${{ inputs.package_modules }}" = "yes" ]; then
+            make -j$(nproc --all) "${BUILD_FLAGS[@]}" modules
+            if find out -name '*.ko' | grep -q .; then
+              make -j$(nproc --all) "${BUILD_FLAGS[@]}" INSTALL_MOD_PATH=modules modules_install
+            else
+              echo "No .ko files produced (CONFIG_MODULES may be off)"
+            fi
           fi
+
+          ccache -s
+
       - name: Build dtb / dtb.img / dtbo.img
         run: |
           set -e
           BOOT_OUT="out/arch/arm64/boot"
           DTS_OUT="$BOOT_OUT/dts"
-          echo "🔗 Merging .dtb files into dtb blob..."
-          if find "$DTS_OUT" -name '*.dtb' 2>/dev/null | grep -q .; then
-            find "$DTS_OUT" -name '*.dtb' -exec cat {} + > "$BOOT_OUT/dtb"
-            echo "✅ dtb blob created ($(wc -c < "$BOOT_OUT/dtb") bytes)"
-          else
-            echo "❌ No .dtb files found — cannot create dtb blob"
-            exit 1
-          fi
-          echo "📦 Creating dtb.img..."
+
           mapfile -t DTB_LIST < <(find "$DTS_OUT" -name '*.dtb' | sort)
-          if [ ${#DTB_LIST[@]} -eq 0 ]; then
-            echo "❌ No .dtb files to pack into dtb.img"
-            exit 1
-          fi
-          python3 "$MKDTBOIMG" create "$BOOT_OUT/dtb.img" "${DTB_LIST[@]}" \
-            && echo "✅ dtb.img created (${#DTB_LIST[@]} dtb entries)" \
-            || { echo "❌ Failed to create dtb.img"; exit 1; }
-          if [ -f "$BOOT_OUT/dtbo.img" ]; then
-            echo "✅ dtbo.img already present (built by kernel)"
-          elif find "$DTS_OUT" -name '*.dtbo' 2>/dev/null | grep -q .; then
-            echo "📦 Creating dtbo.img from .dtbo overlay files..."
+          [ ${#DTB_LIST[@]} -gt 0 ] || { echo "No .dtb files found"; exit 1; }
+
+          cat "${DTB_LIST[@]}" > "$BOOT_OUT/dtb"
+          python3 "$MKDTBOIMG" create "$BOOT_OUT/dtb.img" "${DTB_LIST[@]}"
+
+          if [ ! -f "$BOOT_OUT/dtbo.img" ]; then
             mapfile -t DTBO_LIST < <(find "$DTS_OUT" -name '*.dtbo' | sort)
-            python3 "$MKDTBOIMG" create "$BOOT_OUT/dtbo.img" "${DTBO_LIST[@]}" \
-              && echo "✅ dtbo.img created (${#DTBO_LIST[@]} dtbo entries)" \
-              || echo "⚠️  Failed to create dtbo.img — continuing anyway"
-          else
-            echo "⚠️  No .dtbo files and no pre-built dtbo.img found"
-            echo "    (CONFIG_BUILD_ARM64_DT_OVERLAY may not be set in your defconfig)"
+            if [ ${#DTBO_LIST[@]} -gt 0 ]; then
+              python3 "$MKDTBOIMG" create "$BOOT_OUT/dtbo.img" "${DTBO_LIST[@]}" || echo "dtbo.img creation failed — continuing"
+            else
+              echo "No .dtbo files found — skipping dtbo.img"
+            fi
           fi
-          echo ""
-          echo "── Boot artifacts ──────────────────────"
-          ls -lh \
-            "$BOOT_OUT/Image" \
-            "$BOOT_OUT/dtb" \
-            "$BOOT_OUT/dtb.img" \
-            "$BOOT_OUT/dtbo.img" 2>/dev/null || true
-          echo "────────────────────────────────────────"
-      # -------------------------------------------------------------------
-      # Build + install out-of-tree kernel modules (.ko). Uses the exact
-      # same toolchain flags as "Configure and build kernel" so nothing
-      # gets rebuilt with a mismatched compiler. Skipped entirely if
-      # package_modules == 'no', or if the kernel wasn't built with
-      # CONFIG_MODULES (in which case the `modules` target produces
-      # nothing and this step just warns instead of failing).
-      # -------------------------------------------------------------------
-      - name: Build and install kernel modules
-        if: ${{ github.event.inputs.package_modules == 'yes' }}
-        run: |
-          set -e
-          export KBUILD_BUILD_USER="aospa"
-          export KBUILD_BUILD_HOST="builder"
 
-          COMMON_MAKE_FLAGS=(
-            O=out
-            ARCH=arm64
-            SUBARCH=arm64
-            CC="ccache clang"
-            AR="llvm-ar"
-            NM="llvm-nm"
-            LD="ld.lld -S"
-            OBJCOPY="llvm-objcopy"
-            OBJDUMP="llvm-objdump"
-            STRIP="llvm-strip"
-            CLANG_TRIPLE="aarch64-linux-gnu-"
-            CROSS_COMPILE="aarch64-linux-gnu-"
-            CROSS_COMPILE_ARM32="arm-linux-gnueabi-"
-            CROSS_COMPILE_COMPAT="arm-linux-gnueabi-"
-            LLVM=1
-            LLVM_IAS=1
-            INSTALL_MOD_STRIP=1
-          )
+          ls -lh "$BOOT_OUT"/{Image,dtb,dtb.img,dtbo.img} 2>/dev/null || true
 
-          echo "🔨 Building kernel modules..."
-          make -j$(nproc --all) "${COMMON_MAKE_FLAGS[@]}" modules
-
-          if find out -name '*.ko' 2>/dev/null | grep -q .; then
-            echo "📦 Installing modules to out/modules..."
-            make -j$(nproc --all) "${COMMON_MAKE_FLAGS[@]}" \
-              INSTALL_MOD_PATH=modules modules_install
-            echo "✅ Modules built and staged under out/modules"
-          else
-            echo "⚠️  No .ko files were produced (CONFIG_MODULES may be off in this defconfig) — skipping modules_install"
-          fi
-          ccache -s
       - name: Prepare AnyKernel3 package
         run: |
           git clone --depth=1 https://github.com/William24hmar/AnyKernel3.git -b master anykernel
           BOOT_OUT="out/arch/arm64/boot"
           cp "$BOOT_OUT/Image" anykernel/
-          echo "✅ Image copied"
-          [ -f "$BOOT_OUT/dtb" ]      && cp "$BOOT_OUT/dtb"      anykernel/ && echo "✅ dtb copied"      || echo "⚠️  dtb not found"
-          [ -f "$BOOT_OUT/dtb.img" ]  && cp "$BOOT_OUT/dtb.img"  anykernel/ && echo "✅ dtb.img copied"  || echo "⚠️  dtb.img not found"
-          [ -f "$BOOT_OUT/dtbo.img" ] && cp "$BOOT_OUT/dtbo.img" anykernel/ && echo "✅ dtbo.img copied" || echo "⚠️  dtbo.img not found"
-      # -------------------------------------------------------------------
-      # Pack the built .ko files into
-      # anykernel/modules/vendor/lib/modules/<kernel_release>/ and rewrite
-      # modules.dep so it points at absolute /vendor/lib/modules/*.ko
-      # paths (Android's module loader expects that, not the kernel build
-      # tree's relative kernel/drivers/... paths).
-      # -------------------------------------------------------------------
+          for f in dtb dtb.img dtbo.img; do
+            [ -f "$BOOT_OUT/$f" ] && cp "$BOOT_OUT/$f" anykernel/ || echo "$f not found"
+          done
+
       - name: Package kernel modules for AnyKernel3
-        if: ${{ github.event.inputs.package_modules == 'yes' }}
+        if: ${{ inputs.package_modules == 'yes' }}
         run: |
           set -e
-          if [ ! -d out/modules ]; then
-            echo "⚠️  out/modules not present — nothing to package (modules_install step skipped or produced no output)"
-            exit 0
-          fi
-
-          KERNEL_RELEASE=$(cat out/include/config/kernel.release 2>/dev/null || true)
-          if [ -z "$KERNEL_RELEASE" ]; then
-            KERNEL_RELEASE=$(find out/modules/lib/modules -maxdepth 1 -mindepth 1 -type d -printf '%f\n' | head -n1)
-          fi
-          if [ -z "$KERNEL_RELEASE" ]; then
-            echo "❌ Could not determine kernel release string — aborting module packaging"
-            exit 1
-          fi
-          echo "📋 Kernel release: $KERNEL_RELEASE"
+          [ -d out/modules ] || { echo "out/modules not present — nothing to package"; exit 0; }
 
           MOD_DEST="anykernel/modules/vendor/lib/modules"
           mkdir -p "$MOD_DEST"
 
-          # Scan the entire out/ tree for .ko files — no need to name
-          # subdirectories by hand, this picks up drivers/, net/,
-          # techpack/, or anywhere else a defconfig happens to build
-          # modules. out/modules/ is excluded: that's the modules_install
-          # output tree (INSTALL_MOD_PATH=modules), which contains
-          # stripped copies of the SAME .ko files under the same
-          # basenames — including it here would just create duplicate
-          # basenames and make the copy step below skip files.
           KO_FILES=()
-          while IFS= read -r -d '' f; do
-            KO_FILES+=("$f")
-          done < <(find out -path out/modules -prune -o -name '*.ko' -print0 2>/dev/null)
+          while IFS= read -r -d '' f; do KO_FILES+=("$f"); done \
+            < <(find out -path out/modules -prune -o -name '*.ko' -print0)
+          while IFS= read -r -d '' f; do KO_FILES+=("$f"); done \
+            < <(find . -maxdepth 6 -name 'nomount.ko' -not -path './out/*' -print0)
 
-          # nomount.ko (maxsteeel/nomount's mount-hiding module) is often
-          # built outside out/ entirely, e.g. under a top-level nomount/
-          # checkout, so search the whole workspace for it separately and
-          # fold it in if the general out/ scan above didn't already find it.
-          while IFS= read -r -d '' f; do
-            base=$(basename "$f")
-            already=0
-            for existing in "${KO_FILES[@]:-}"; do
-              [ "$(basename "$existing")" = "$base" ] && already=1 && break
-            done
-            [ "$already" -eq 0 ] && KO_FILES+=("$f")
-          done < <(find . -maxdepth 6 -name 'nomount.ko' -not -path './out/*' -print0 2>/dev/null)
+          [ ${#KO_FILES[@]} -gt 0 ] || { echo "No .ko files found — skipping"; exit 0; }
 
-          if [ ${#KO_FILES[@]} -eq 0 ]; then
-            echo "⚠️  No .ko files found anywhere in the workspace — skipping"
-            exit 0
-          fi
-
-          # Copy one file at a time, skipping any basename already
-          # copied. This is deliberately not a single bulk `cp` call:
-          # GNU cp aborts an entire multi-file invocation the moment two
-          # different sources map to the same destination filename, so
-          # one stray duplicate anywhere in KO_FILES would fail the whole
-          # step. Copying individually degrades that to "keep the first
-          # match, log the rest" instead.
           declare -A seen=()
-          copied=0
-          skipped=0
           for f in "${KO_FILES[@]}"; do
             base=$(basename "$f")
-            if [ -n "${seen[$base]:-}" ]; then
-              echo "   ↷ skipping duplicate $base (already packed from ${seen[$base]})"
-              skipped=$((skipped + 1))
-              continue
-            fi
+            [ -n "${seen[$base]:-}" ] && continue
             cp "$f" "$MOD_DEST/$base"
-            seen[$base]="$f"
-            copied=$((copied + 1))
+            seen[$base]=1
           done
-          echo "📦 Copied $copied .ko file(s) into $MOD_DEST ($skipped duplicate basename(s) skipped)"
+          echo "Packed ${#seen[@]} module(s)"
 
           MODSRC_DIR=$(find out/modules/lib/modules -maxdepth 1 -mindepth 1 -type d | head -n1)
           if [ -n "$MODSRC_DIR" ]; then
-            for f in modules.alias modules.dep modules.softdep; do
-              [ -f "$MODSRC_DIR/$f" ] && cp "$MODSRC_DIR/$f" "$MOD_DEST/" && echo "✅ $f copied"
-            done
-            if [ -f "$MODSRC_DIR/modules.order" ]; then
-              cp "$MODSRC_DIR/modules.order" "$MOD_DEST/modules.load"
-              echo "✅ modules.order copied as modules.load"
-            fi
             for f in "$MODSRC_DIR"/modules.*; do
-              base=$(basename "$f")
-              [ -f "$MOD_DEST/$base" ] || cp "$f" "$MOD_DEST/"
+              [ -f "$f" ] && cp "$f" "$MOD_DEST/"
             done
+            [ -f "$MODSRC_DIR/modules.order" ] && cp "$MODSRC_DIR/modules.order" "$MOD_DEST/modules.load"
           fi
 
-          # Rewrite modules.dep entries to point at the flat
-          # /vendor/lib/modules/foo.ko install path Android expects,
-          # instead of the kernel build tree's kernel/drivers/... path.
           if [ -f "$MOD_DEST/modules.dep" ]; then
             sed -i 's/\(kernel\/[^: ]*\/\)\([^: ]*\.ko\)/\/vendor\/lib\/modules\/\2/g' "$MOD_DEST/modules.dep"
-            echo "✅ modules.dep paths rewritten to /vendor/lib/modules/*.ko"
           fi
-
-          # modules.load must list bare filenames only (no path prefix).
           if [ -f "$MOD_DEST/modules.load" ]; then
             sed -i 's/.*\///g' "$MOD_DEST/modules.load"
-            echo "✅ modules.load reduced to bare filenames"
           fi
 
-          echo ""
-          echo "── Packaged modules ────────────────────"
-          ls -lh "$MOD_DEST" | grep -E '\.ko$|modules\.' || true
-          echo "─────────────────────────────────────────"
-      # -------------------------------------------------------------------
-      # Zip everything inside anykernel/ into a timestamped flashable ZIP.
-      # Format: SlimLLVM-<TAG>-<YYYYMMDD>-<HHMM>.zip
-      # e.g.  : SlimLLVM-Perf-20260529-1432.zip
-      # Excludes .git metadata and README.md (not needed on device).
-      # ZIP_FILE is written to GITHUB_ENV so subsequent steps can find it.
-      # -------------------------------------------------------------------
       - name: Create flashable ZIP
         run: |
-          # Sanitise the tag — strip spaces and slashes so the filename is safe
-          RAW_TAG="${{ github.event.inputs.build_tag }}"
-          SAFE_TAG="${RAW_TAG// /-}"       # spaces → hyphens
-          SAFE_TAG="${SAFE_TAG//\//-}"     # forward slashes → hyphens
+          SAFE_TAG="${{ inputs.build_tag }}"
+          SAFE_TAG="${SAFE_TAG// /-}"
+          SAFE_TAG="${SAFE_TAG//\//-}"
+          [ "${{ inputs.enable_basebandguard }}" = "yes" ] && SAFE_TAG="${SAFE_TAG}-BBG"
+          [ "${{ inputs.enable_nomount }}" = "yes" ] && SAFE_TAG="${SAFE_TAG}-nomount"
+          [ "${{ inputs.enable_eva }}" = "yes" ] && SAFE_TAG="${SAFE_TAG}-EVA"
 
-          # Append Baseband-guard suffix when it was integrated
-          if [ "${{ github.event.inputs.enable_basebandguard }}" = "yes" ]; then
-            SAFE_TAG="${SAFE_TAG}-BBG"
-          fi
-
-          # Append nomount suffix when it was integrated
-          if [ "${{ github.event.inputs.enable_nomount }}" = "yes" ]; then
-            SAFE_TAG="${SAFE_TAG}-nomount"
-          fi
-
-          # Append E.V.A suffix when it was integrated
-          if [ "${{ github.event.inputs.enable_eva }}" = "yes" ]; then
-            SAFE_TAG="${SAFE_TAG}-EVA"
-          fi
-
-          cd anykernel
           ZIP_NAME="SlimLLVM-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
-          zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md"
-          cd ..
+          (cd anykernel && zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md")
           echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
-          echo "✅ Zip created: $ZIP_NAME ($(du -sh $ZIP_NAME | cut -f1))"
-      # -------------------------------------------------------------------
-      # Generate a Tenzo signing keystore (mirrors generate_secure_keystore
-      # in build.sh exactly).  Runs only when enable_signing == 'yes'.
-      # The keystore stays in $HOME/.gf — it is NEVER bundled into the
-      # ZIP; it is only used by jarsigner in the next step.
-      # -------------------------------------------------------------------
+          echo "Zip created: $ZIP_NAME ($(du -sh "$ZIP_NAME" | cut -f1))"
+
       - name: Generate signing keystore
-        if: ${{ github.event.inputs.enable_signing == 'yes' }}
+        if: ${{ inputs.enable_signing == 'yes' }}
         run: |
           set -e
           SIGNER_DIR="$HOME/.gf"
           KEYSTORE="$SIGNER_DIR/keystore.p12"
-          # Skip re-generation if the keystore already exists (matches build.sh guard)
-          if [ -f "$KEYSTORE" ]; then
-            echo "✔ Keystore already exists: $KEYSTORE"
-            exit 0
-          fi
-          echo "Creating new keystore and full trust chain..."
+          [ -f "$KEYSTORE" ] && exit 0
+
           rm -rf "$SIGNER_DIR"
           mkdir -p "$SIGNER_DIR" && chmod 700 "$SIGNER_DIR"
           PASS=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 18)
@@ -590,13 +289,13 @@ jobs:
           echo "$PASS"     > "$SIGNER_DIR/.store_pass"
           echo "$KEYALIAS" > "$SIGNER_DIR/.alias"
           chmod 600 "$SIGNER_DIR/.store_pass" "$SIGNER_DIR/.alias"
-          echo "🔑 Generating Root CA..."
+
           openssl genrsa -out "$SIGNER_DIR/rootCA.key" 4096
           openssl req -x509 -new -nodes \
             -key "$SIGNER_DIR/rootCA.key" -sha256 -days 9125 \
             -out "$SIGNER_DIR/rootCA.pem" \
             -subj "/CN=Tenzo Root CA/O=Madara273/C=UA"
-          echo "🔑 Generating Tenzo keypair + CSR..."
+
           openssl genrsa -out "$SIGNER_DIR/tenzo.key" 4096
           openssl req -new \
             -key "$SIGNER_DIR/tenzo.key" \
@@ -609,7 +308,7 @@ jobs:
             -CAcreateserial \
             -out "$SIGNER_DIR/tenzo.crt" \
             -sha256 -days 365
-          echo "📦 Exporting to PKCS#12..."
+
           openssl pkcs12 -export \
             -inkey "$SIGNER_DIR/tenzo.key" \
             -in "$SIGNER_DIR/tenzo.crt" \
@@ -623,51 +322,32 @@ jobs:
             -destkeystore "$KEYSTORE" \
             -deststoretype PKCS12 -deststorepass "$PASS" \
             -alias "$KEYALIAS" -noprompt
-          # Import rootCA into the keystore itself (matches build.sh)
           keytool -importcert -trustcacerts \
             -alias "rootCA_${UNIQUE_ID}" \
             -file "$SIGNER_DIR/rootCA.pem" \
             -keystore "$KEYSTORE" \
             -storepass "$PASS" -noprompt
-          echo "🔑 Adding Root CA to Java truststore..."
-          sudo keytool -list -cacerts -storepass changeit \
-            -alias "tenzoRoot" >/dev/null 2>&1 && \
-            sudo keytool -delete -cacerts -storepass changeit \
-              -alias "tenzoRoot" -noprompt || true
+
+          sudo keytool -delete -cacerts -storepass changeit -alias tenzoRoot -noprompt >/dev/null 2>&1 || true
           sudo keytool -importcert \
-            -alias "tenzoRoot" \
+            -alias tenzoRoot \
             -file "$SIGNER_DIR/rootCA.pem" \
-            -cacerts -storepass changeit -noprompt && \
-            echo "✔ Root CA added to Java truststore" || \
-            echo "⚠️  Failed to add Root CA to Java truststore"
-          echo "✅ Keystore ready: $KEYSTORE"
-          # Print SHA256 fingerprint (matches show_fingerprint in build.sh)
-          keytool -list -v -keystore "$KEYSTORE" -storepass "$PASS" \
-            -alias "$KEYALIAS" 2>/dev/null | grep "SHA256:" || true
+            -cacerts -storepass changeit -noprompt
+
           echo "SIGNER_DIR=$SIGNER_DIR" >> $GITHUB_ENV
-      # -------------------------------------------------------------------
-      # Sign the flashable ZIP using jarsigner — mirrors sign_zip() in
-      # build.sh exactly:
-      #   1. Copy the unsigned ZIP to a *-signed.zip
-      #   2. Run jarsigner with SHA256withRSA + DigiCert TSA
-      #   3. Verify the "jar signed." success string
-      #   4. Update ZIP_FILE env var to point at the signed copy
-      # -------------------------------------------------------------------
+
       - name: Sign flashable ZIP
-        if: ${{ github.event.inputs.enable_signing == 'yes' }}
+        if: ${{ inputs.enable_signing == 'yes' }}
         run: |
           set -e
           SIGNER_DIR="$HOME/.gf"
           KEYSTORE="$SIGNER_DIR/keystore.p12"
           PASS=$(cat "$SIGNER_DIR/.store_pass")
           KEYALIAS=$(cat "$SIGNER_DIR/.alias")
-          UNSIGNED="$ZIP_FILE"
-          SIGNED="${UNSIGNED%.zip}-signed.zip"
-          echo "📋 Unsigned: $UNSIGNED"
-          echo "📋 Signed  : $SIGNED"
-          cp "$UNSIGNED" "$SIGNED"
-          echo "🔏 Signing ZIP with jarsigner + DigiCert TSA..."
-          SIGNING_OUTPUT=$(jarsigner \
+          SIGNED="${ZIP_FILE%.zip}-signed.zip"
+
+          cp "$ZIP_FILE" "$SIGNED"
+          OUTPUT=$(jarsigner \
             -keystore "$KEYSTORE" \
             -storepass "$PASS" \
             -keypass "$PASS" \
@@ -675,40 +355,27 @@ jobs:
             -digestalg SHA-256 \
             -tsa http://timestamp.digicert.com \
             "$SIGNED" "$KEYALIAS" 2>&1)
-          echo "$SIGNING_OUTPUT"
-          echo "$SIGNING_OUTPUT" | grep -q "jar signed." && {
-            echo "✅ ZIP signed successfully: $SIGNED"
-            echo "$SIGNING_OUTPUT" | grep -q "The timestamp will expire" && \
-              echo "⚠️  $(echo "$SIGNING_OUTPUT" | grep 'The timestamp will expire')"
-          } || {
-            echo "❌ Signing failed!"
-            exit 1
-          }
-          # Point upload step at the signed ZIP
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "jar signed." || { echo "Signing failed"; exit 1; }
+
           echo "ZIP_FILE=$SIGNED" >> $GITHUB_ENV
+
       - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: SlimLLVM-${{ github.event.inputs.build_tag }}-Kernel
+          name: SlimLLVM-Kernel-${{ github.run_number }}
           path: ${{ env.ZIP_FILE }}
 
-      # -------------------------------------------------------------------
-      # Telegram: push the finished, flashable ZIP with build metadata.
-      # Only runs if everything up to here succeeded. Telegram's bot API
-      # caps uploads at 50MB — if your ZIP regularly exceeds that you'll
-      # need a self-hosted Bot API server; this will otherwise fail with
-      # a "Request Entity Too Large" style error from Telegram.
-      # -------------------------------------------------------------------
       - name: Push ZIP to Telegram
         if: success()
         run: |
           MD5CHECK=$(md5sum "$ZIP_FILE" | cut -d' ' -f1)
           SIZE=$(du -sh "$ZIP_FILE" | cut -f1)
           CAPTION="✅ Build Successful
-          Branch: ${{ github.event.inputs.kernel_branch }}
-          Tag: ${{ github.event.inputs.build_tag }}
-          KernelSU Next: ${{ github.event.inputs.enable_kernelsu_next }}
-          Signed: ${{ github.event.inputs.enable_signing }}
+          Branch: ${{ inputs.kernel_branch }}
+          Tag: ${{ inputs.build_tag }}
+          KernelSU Next: ${{ inputs.enable_kernelsu_next }}
+          Signed: ${{ inputs.enable_signing }}
           Compiler: ${{ env.CLANG_LABEL }}
           Size: $SIZE
           MD5: $MD5CHECK"
@@ -716,12 +383,6 @@ jobs:
             -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -F caption="$CAPTION"
 
-      # -------------------------------------------------------------------
-      # Telegram: failure notification + build.log, if anything in the
-      # job failed. This is the LAST step so it can catch a failure from
-      # any earlier step. build.log only exists once the "Configure and
-      # build kernel" step has run, so we guard for it.
-      # -------------------------------------------------------------------
       - name: Notify Telegram - build failure
         if: failure()
         run: |
@@ -729,7 +390,7 @@ jobs:
             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -d parse_mode="html" \
             -d disable_web_page_preview=true \
-            -d text="❌ <b>Build Failed</b>%0A<b>Branch:</b> <code>${{ github.event.inputs.kernel_branch }}</code>%0A<b>Tag:</b> <code>${{ github.event.inputs.build_tag }}</code>%0ACheck the Actions log for full details: %0A${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -d text="❌ <b>Build Failed</b>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ -f build.log ]; then
             curl -s -F document=@build.log "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
               -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \

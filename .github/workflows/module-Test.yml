@@ -40,6 +40,14 @@ on:
         options:
           - 'yes'
           - 'no'
+      enable_encore_fas:
+        description: 'Enable Encore FAS?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
       defconfig:
         description: 'Defconfig filename (used for KernelSU CONFIG_KSU / Baseband-guard CONFIG_BBG injection)'
         required: true
@@ -85,6 +93,12 @@ jobs:
           rm -rf NoMount
           git clone -b dev https://github.com/Willay24/nomount.git NoMount
           echo "nomount (dev) setup complete"
+
+      - name: Setup Encore FAS (if enabled)
+        if: ${{ github.event.inputs.enable_encore_fas == 'yes' }}
+        run: |
+          echo "🔧 Enabling Encore FAS..."
+          curl https://raw.githubusercontent.com/rem01project/encore_fas/refs/heads/main/kernel/scripts/setup.sh | bash
 
       - name: Setup Baseband-guard
         if: ${{ github.event.inputs.enable_basebandguard == 'yes' }}
