@@ -49,6 +49,8 @@
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/signal.h>
+#undef CREATE_TRACE_POINTS
+#include <trace/hooks/signal.h>
 
 #include <asm/param.h>
 #include <linux/uaccess.h>
@@ -1294,6 +1296,8 @@ int do_send_sig_info(int sig, struct kernel_siginfo *info, struct task_struct *p
 {
 	unsigned long flags;
 	int ret = -ESRCH;
+
+	trace_android_vh_do_send_sig_info(sig, current, p);
 
 	if (lock_task_sighand(p, &flags)) {
 		ret = send_signal(sig, info, p, type);

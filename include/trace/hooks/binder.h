@@ -14,6 +14,13 @@
 #if defined(CONFIG_TRACEPOINTS) && defined(CONFIG_ANDROID_VENDOR_HOOKS)
 struct binder_transaction;
 struct task_struct;
+struct binder_proc;
+struct binder_thread;
+struct binder_transaction_data;
+struct binder_alloc;
+struct mutex;
+struct hlist_head;
+
 DECLARE_HOOK(android_vh_binder_transaction_init,
 	TP_PROTO(struct binder_transaction *t),
 	TP_ARGS(t));
@@ -23,10 +30,28 @@ DECLARE_HOOK(android_vh_binder_set_priority,
 DECLARE_HOOK(android_vh_binder_restore_priority,
 	TP_PROTO(struct binder_transaction *t, struct task_struct *task),
 	TP_ARGS(t, task));
+DECLARE_HOOK(android_vh_binder_alloc_new_buf_locked,
+	TP_PROTO(size_t size, struct binder_alloc *alloc, int is_async),
+	TP_ARGS(size, alloc, is_async));
+DECLARE_HOOK(android_vh_binder_preset,
+	TP_PROTO(struct hlist_head *hhead, struct mutex *lock),
+	TP_ARGS(hhead, lock));
+DECLARE_HOOK(android_vh_binder_reply,
+	TP_PROTO(struct binder_proc *target_proc, struct binder_proc *proc,
+		struct binder_thread *thread, struct binder_transaction_data *tr),
+	TP_ARGS(target_proc, proc, thread, tr));
+DECLARE_HOOK(android_vh_binder_trans,
+	TP_PROTO(struct binder_proc *target_proc, struct binder_proc *proc,
+		struct binder_thread *thread, struct binder_transaction_data *tr),
+	TP_ARGS(target_proc, proc, thread, tr));
 #else
 #define trace_android_vh_binder_transaction_init(t)
 #define trace_android_vh_binder_set_priority(t, task)
 #define trace_android_vh_binder_restore_priority(t, task)
+#define trace_android_vh_binder_alloc_new_buf_locked(size, alloc, is_async)
+#define trace_android_vh_binder_preset(hhead, lock)
+#define trace_android_vh_binder_reply(target_proc, proc, thread, tr)
+#define trace_android_vh_binder_trans(target_proc, proc, thread, tr)
 #endif
 #endif /* _TRACE_HOOK_BINDER_H */
 /* This part must be outside protection */

@@ -3426,6 +3426,11 @@ static void binder_transaction(struct binder_proc *proc,
 	e->to_proc = target_proc->pid;
 #endif
 
+	if (reply)
+		trace_android_vh_binder_reply(target_proc, proc, thread, tr);
+	else
+		trace_android_vh_binder_trans(target_proc, proc, thread, tr);
+
 	/* TODO: reuse incoming transaction for reply */
 	t = kmem_cache_zalloc(binder_transaction_pool, GFP_KERNEL);
 	if (t == NULL) {
@@ -6236,6 +6241,8 @@ static int binder_open(struct inode *nodp, struct file *filp)
 	mutex_unlock(&binder_procs_lock);
 
 #ifdef CONFIG_ANDROID_BINDER_LOGS
+	trace_android_vh_binder_preset(&binder_procs, &binder_procs_lock);
+
 	if (binder_debugfs_dir_entry_proc && !existing_pid) {
 		char strbuf[11];
 
