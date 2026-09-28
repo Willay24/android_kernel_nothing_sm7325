@@ -6,6 +6,7 @@
 #include <linux/fs.h>
 #include <linux/blkdev.h>
 #include <linux/blk-mq.h>
+#include <linux/elevator.h>
 #include <linux/bio.h>
 #include <linux/module.h>
 #include <linux/slab.h>
@@ -17,7 +18,6 @@
 
 #include <trace/events/block.h>
 
-#include "elevator.h"
 #include "blk.h"
 #include "blk-mq.h"
 #include "blk-mq-debugfs.h"
@@ -804,7 +804,7 @@ static struct request *cpq_dispatch_request(struct blk_mq_hw_ctx *hctx)
  * Called by __blk_mq_alloc_request(). The shallow_depth value set by this
  * function is used by __blk_mq_get_tag().
  */
-static void cpq_limit_depth(blk_opf_t opf, struct blk_mq_alloc_data *data)
+static void cpq_limit_depth(unsigned int opf, struct blk_mq_alloc_data *data)
 {
 	struct cpq_data *cpqd = data->q->elevator->elevator_data;
 
@@ -922,9 +922,6 @@ static int cpq_init_sched(struct request_queue *q, struct elevator_type *e)
 	spin_lock_init(&cpqd->lock);
 	spin_lock_init(&cpqd->zone_lock);
 
-	/* We dispatch from request queue wide instead of hw queue */
-	blk_queue_flag_set(QUEUE_FLAG_SQ_SCHED, q);
-
 	q->elevator = eq;
 	return 0;
 
@@ -1001,7 +998,7 @@ static bool cpq_bio_merge(struct request_queue *q, struct bio *bio,
  * add rq to rbtree and fifo
  */
 static void cpq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
-			      blk_insert_t flags)
+			      bool at_head)
 {
 	struct request_queue *q = hctx->queue;
 	struct cpq_data *cpqd = q->elevator->elevator_data;
@@ -1042,13 +1039,12 @@ static void cpq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
 
 	if (blk_mq_sched_try_insert_merge(q, rq, &free)) {
 		spin_unlock_irq(&cpqd->lock);
+		/* must be freed without cpqd->lock: finish_request takes it */
 		blk_mq_free_requests(&free);
 		return;
 	}
 
-	trace_block_rq_insert(rq);
-
-	if (flags & BLK_MQ_INSERT_AT_HEAD) {
+	if (at_head) {
 		list_add(&rq->queuelist, &per_prio->dispatch);
 		rq->fifo_time = jiffies;
 	} else {
@@ -1073,19 +1069,19 @@ static void cpq_insert_request(struct blk_mq_hw_ctx *hctx, struct request *rq,
  * Called from blk_mq_sched_insert_request() or blk_mq_sched_insert_requests().
  */
 static void cpq_insert_requests(struct blk_mq_hw_ctx *hctx,
-			       struct list_head *list, blk_insert_t flags)
+			       struct list_head *list, bool at_head)
 {
 	while (!list_empty(list)) {
 		struct request *rq;
 
 		rq = list_first_entry(list, struct request, queuelist);
 		list_del_init(&rq->queuelist);
-		cpq_insert_request(hctx, rq, flags);
+		cpq_insert_request(hctx, rq, at_head);
 	}
 }
 
 /* Callback from inside blk_mq_rq_ctx_init(). */
-static void cpq_prepare_request(struct request *rq)
+static void cpq_prepare_request(struct request *rq, struct bio *bio)
 {
 	rq->elv.priv[0] = NULL;
 	rq->elv.priv[1] = NULL;
