@@ -70,6 +70,12 @@ config BFQ_CGROUP_DEBUG
 	Enable some debugging help. Currently it exports additional stat
 	files in a cgroup which can be useful for debugging.
 
+config CPQ_IOSCHED
+	tristate "cpq iosched"
+	default n
+	help
+	  Command Priority Queueing i/o scheduler
+
 endmenu
 
 endif
