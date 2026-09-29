@@ -2004,6 +2004,8 @@ out:
 	return size;
 }
 
+static long ilitek_node_ioctl(struct file *filp, unsigned int cmd, unsigned long arg);
+
 #ifdef CONFIG_COMPAT
 static long ilitek_node_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 {
@@ -2019,127 +2021,127 @@ static long ilitek_node_compat_ioctl(struct file *filp, unsigned int cmd, unsign
 	switch (cmd) {
 	case ILITEK_COMPAT_IOCTL_I2C_WRITE_DATA:
 		ILI_DBG("compat_ioctl: convert i2c/spi write\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_I2C_WRITE_DATA, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_I2C_WRITE_DATA, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_I2C_READ_DATA:
 		ILI_DBG("compat_ioctl: convert i2c/spi read\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_I2C_READ_DATA, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_I2C_READ_DATA, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_I2C_SET_WRITE_LENGTH:
 		ILI_DBG("compat_ioctl: convert set write length\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_I2C_SET_WRITE_LENGTH, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_I2C_SET_WRITE_LENGTH, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_I2C_SET_READ_LENGTH:
 		ILI_DBG("compat_ioctl: convert set read length\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_I2C_SET_READ_LENGTH, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_I2C_SET_READ_LENGTH, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_HW_RESET:
 		ILI_DBG("compat_ioctl: convert hw reset\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_HW_RESET, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_HW_RESET, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_POWER_SWITCH:
 		ILI_DBG("compat_ioctl: convert power switch\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_POWER_SWITCH, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_POWER_SWITCH, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_REPORT_SWITCH:
 		ILI_DBG("compat_ioctl: convert report switch\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_REPORT_SWITCH, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_REPORT_SWITCH, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_IRQ_SWITCH:
 		ILI_DBG("compat_ioctl: convert irq switch\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_IRQ_SWITCH, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_IRQ_SWITCH, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_DEBUG_LEVEL:
 		ILI_DBG("compat_ioctl: convert debug level\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_DEBUG_LEVEL, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_DEBUG_LEVEL, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_FUNC_MODE:
 		ILI_DBG("compat_ioctl: convert format mode\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_FUNC_MODE, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_FUNC_MODE, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_FW_VER:
 		ILI_DBG("compat_ioctl: convert set read length\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_FW_VER, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_FW_VER, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_PL_VER:
 		ILI_DBG("compat_ioctl: convert fw version\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_PL_VER, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_PL_VER, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_CORE_VER:
 		ILI_DBG("compat_ioctl: convert core version\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_CORE_VER, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_CORE_VER, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_DRV_VER:
 		ILI_DBG("compat_ioctl: convert driver version\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_DRV_VER, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_DRV_VER, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_CHIP_ID:
 		ILI_DBG("compat_ioctl: convert chip id\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_CHIP_ID, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_CHIP_ID, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_NETLINK_CTRL:
 		ILI_DBG("compat_ioctl: convert netlink ctrl\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_NETLINK_CTRL, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_NETLINK_CTRL, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_NETLINK_STATUS:
 		ILI_DBG("compat_ioctl: convert netlink status\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_NETLINK_STATUS, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_NETLINK_STATUS, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_MODE_CTRL:
 		ILI_DBG("compat_ioctl: convert tp mode ctrl\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_MODE_CTRL, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_MODE_CTRL, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_MODE_STATUS:
 		ILI_DBG("compat_ioctl: convert tp mode status\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_MODE_STATUS, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_MODE_STATUS, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_ICE_MODE_SWITCH:
 		ILI_DBG("compat_ioctl: convert tp mode switch\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_ICE_MODE_SWITCH, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_ICE_MODE_SWITCH, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_INTERFACE_TYPE:
 		ILI_DBG("compat_ioctl: convert interface type\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_INTERFACE_TYPE, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_INTERFACE_TYPE, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_DUMP_FLASH:
 		ILI_DBG("compat_ioctl: convert dump flash\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_DUMP_FLASH, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_DUMP_FLASH, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_FW_UART_CTRL:
 		ILI_DBG("compat_ioctl: convert fw uart\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_FW_UART_CTRL, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_FW_UART_CTRL, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_PANEL_INFO:
 		ILI_DBG("compat_ioctl: convert resolution\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_PANEL_INFO, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_PANEL_INFO, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_TP_INFO:
 		ILI_DBG("compat_ioctl: convert tp info\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_TP_INFO, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_TP_INFO, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_WRAPPER_RW:
 		ILI_DBG("compat_ioctl: convert wrapper\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_WRAPPER_RW, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_WRAPPER_RW, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_DDI_WRITE:
 		ILI_DBG("compat_ioctl: convert ddi write\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_DDI_WRITE, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_DDI_WRITE, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_DDI_READ:
 		ILI_DBG("compat_ioctl: convert ddi read\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_DDI_READ, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_DDI_READ, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_REPORT_RATE_SET:
 		ILI_DBG("compat_ioctl: convert report rate set\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_REPORT_RATE_SET, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_REPORT_RATE_SET, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_MP_LCM_OFF_ENV:
 		ILI_DBG("compat_ioctl: mp lcm env\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_MP_LCM_OFF_ENV, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_MP_LCM_OFF_ENV, (unsigned long)compat_ptr(arg));
 		return ret;
 	case ILITEK_COMPAT_IOCTL_RELEASE_TOUCH:
 		ILI_DBG("compat_ioctl: release touch\n");
-		ret = filp->f_op->unlocked_ioctl(filp, ILITEK_IOCTL_RELEASE_TOUCH, (unsigned long)compat_ptr(arg));
+		ret = ilitek_node_ioctl(filp, ILITEK_IOCTL_RELEASE_TOUCH, (unsigned long)compat_ptr(arg));
 		return ret;
 	default:
 		ILI_ERR("no ioctl cmd, return ilitek_node_ioctl\n");
@@ -2604,83 +2606,83 @@ static struct proc_dir_entry *proc_dir_ilitek;
 typedef struct {
 	char *name;
 	struct proc_dir_entry *node;
-	struct file_operations *fops;
+	struct proc_ops *ops;
 	bool isCreated;
 } proc_node;
 
-static struct file_operations proc_mp_lcm_on_test_fops = {
-	.read = ilitek_node_mp_lcm_on_test_read,
+static struct proc_ops proc_mp_lcm_on_test_fops = {
+	.proc_read = ilitek_node_mp_lcm_on_test_read,
 };
 
-static struct file_operations proc_mp_lcm_off_test_fops = {
-	.read = ilitek_node_mp_lcm_off_test_read,
+static struct proc_ops proc_mp_lcm_off_test_fops = {
+	.proc_read = ilitek_node_mp_lcm_off_test_read,
 };
 
-static struct file_operations proc_ver_info_fops = {
-	.read = ilitek_node_ver_info_read,
+static struct proc_ops proc_ver_info_fops = {
+	.proc_read = ilitek_node_ver_info_read,
 };
 
-static struct file_operations proc_change_list_fops = {
-	.read = ilitek_node_change_list_read,
+static struct proc_ops proc_change_list_fops = {
+	.proc_read = ilitek_node_change_list_read,
 };
 
-static struct file_operations proc_debug_message_fops = {
-	.read = ilitek_proc_debug_message_read,
+static struct proc_ops proc_debug_message_fops = {
+	.proc_read = ilitek_proc_debug_message_read,
 };
 
-static struct file_operations proc_debug_message_switch_fops = {
-	.read = ilitek_proc_debug_switch_read,
+static struct proc_ops proc_debug_message_switch_fops = {
+	.proc_read = ilitek_proc_debug_switch_read,
 };
 
-static struct file_operations proc_ioctl_fops = {
-	.unlocked_ioctl = ilitek_node_ioctl,
+static struct proc_ops proc_ioctl_fops = {
+	.proc_ioctl = ilitek_node_ioctl,
 #ifdef CONFIG_COMPAT
-	.compat_ioctl = ilitek_node_compat_ioctl,
+	.proc_compat_ioctl = ilitek_node_compat_ioctl,
 #endif
-	.write = ilitek_node_ioctl_write,
+	.proc_write = ilitek_node_ioctl_write,
 };
 
-static struct file_operations proc_fw_upgrade_fops = {
-	.read = ilitek_node_fw_upgrade_read,
+static struct proc_ops proc_fw_upgrade_fops = {
+	.proc_read = ilitek_node_fw_upgrade_read,
 };
 
-static struct file_operations proc_fw_process_fops = {
-	.read = ilitek_proc_fw_process_read,
+static struct proc_ops proc_fw_process_fops = {
+	.proc_read = ilitek_proc_fw_process_read,
 };
 
-static struct file_operations proc_get_delta_data_fops = {
-	.read = ilitek_proc_get_delta_data_read,
+static struct proc_ops proc_get_delta_data_fops = {
+	.proc_read = ilitek_proc_get_delta_data_read,
 };
 
-static struct file_operations proc_get_raw_data_fops = {
-	.read = ilitek_proc_fw_get_raw_data_read,
+static struct proc_ops proc_get_raw_data_fops = {
+	.proc_read = ilitek_proc_fw_get_raw_data_read,
 };
 
-static struct file_operations proc_rw_tp_reg_fops = {
-	.read = ilitek_proc_rw_tp_reg_read,
-	.write = ilitek_proc_rw_tp_reg_write,
+static struct proc_ops proc_rw_tp_reg_fops = {
+	.proc_read  = ilitek_proc_rw_tp_reg_read,
+	.proc_write = ilitek_proc_rw_tp_reg_write,
 };
 
-static struct file_operations proc_fw_pc_counter_fops = {
-	.read = ilitek_proc_fw_pc_counter_read,
+static struct proc_ops proc_fw_pc_counter_fops = {
+	.proc_read = ilitek_proc_fw_pc_counter_read,
 };
 
-static struct file_operations proc_get_debug_mode_data_fops = {
-	.read = ilitek_proc_get_debug_mode_data_read,
-	.write = ilitek_proc_get_debug_mode_data_write,
+static struct proc_ops proc_get_debug_mode_data_fops = {
+	.proc_read  = ilitek_proc_get_debug_mode_data_read,
+	.proc_write = ilitek_proc_get_debug_mode_data_write,
 };
 
-static struct file_operations proc_debug_level_fops = {
-	.read = ilitek_proc_debug_level_read,
+static struct proc_ops proc_debug_level_fops = {
+	.proc_read = ilitek_proc_debug_level_read,
 };
 
-static struct file_operations proc_sram_test_fops = {
-	.read = ilitek_proc_sram_test_info,
+static struct proc_ops proc_sram_test_fops = {
+	.proc_read = ilitek_proc_sram_test_info,
 };
 
-static struct file_operations proc_fw_cmd_fops = {
-	.read = ilitek_proc_fw_cmd_read,
-	.write = ilitek_proc_fw_cmd_write,
+static struct proc_ops proc_fw_cmd_fops = {
+	.proc_read  = ilitek_proc_fw_cmd_read,
+	.proc_write = ilitek_proc_fw_cmd_write,
 };
 
 proc_node iliproc[] = {
@@ -2795,7 +2797,7 @@ void ili_node_init(void)
 	proc_dir_ilitek = proc_mkdir("ilitek", NULL);
 
 	for (; i < ARRAY_SIZE(iliproc); i++) {
-		iliproc[i].node = proc_create(iliproc[i].name, 0644, proc_dir_ilitek, iliproc[i].fops);
+		iliproc[i].node = proc_create(iliproc[i].name, 0644, proc_dir_ilitek, iliproc[i].ops);
 
 		if (iliproc[i].node == NULL) {
 			iliproc[i].isCreated = false;
