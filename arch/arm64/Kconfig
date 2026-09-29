@@ -1497,6 +1497,9 @@ config ARM64_USE_LSE_ATOMICS
 	  built with binutils >= 2.25 in order for the new instructions
 	  to be used.
 
+config AS_LSE
+    def_bool y
+
 config ARM64_VHE
 	bool "Enable support for Virtualization Host Extensions (VHE)"
 	default y
