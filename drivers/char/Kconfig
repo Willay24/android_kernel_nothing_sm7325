@@ -650,4 +650,6 @@ config RANDOM_TRUST_BOOTLOADER
 
 source "drivers/char/lrng/Kconfig"
 
+source "drivers/char/diag/Kconfig"
+
 endmenu
