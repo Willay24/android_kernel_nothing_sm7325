@@ -496,8 +496,9 @@ KBUILD_AFLAGS   := -D__ASSEMBLY__ -fno-PIE
 KBUILD_CFLAGS   := -Wall -Wundef -Werror=strict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common -fshort-wchar -fno-PIE \
 		   -Werror=implicit-function-declaration -Werror=implicit-int \
-		   -Werror=return-type -Wno-format-security \
-		   -std=gnu11 -pipe
+		   -Werror=return-type -Wno-format-security -std=gnu11 -pipe -O2 \
+		   -march=armv8.2-a+crypto+crc+lse -mtune=cortex-a75 -falign-functions=32 \
+		   -funroll-loops -mllvm -inline-threshold=500 -fno-unwind-tables -fno-asynchronous-unwind-tables
 KBUILD_CPPFLAGS := -D__KERNEL__
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
