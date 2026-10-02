@@ -15,6 +15,7 @@
 
 #define FSA4480_I2C_NAME	"fsa4480-driver"
 
+#define FSA4480_DEVICE_ID       0x00
 #define FSA4480_SWITCH_SETTINGS 0x04
 #define FSA4480_SWITCH_CONTROL  0x05
 #define FSA4480_SWITCH_STATUS   0X06
@@ -46,6 +47,8 @@ struct fsa4480_priv {
 	u32 use_powersupply;
 	int switch_control;
 };
+
+static unsigned int device_id;
 
 struct fsa4480_reg_val {
 	u16 reg;
@@ -171,6 +174,12 @@ static int fsa4480_usbc_event_changed(struct notifier_block *nb_ptr,
 		return fsa4480_usbc_event_changed_ucsi(fsa_priv, evt, ptr);
 }
 
+bool is_dio4480(void)
+{
+	return device_id == 241;
+}
+EXPORT_SYMBOL(is_dio4480);
+
 static int fsa4480_usbc_analog_setup_switches_psupply(
 						struct fsa4480_priv *fsa_priv)
 {
@@ -253,10 +262,11 @@ static int fsa4480_usbc_analog_setup_switches_ucsi(
 	/* add all modes FSA should notify for in here */
 	case TYPEC_ACCESSORY_AUDIO:
 		/* activate switches */
-		regmap_read(fsa_priv->regmap, 0x00, &value);
-		dev_dbg(fsa_priv->dev, "%s: reg[0x00]=0x%x\n",__func__, value);
-		if(value == 241)
-		{
+		/* re-read chip id after reset */
+		regmap_read(fsa_priv->regmap, FSA4480_DEVICE_ID, &device_id);
+		dev_dbg(fsa_priv->dev, "%s: reg[0x00]=0x%x\n",__func__, device_id);
+		if (is_dio4480()) {
+			dev_info(dev, "%s: headset plug in on dio4480\n", __func__);
 			dev_dbg(fsa_priv->dev, "%s:DIO headset detection .\n",__func__);
 			regmap_write(fsa_priv->regmap, FSA4480_SLOW_L, 0x4f);
 			regmap_read(fsa_priv->regmap, FSA4480_SLOW_L, &value);
@@ -288,7 +298,7 @@ static int fsa4480_usbc_analog_setup_switches_ucsi(
 			regmap_read(fsa_priv->regmap, FSA4480_SWITCH_STATUS1, &value);
 			dev_dbg(fsa_priv->dev, "%s: reg[0x7]=0x%x\n",__func__, value);
 		} else {
-			dev_dbg(fsa_priv->dev, "%s:FSA headset detection.\n",__func__);
+			dev_info(dev, "%s: headset plug in on fsa4480\n", __func__);
 			fsa4480_usbc_update_settings(fsa_priv, 0x00, 0x9F);
 			regmap_write(fsa_priv->regmap, FSA4480_FUNCTION_ENABLE, 0x01);
 			dev_dbg(fsa_priv->dev, "%s: set reg[0x12] done.\n",__func__);
@@ -299,7 +309,6 @@ static int fsa4480_usbc_analog_setup_switches_ucsi(
 			regmap_read(fsa_priv->regmap, FSA4480_SWITCH_STATUS1, &value);
 			dev_dbg(fsa_priv->dev, "%s: reg[0x7]=0x%x\n",__func__, value);
 		}
-
 		/* notify call chain on event */
 		blocking_notifier_call_chain(&fsa_priv->fsa4480_notifier,
 					     mode, NULL);
@@ -518,6 +527,8 @@ static int fsa4480_probe(struct i2c_client *i2c,
 		goto err_data;
 	}
 
+	regmap_read(fsa_priv->regmap, FSA4480_DEVICE_ID, &device_id);
+	dev_info(fsa_priv->dev, "%s: usb switch device_id(%u)\n", __func__, device_id);
 	fsa4480_update_reg_defaults(fsa_priv->regmap);
 
 	fsa_priv->nb.notifier_call = fsa4480_usbc_event_changed;
@@ -591,7 +602,6 @@ static int fsa4480_remove(struct i2c_client *i2c)
 
 	if (!fsa_priv)
 		return -EINVAL;
-
 	regmap_write(fsa_priv->regmap, FSA4480_FUNCTION_ENABLE, 0x00);
 	dev_dbg(fsa_priv->dev, "%s: set reg[0x12] reset.\n",__func__);
 
