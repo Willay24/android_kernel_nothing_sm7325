@@ -1,4 +1,5 @@
-// Nothing Phone (1) "spacewar" - SM7325 (Yupik) device overlay
+// SPDX-License-Identifier: GPL-2.0-only
+/* Nothing Phone (1) "spacewar" - SM7325 device overlay */
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
@@ -10,30 +11,49 @@
 #include "nothing-spacewar-audio-overlay.dtsi"
 #include "nothing-sm7325-common.dtsi"
 
-&pm8350b_haptics {
-	status = "okay";
-};
-
 &removed_mem {
 	reg = <0x0 0xc0000000 0x0 0x6800000>;
 };
 
+&qcom_qseecom {
+	reg = <0xc1800000 0x5000000>;
+	reg-names = "secapp-region";
+};
+
+&pm8350b_haptics {
+	status = "okay";
+};
+
+/* IR LED bus not present */
+&qupv3_se8_spi {
+	status = "disabled";
+};
+
+&sdhc_2 {
+	status = "disabled";
+};
+
+&usb2_phy0 {
+	qcom,param-override-seq =
+		<0xe7 0x6c	/* override_x0 */
+		 0x0e 0x70	/* override_x1 */
+		 0x0b 0x74>;	/* override_x2 */
+};
+
+/*
+ * Touch (SE13 SPI)
+ * Only one touch node may be enabled. For a Goodix unit, swap both
+ * status lines and set qcom,spi-touch-active to "goodix,brl-d".
+ */
 &qupv3_se13_spi {
 	status = "okay";
 	qcom,rt;
-	/* must match the compatible of whichever touch node is enabled below */
-	qcom,spi-touch-active = "goodix,brl-d";
+	qcom,spi-touch-active = "focaltech,fts_ts";
 	pinctrl-names = "default", "sleep";
 	pinctrl-0 = <&qupv3_se13_spi_active>;
 	pinctrl-1 = <&qupv3_se13_spi_sleep_nt &qupv3_se13_spi_sleep_cs>;
 	#address-cells = <1>;
 	#size-cells = <0>;
-
-	/*
-	 * Both touch ICs sit on CS0; only one node may be enabled.
-	 * Stock enables FocalTech (IC id 0x5662) and disables Goodix.
-	 * Swap the two status lines for a Goodix-panel unit.
-	 */
 
 	/* FocalTech FT5662 */
 	focaltech@0 {
@@ -44,7 +64,7 @@
 		wakeup-source;
 
 		interrupt-parent = <&tlmm>;
-		interrupts = <81 0x2008>;	/* driver requests 0x2002 (falling edge) itself */
+		interrupts = <81 0x2008>;
 
 		focaltech,irq-gpio = <&tlmm 81 0x2008>;
 		focaltech,reset-gpio = <&tlmm 105 0x00>;
@@ -65,17 +85,16 @@
 		pinctrl-2 = <&ts_release>;
 	};
 
-	/* Goodix GT9916S (Berlin-D) - for Goodix-panel units; values from the live stock DT */
+	/* Goodix GT9916S (Berlin-D) */
 	goodix-berlin@0 {
 		status = "disabled";
-		/* stock has only "goodix,gt9916S"; the 2nd string is for goodix_get_ic_type() (strstr over the blob) */
 		compatible = "goodix,gt9916S", "goodix,brl-d";
 		reg = <0>;
 		spi-max-frequency = <1000000>;
 
 		goodix,reset-gpio = <&tlmm 105 0x00>;
 		goodix,irq-gpio   = <&tlmm 81 0x2800>;
-		goodix,irq-flags  = <2>;	/* falling */
+		goodix,irq-flags  = <2>;
 		goodix,panel-max-x = <1080>;
 		goodix,panel-max-y = <2400>;
 		goodix,panel-max-w = <255>;
@@ -91,28 +110,7 @@
 	};
 };
 
-&usb2_phy0 {
-	qcom,param-override-seq =
-		<0xe7 0x6c	/* override_x0 */
-		 0x0e 0x70	/* override_x1 */
-		 0x0b 0x74>;	/* override_x2 */
-};
-
-&qupv3_se8_spi {
-	status = "disabled";
-};
-
-&sdhc_2 {
-	status = "disabled";
-};
-
-&qcom_qseecom {
-	reg = <0xc1800000 0x5000000>;
-	reg-names = "secapp-region";
-};
-
 &soc {
-	/* Binds techpack/touch/nothing/nothing_touch.c */
 	nothing_touch {
 		compatible = "nothing-touch";
 		status = "okay";
@@ -138,7 +136,7 @@
 	};
 };
 
-/* a second adc_tm instance backs the batt/conn/chg_skin zones below */
+/* io-channels fully replaces the base list; adds conn (THM4) and chg_skin (GPIO2) */
 &pmk8350_adc_tm_iio_0 {
 	io-channels = <&pmk8350_vadc PM8350B_ADC7_AMUX_THM1_100K_PU>,
 		      <&pmk8350_vadc PM7325_ADC7_GPIO1_100K_PU>,
@@ -160,14 +158,10 @@
 	};
 };
 
+/* batt_therm and chg_skin_therm already defined in the base */
 &pmk8350_vadc {
-	pm8350b_batt_therm {
-		reg = <PM8350B_ADC7_AMUX_THM1_100K_PU>;
-		label = "pm8350b_batt_therm";
-		qcom,ratiometric;
-		qcom,hw-settle-time = <200>;
-		qcom,pre-scaling = <1 1>;
-	};
+	pinctrl-names = "default";
+	pinctrl-0 = <&pm7325_pa3_therm3_default>;
 
 	pm8350b_conn_therm {
 		reg = <PM8350B_ADC7_AMUX_THM4_100K_PU>;
@@ -176,22 +170,33 @@
 		qcom,hw-settle-time = <200>;
 		qcom,pre-scaling = <1 1>;
 	};
-
-	pm8350b_chg_skin_therm {
-		reg = <PM8350B_ADC7_GPIO2_100K_PU>;
-		label = "pm8350b_chg_skin_therm";
-		qcom,ratiometric;
-		qcom,hw-settle-time = <200>;
-		qcom,pre-scaling = <1 1>;
-	};
 };
 
 &thermal_zones {
+	/* no valid ADC data */
+	pm8350c-bcl-lvl0 {
+		status = "disabled";
+	};
+
+	pm8350c-bcl-lvl1 {
+		status = "disabled";
+	};
+
+	pm8350c-bcl-lvl2 {
+		status = "disabled";
+	};
+
+	socd {
+		disable-thermal-zone;
+	};
+
 	batt_therm {
+		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-governor = "user_space";
 		thermal-sensors = <&pmk8350_adc_tm_iio_0 PM8350B_ADC7_AMUX_THM1_100K_PU>;
 		wake-capable-sensor;
+
 		trips {
 			active-config0 {
 				temperature = <125000>;
@@ -207,6 +212,7 @@
 		thermal-governor = "user_space";
 		thermal-sensors = <&pmk8350_adc_tm_iio_0 PM8350B_ADC7_AMUX_THM4_100K_PU>;
 		wake-capable-sensor;
+
 		trips {
 			active-config0 {
 				temperature = <125000>;
@@ -217,9 +223,11 @@
 	};
 
 	chg_skin_therm {
+		polling-delay-passive = <0>;
 		polling-delay = <0>;
 		thermal-sensors = <&pmk8350_adc_tm_iio_0 PM8350B_ADC7_GPIO2_100K_PU>;
 		wake-capable-sensor;
+
 		trips {
 			active-config0 {
 				temperature = <125000>;
@@ -229,3 +237,4 @@
 		};
 	};
 };
+
