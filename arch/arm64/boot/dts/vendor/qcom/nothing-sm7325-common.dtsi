@@ -1,0 +1,73 @@
+/*
+ * Board-level fixes for Nothing Phone (1)
+ *
+ */
+
+&spmi_debug_bus   { status = "disabled"; };
+&spmi_glink_debug { status = "disabled"; };
+
+/* Phone (1) is UFS only, no eMMC. */
+&sdhc_1 { status = "disabled"; };
+
+/*
+ * PM8008 camera PMICs are not populated/powered on this board.
+ * Disable instead; labels stay valid for anything that still references L*I/L*J.
+ */
+&pm8008i_chip { status = "disabled"; };
+&pm8008i_ldo  { status = "disabled"; };
+&pm8008j_chip { status = "disabled"; };
+&pm8008j_ldo  { status = "disabled"; };
+
+/*
+ * PMR735A (SPMI SID 4) does not answer on this board.
+ * Disabling the SPMI parent skips both its children and the thermal zone.
+ */
+&pmr735a_spmi { status = "disabled"; };
+&pmr735a_temp_alarm { disable-thermal-zone; };
+
+/* the ldoe2..6 resources are PMR735A's; the nodes have no label, so merge by name */
+&apps_rsc {
+	rpmh-regulator-ldoe2 { status = "disabled"; };
+	rpmh-regulator-ldoe3 { status = "disabled"; };
+	rpmh-regulator-ldoe4 { status = "disabled"; };
+	rpmh-regulator-ldoe5 { status = "disabled"; };
+	rpmh-regulator-ldoe6 { status = "disabled"; };
+};
+
+&pmk8350_vadc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pm7325_pa3_therm3_default>;
+};
+
+&ufsphy_mem {
+	compatible = "qcom,ufs-phy-qmp-v4-yupik";
+
+	vdda-phy-supply = <&L10C>;
+	vdda-pll-supply = <&L6B>;
+	vdda-phy-max-microamp = <97500>;
+	vdda-pll-max-microamp = <18400>;
+
+	status = "ok";
+};
+
+&ufshc_mem {
+	vdd-hba-supply = <&gcc_ufs_phy_gdsc>;
+	vdd-hba-fixed-regulator;
+
+	vcc-supply = <&L7B>;
+	vcc-voltage-level = <2952000 2952000>;
+	vcc-low-voltage-sup;
+	vcc-max-microamp = <800000>;
+
+	/*
+	 * vccq (L9B) also controls the eLDO supplying VCCQ2 (UFS2.2).
+	 */
+	vccq-supply = <&L9B>;
+	vccq-max-microamp = <900000>;
+	vccq-min-microamp = <10000>;
+
+	qcom,vddp-ref-clk-supply = <&L9B>;
+	qcom,vddp-ref-clk-max-microamp = <100>;
+
+	status = "ok";
+};

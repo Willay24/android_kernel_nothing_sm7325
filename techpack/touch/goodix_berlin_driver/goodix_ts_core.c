@@ -2782,24 +2782,19 @@ static int __init goodix_ts_core_init(void)
 	ret = goodix_spi_bus_init();
 	if (ret < 0) {
 		ts_err(NULL, "failed to add spi bus driver");
-		goto err_unreg_pdrv;
+		return ret;
 	}
 #endif
+
 #ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_I2C
 	ret = goodix_i2c_bus_init();
 	if (ret < 0) {
 		ts_err(NULL, "failed to add i2c bus driver");
-#ifdef CONFIG_TOUCHSCREEN_GOODIX_BRL_SPI
-		goodix_spi_bus_exit();
-#endif
-		goto err_unreg_pdrv;
+		return ret;
 	}
 #endif
-	return 0;
 
-err_unreg_pdrv:
-	platform_driver_unregister(&goodix_ts_driver);
-	return ret;
+	return 0;
 }
 
 static void __exit goodix_ts_core_exit(void)
