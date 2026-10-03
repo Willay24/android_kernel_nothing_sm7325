@@ -1,20 +1,22 @@
-// Nothing Phone (1) - board-level fixes
+// SPDX-License-Identifier: GPL-2.0-only
+/* Nothing Phone (1) - SM7325 common board configuration */
 
 &spmi_debug_bus   { status = "disabled"; };
 &spmi_glink_debug { status = "disabled"; };
 
-/* UFS only, no eMMC */
-&sdhc_1 { status = "disabled"; };
-
-/* PM8008 camera PMICs are not fitted */
+/* PM8008 camera PMICs not fitted */
 &pm8008i_chip { status = "disabled"; };
 &pm8008i_ldo  { status = "disabled"; };
 &pm8008j_chip { status = "disabled"; };
 &pm8008j_ldo  { status = "disabled"; };
 
-/* PMR735A (SID 4) does not answer; its ldoe2..6 rails go with it */
+/* PMR735A not answering, disable it and its ldoe2..6 rails */
 &pmr735a_spmi { status = "disabled"; };
-&pmr735a_temp_alarm { disable-thermal-zone; };
+
+&pmr735a_temp_alarm {
+	disable-thermal-zone;
+	status = "disabled";
+};
 
 &apps_rsc {
 	rpmh-regulator-ldoe2 { status = "disabled"; };
@@ -24,10 +26,8 @@
 	rpmh-regulator-ldoe6 { status = "disabled"; };
 };
 
-&pmk8350_vadc {
-	pinctrl-names = "default";
-	pinctrl-0 = <&pm7325_pa3_therm3_default>;
-};
+/* UFS only, no eMMC */
+&sdhc_1 { status = "disabled"; };
 
 &ufsphy_mem {
 	compatible = "qcom,ufs-phy-qmp-v4-yupik";
@@ -49,7 +49,7 @@
 	vcc-low-voltage-sup;
 	vcc-max-microamp = <800000>;
 
-	/* L9B also gates the eLDO for VCCQ2 (UFS 2.2), keep vccq as is */
+	/* L9B also gates the eLDO for VCCQ2 (UFS 2.2), keep vccq */
 	vccq-supply = <&L9B>;
 	vccq-max-microamp = <900000>;
 	vccq-min-microamp = <10000>;
