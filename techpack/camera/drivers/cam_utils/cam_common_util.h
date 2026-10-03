@@ -42,6 +42,26 @@
 	(hrs) = do_div(tmp, 24);                                                             \
 })
 
+/*
+ * manage locking between process context and tasklets.
+ * use appropriate api based on current context.
+ */
+#define _SPIN_LOCK_PROCESS_TO_BH(lock)          \
+({                                              \
+		if (in_task())			\
+			spin_lock_bh(lock);	\
+		else				\
+			spin_lock(lock);	\
+})                                              \
+
+#define _SPIN_UNLOCK_PROCESS_TO_BH(lock)        \
+({                                              \
+		if (in_task())			\
+			spin_unlock_bh(lock);	\
+		else				\
+			spin_unlock(lock);	\
+})                                              \
+
 /**
  * cam_common_util_get_string_index()
  *
