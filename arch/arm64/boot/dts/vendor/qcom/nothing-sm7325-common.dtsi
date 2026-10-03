@@ -1,0 +1,61 @@
+// Nothing Phone (1) - board-level fixes
+
+&spmi_debug_bus   { status = "disabled"; };
+&spmi_glink_debug { status = "disabled"; };
+
+/* UFS only, no eMMC */
+&sdhc_1 { status = "disabled"; };
+
+/* PM8008 camera PMICs are not fitted */
+&pm8008i_chip { status = "disabled"; };
+&pm8008i_ldo  { status = "disabled"; };
+&pm8008j_chip { status = "disabled"; };
+&pm8008j_ldo  { status = "disabled"; };
+
+/* PMR735A (SID 4) does not answer; its ldoe2..6 rails go with it */
+&pmr735a_spmi { status = "disabled"; };
+&pmr735a_temp_alarm { disable-thermal-zone; };
+
+&apps_rsc {
+	rpmh-regulator-ldoe2 { status = "disabled"; };
+	rpmh-regulator-ldoe3 { status = "disabled"; };
+	rpmh-regulator-ldoe4 { status = "disabled"; };
+	rpmh-regulator-ldoe5 { status = "disabled"; };
+	rpmh-regulator-ldoe6 { status = "disabled"; };
+};
+
+&pmk8350_vadc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pm7325_pa3_therm3_default>;
+};
+
+&ufsphy_mem {
+	compatible = "qcom,ufs-phy-qmp-v4-yupik";
+
+	vdda-phy-supply = <&L10C>;
+	vdda-pll-supply = <&L6B>;
+	vdda-phy-max-microamp = <97500>;
+	vdda-pll-max-microamp = <18400>;
+
+	status = "okay";
+};
+
+&ufshc_mem {
+	vdd-hba-supply = <&gcc_ufs_phy_gdsc>;
+	vdd-hba-fixed-regulator;
+
+	vcc-supply = <&L7B>;
+	vcc-voltage-level = <2952000 2952000>;
+	vcc-low-voltage-sup;
+	vcc-max-microamp = <800000>;
+
+	/* L9B also gates the eLDO for VCCQ2 (UFS 2.2), keep vccq as is */
+	vccq-supply = <&L9B>;
+	vccq-max-microamp = <900000>;
+	vccq-min-microamp = <10000>;
+
+	qcom,vddp-ref-clk-supply = <&L9B>;
+	qcom,vddp-ref-clk-max-microamp = <100>;
+
+	status = "okay";
+};
