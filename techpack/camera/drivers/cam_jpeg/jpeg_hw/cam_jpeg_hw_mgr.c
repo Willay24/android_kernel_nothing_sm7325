@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/uaccess.h>
@@ -45,13 +45,22 @@ static int cam_jpeg_insert_cdm_change_base(
 	struct cam_jpeg_hw_ctx_data *ctx_data,
 	struct cam_jpeg_hw_mgr *hw_mgr);
 
+static inline void cam_jpeg_mgr_move_req_to_free_list(struct cam_jpeg_hw_cfg_req *p_cfg_req)
+{
+	if (!p_cfg_req) {
+		CAM_ERR(CAM_JPEG, "Invalid args");
+		return;
+	}
+
+	cam_mem_put_cpu_buf(p_cfg_req->hw_cfg_args.hw_update_entries[0].handle);
+	list_add_tail(&p_cfg_req->list, &g_jpeg_hw_mgr.free_req_list);
+}
+
 static int cam_jpeg_process_next_hw_update(void *priv, void *data,
 	struct cam_hw_done_event_data *buf_data)
 {
 	int rc;
-#ifdef CONFIG_DEBUG_KERNEL
 	int i = 0;
-#endif
 	struct cam_jpeg_hw_mgr *hw_mgr = priv;
 	struct cam_hw_update_entry *cmd;
 	struct cam_cdm_bl_request *cdm_cmd;
@@ -334,7 +343,7 @@ static int cam_jpeg_mgr_process_irq(void *priv, void *data)
 		&buf_data);
 
 	mutex_lock(&g_jpeg_hw_mgr.hw_mgr_mutex);
-	list_add_tail(&p_cfg_req->list, &hw_mgr->free_req_list);
+	cam_jpeg_mgr_move_req_to_free_list(p_cfg_req);
 	mutex_unlock(&g_jpeg_hw_mgr.hw_mgr_mutex);
 	cam_mem_put_cpu_buf(mem_hdl);
 	return rc;
@@ -717,7 +726,7 @@ static int cam_jpeg_mgr_config_hw(void *hw_mgr_priv, void *config_hw_args)
 err_after_get_task:
 	list_del_init(&p_cfg_req->list);
 err_after_dq_free_list:
-	list_add_tail(&p_cfg_req->list, &hw_mgr->free_req_list);
+	cam_jpeg_mgr_move_req_to_free_list(p_cfg_req);
 
 	return rc;
 }
@@ -925,8 +934,7 @@ static int cam_jpeg_mgr_flush(void *hw_mgr_priv,
 			cam_jpeg_mgr_stop_deinit_dev(hw_mgr, p_cfg_req,
 				dev_type);
 			list_del_init(&p_cfg_req->list);
-			list_add_tail(&p_cfg_req->list,
-				&hw_mgr->free_req_list);
+			cam_jpeg_mgr_move_req_to_free_list(p_cfg_req);
 		}
 	}
 
@@ -937,7 +945,7 @@ static int cam_jpeg_mgr_flush(void *hw_mgr_priv,
 			continue;
 
 		list_del_init(&cfg_req->list);
-		list_add_tail(&cfg_req->list, &hw_mgr->free_req_list);
+		cam_jpeg_mgr_move_req_to_free_list(cfg_req);
 	}
 
 	CAM_DBG(CAM_JPEG, "X: JPEG flush ctx");
@@ -988,8 +996,7 @@ static int cam_jpeg_mgr_flush_req(void *hw_mgr_priv,
 			cam_jpeg_mgr_stop_deinit_dev(hw_mgr, p_cfg_req,
 				dev_type);
 			list_del_init(&p_cfg_req->list);
-			list_add_tail(&p_cfg_req->list,
-				&hw_mgr->free_req_list);
+			cam_jpeg_mgr_move_req_to_free_list(p_cfg_req);
 			b_req_found = true;
 		}
 	}
@@ -1004,7 +1011,7 @@ static int cam_jpeg_mgr_flush_req(void *hw_mgr_priv,
 			continue;
 
 		list_del_init(&cfg_req->list);
-		list_add_tail(&cfg_req->list, &hw_mgr->free_req_list);
+		cam_jpeg_mgr_move_req_to_free_list(cfg_req);
 		b_req_found = true;
 		break;
 	}
