@@ -26,6 +26,9 @@
 #include <linux/export.h>
 #include <linux/rtc.h>
 #include <linux/seq_file.h>
+#include <linux/ktime.h>
+#include <linux/mutex.h>
+#include <linux/spinlock.h>
 
 /* CUR, DEFAULT, MIN, MAX */
 #define VALUE_TYPE_SIZE 6
@@ -141,13 +144,14 @@ struct nothing_touch_pdata {
 	int raw_head;
 	int raw_tail;
 	int raw_len;
-	unsigned int *raw_buf[RAW_BUF_NUM];
 	unsigned int *raw_data;
 	spinlock_t raw_lock;
+	spinlock_t event_lock;
 	int palm_value;
 	bool palm_changed;
 	int prox_value;
 	bool prox_changed;
+	bool bump_sample_rate;
 	struct proc_dir_entry *last_touch_events_proc;
 	struct last_touch_event *last_touch_events;
 };
@@ -156,11 +160,19 @@ struct nothing_touch *nothing_touch_dev_get(int minor);
 
 extern struct class *get_nothing_touch_class(void);
 
+extern struct device *get_nothing_touch_dev(void);
+
+extern bool nothing_touch_ready(void);
+
 extern int update_palm_sensor_value(int value);
 
 extern int update_prox_sensor_value(int value);
 
+extern void nothing_touch_report_event(u32 slot, bool down);
+
 extern int nothingtouch_register_modedata(int touchId,
 					 struct nothing_touch_interface *data);
+
+extern int nothingtouch_unregister_modedata(int touchId);
 
 #endif /* __NOTHING__TOUCH_H */
