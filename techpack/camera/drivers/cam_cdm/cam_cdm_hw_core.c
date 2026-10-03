@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2017-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 #include <linux/delay.h>
@@ -1423,9 +1422,7 @@ handle_cdm_pf:
 irqreturn_t cam_hw_cdm_irq(int irq_num, void *data)
 {
 	struct cam_hw_info *cdm_hw = data;
-#ifdef CONFIG_DEBUG_KERNEL
 	struct cam_hw_soc_info *soc_info = &cdm_hw->soc_info;
-#endif
 	struct cam_cdm *cdm_core = cdm_hw->core_info;
 	struct cam_cdm_work_payload *payload[CAM_CDM_BL_FIFO_MAX] = {0};
 	uint8_t rst_done_cnt = 0;
@@ -1634,9 +1631,7 @@ int cam_hw_cdm_release_genirq_mem(void *hw_priv)
 int cam_hw_cdm_reset_hw(struct cam_hw_info *cdm_hw, uint32_t handle)
 {
 	struct cam_cdm *cdm_core = NULL;
-#ifdef CONFIG_DEBUG_KERNEL
 	struct cam_hw_soc_info *soc_info = &cdm_hw->soc_info;
-#endif
 	long time_left;
 	int i, rc = -EIO;
 	int reset_val = 1;
@@ -1726,9 +1721,7 @@ int cam_hw_cdm_handle_error_info(
 	int i, rc = -EIO, reset_hw_hdl = 0x0;
 	uint32_t current_bl_data = 0, current_fifo = 0, current_tag = 0;
 	int reset_val = 1;
-#ifdef CONFIG_DEBUG_KERNEL
 	struct cam_hw_soc_info *soc_info = &cdm_hw->soc_info;
-#endif
 
 	cdm_core = (struct cam_cdm *)cdm_hw->core_info;
 
@@ -2236,7 +2229,7 @@ static int cam_hw_cdm_component_bind(struct device *dev,
 				sizeof(cdm_core->name));
 		snprintf(work_q_name + len, sizeof(work_q_name) - len, "%d", i);
 		cdm_core->bl_fifo[i].work_queue = alloc_workqueue(work_q_name,
-				WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_SYSFS | WQ_HIGHPRI,
+				WQ_UNBOUND | WQ_MEM_RECLAIM | WQ_SYSFS,
 				CAM_CDM_INFLIGHT_WORKS);
 		if (!cdm_core->bl_fifo[i].work_queue) {
 			CAM_ERR(CAM_CDM,
