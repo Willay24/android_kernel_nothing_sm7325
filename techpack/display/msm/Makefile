@@ -87,7 +87,6 @@ msm_drm-$(CONFIG_DRM_MSM_SDE) += sde/sde_crtc.o \
 
 msm_drm-$(CONFIG_DRM_MSM_DEBUG) += sde_dbg.o sde_dbg_evtlog.o
 
-msm_drm-$(CONFIG_DRM_MSM_KCAL_CTRL) += sde/sde_hw_kcal_ctrl.o
 msm_drm-$(CONFIG_DRM_SDE_VM) += sde/sde_vm_common.o \
 	sde/sde_vm_primary.o \
 	sde/sde_vm_trusted.o \
@@ -103,19 +102,15 @@ msm_drm-$(CONFIG_DRM_SDE_RSC) += sde_rsc.o \
 msm_drm-$(CONFIG_DRM_MSM_DSI) += dsi/dsi_phy.o \
 	dsi/dsi_pwr.o \
 	dsi/dsi_phy.o \
-	dsi/dsi_phy_hw_v2_0.o \
 	dsi/dsi_phy_hw_v3_0.o \
 	dsi/dsi_phy_hw_v4_0.o \
 	dsi/dsi_phy_timing_calc.o \
-	dsi/dsi_phy_timing_v2_0.o \
 	dsi/dsi_phy_timing_v3_0.o \
 	dsi/dsi_phy_timing_v4_0.o \
 	dsi/dsi_pll.o \
 	dsi/dsi_pll_5nm.o \
 	dsi/dsi_pll_10nm.o \
 	dsi/dsi_ctrl_hw_cmn.o \
-	dsi/dsi_ctrl_hw_1_4.o \
-	dsi/dsi_ctrl_hw_2_0.o \
 	dsi/dsi_ctrl_hw_2_2.o \
 	dsi/dsi_ctrl.o \
 	dsi/dsi_catalog.o \
