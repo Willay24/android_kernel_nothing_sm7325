@@ -50,19 +50,43 @@ static long nothing_touch_dev_ioctl(struct file *file, unsigned int cmd,
 	struct nothing_touch_pdata *pdata = file->private_data;
 	void __user *argp = (void __user *)arg;
 	struct nothing_touch_interface *touch_data = NULL;
-	struct nothing_touch *dev = pdata->device;
+	struct nothing_touch *dev;
 	int user_cmd = _IOC_NR(cmd);
 
+	if (!pdata || !pdata->device)
+		return -ENODEV;
+	dev = pdata->device;
+
 	mutex_lock(&dev->mutex);
-	ret = copy_from_user(&buf, (int __user *)argp, sizeof(buf));
+	if (copy_from_user(buf, argp, sizeof(buf))) {
+		mutex_unlock(&dev->mutex);
+		return -EFAULT;
+	}
+	ret = 0;
 	if (buf[0] < 0 || buf[0] > 1) {
 		pr_err("%s invalid param\n", __func__);
 		mutex_unlock(&dev->mutex);
 		return -EINVAL;
 	}
 
+	/* buf[1] is a mode index into touch_mode[] in the touch driver */
+	if (buf[1] < 0 || buf[1] >= Touch_Mode_NUM) {
+		pr_err("%s invalid mode:%d\n", __func__, buf[1]);
+		mutex_unlock(&dev->mutex);
+		return -EINVAL;
+	}
+
+	/* buf[2] is a length for SET_LONG_VALUE: data is buf[3..], reply is
+	 * thp_cmd_buf[4..], both MAX_BUF_SIZE ints */
+	if (user_cmd == SET_LONG_VALUE &&
+	    (buf[2] < 0 || buf[2] > MAX_BUF_SIZE - 4)) {
+		pr_err("%s invalid length:%d\n", __func__, buf[2]);
+		mutex_unlock(&dev->mutex);
+		return -EINVAL;
+	}
+
 	touch_data = pdata->touch_data[buf[0]];
-	if (!pdata || !touch_data || !dev) {
+	if (!touch_data) {
 		pr_err("%s invalid memory\n", __func__);
 		mutex_unlock(&dev->mutex);
 		return -ENOMEM;
@@ -88,11 +112,11 @@ static long nothing_touch_dev_ioctl(struct file *file, unsigned int cmd,
 			buf[0] = touch_data->resetMode(buf[1]);
 		break;
 	case GET_MODE_VALUE:
-		if (touch_data->getModeValue)
+		if (touch_data->getModeAll)
 			ret = touch_data->getModeAll(buf[1], buf);
 		break;
 	case SET_LONG_VALUE:
-		if (touch_data->setModeLongValue && buf[2] <= MAX_BUF_SIZE)
+		if (touch_data->setModeLongValue)
 			ret = touch_data->setModeLongValue(buf[1], buf[2],
 							   &buf[3]);
 		break;
@@ -130,7 +154,7 @@ static long nothing_touch_dev_ioctl(struct file *file, unsigned int cmd,
 	}
 
 	if (ret >= 0)
-		ret = copy_to_user((int __user *)argp, &buf, sizeof(buf));
+		ret = copy_to_user(argp, buf, sizeof(buf)) ? -EFAULT : 0;
 	else
 		pr_err("%s can't get data from touch driver\n", __func__);
 
@@ -151,6 +175,12 @@ static int nothing_touch_dev_mmap(struct file *file, struct vm_area_struct *vma)
 	if (!pdata) {
 		pr_err("%s invalid memory\n", __func__);
 		return -ENOMEM;
+	}
+
+	/* only the RAW_SIZE buffer allocated in probe may be mapped */
+	if (offset >= RAW_SIZE || size > RAW_SIZE - offset) {
+		pr_err("%s invalid mmap range\n", __func__);
+		return -EINVAL;
 	}
 
 	pos = (unsigned long)pdata->phy_base + offset;
@@ -209,6 +239,12 @@ struct class *get_nothing_touch_class(void)
 }
 EXPORT_SYMBOL_GPL(get_nothing_touch_class);
 
+bool nothing_touch_ready(void)
+{
+	return touch_pdata != NULL;
+}
+EXPORT_SYMBOL_GPL(nothing_touch_ready);
+
 int nothingtouch_register_modedata(int touchId,
 				  struct nothing_touch_interface *data)
 {
@@ -216,7 +252,10 @@ int nothingtouch_register_modedata(int touchId,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		ret = -ENOMEM;
+		return -EPROBE_DEFER;
+
+	if (touchId < 0 || touchId > 1)
+		return -EINVAL;
 
 	touch_data = touch_pdata->touch_data[touchId];
 	pr_info("%s\n", __func__);
@@ -302,7 +341,7 @@ static ssize_t enable_touchraw_show(struct device *dev,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -317,7 +356,7 @@ static ssize_t enable_touchraw_store(struct device *dev,
 	unsigned int input;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -341,7 +380,7 @@ static ssize_t enable_touchdelta_show(struct device *dev,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -357,7 +396,7 @@ static ssize_t enable_touchdelta_store(struct device *dev,
 	unsigned int input;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -377,16 +416,16 @@ static ssize_t thp_cmd_status_show(struct device *dev,
 {
 	struct nothing_touch_interface *touch_data = NULL;
 
-	mutex_lock(&dev->mutex);
+	mutex_lock(&nothing_touch_dev.mutex);
 
 	if (!touch_pdata) {
-		mutex_unlock(&dev->mutex);
-		return -ENOMEM;
+		mutex_unlock(&nothing_touch_dev.mutex);
+		return -ENODEV;
 	}
 	touch_data = touch_pdata->touch_data[0];
 	memcpy(buf, touch_data->thp_cmd_buf,
 	       touch_data->thp_cmd_size * sizeof(int));
-	mutex_unlock(&dev->mutex);
+	mutex_unlock(&nothing_touch_dev.mutex);
 	return touch_data->thp_cmd_size * sizeof(int);
 }
 
@@ -402,7 +441,7 @@ static ssize_t thp_cmd_status_store(struct device *dev,
 	int i = 0;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -410,6 +449,8 @@ static ssize_t thp_cmd_status_store(struct device *dev,
 
 	for (p = buf; *p != '\0'; p++) {
 		if (*p >= '0' && *p <= '9') {
+			if (i >= MAX_BUF_SIZE)
+				break;
 			input[i] = input[i] * 10 + (*p - '0');
 			if (!new_data) {
 				new_data = true;
@@ -492,7 +533,7 @@ static ssize_t thp_downthreshold_show(struct device *dev,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -507,7 +548,7 @@ static ssize_t thp_downthreshold_store(struct device *dev,
 	unsigned int input;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -527,7 +568,7 @@ static ssize_t thp_upthreshold_show(struct device *dev,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -542,7 +583,7 @@ static ssize_t thp_upthreshold_store(struct device *dev,
 	unsigned int input;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -562,7 +603,7 @@ static ssize_t thp_movethreshold_show(struct device *dev,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -577,7 +618,7 @@ static ssize_t thp_movethreshold_store(struct device *dev,
 	unsigned int input;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -598,7 +639,7 @@ static ssize_t thp_islandthreshold_show(struct device *dev,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -614,7 +655,7 @@ static ssize_t thp_islandthreshold_store(struct device *dev,
 	unsigned int input;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -634,7 +675,7 @@ static ssize_t thp_smooth_show(struct device *dev,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -649,7 +690,7 @@ static ssize_t thp_smooth_store(struct device *dev,
 	unsigned int input;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -669,7 +710,7 @@ static ssize_t thp_dump_frame_show(struct device *dev,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -684,7 +725,7 @@ static ssize_t thp_dump_frame_store(struct device *dev,
 	unsigned int input;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -704,7 +745,7 @@ static ssize_t thp_noisefilter_show(struct device *dev,
 	struct nothing_touch_interface *touch_data = NULL;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -719,7 +760,7 @@ static ssize_t thp_noisefilter_store(struct device *dev,
 	unsigned int input;
 
 	if (!touch_pdata)
-		return -ENOMEM;
+		return -ENODEV;
 
 	touch_data = touch_pdata->touch_data[0];
 
@@ -868,7 +909,7 @@ static DEVICE_ATTR(panel_vendor, (S_IRUGO), panel_vendor_show, NULL);
 static DEVICE_ATTR(panel_color, (S_IRUGO), panel_color_show, NULL);
 static DEVICE_ATTR(panel_display, (S_IRUGO), panel_display_show, NULL);
 static DEVICE_ATTR(touch_vendor, (S_IRUGO), touch_vendor_show, NULL);
-static DEVICE_ATTR(update_rawdata, (S_IRUGO | S_IWUSR | S_IWGRP), update_rawdata_show, NULL);
+static DEVICE_ATTR(update_rawdata, S_IRUGO, update_rawdata_show, NULL);
 
 static struct attribute *touch_attr_group[] = {
 	&dev_attr_enable_touch_raw.attr,
@@ -1007,9 +1048,6 @@ static int nothing_touch_probe(struct platform_device *pdev)
 	pdata->raw_tail = 0;
 	pdata->phy_base = virt_to_phys(pdata->raw_data);
 
-	pr_info("%s: kernel base:%lld, phy base:%lld\n", __func__,
-		(unsigned long)pdata->raw_data, (unsigned long)pdata->phy_base);
-
 	spin_lock_init(&pdata->raw_lock);
 
 	ret = misc_register(&nothing_touch_dev.misc_dev);
@@ -1019,18 +1057,22 @@ static int nothing_touch_probe(struct platform_device *pdev)
 	}
 
 	nothing_touch_device = &nothing_touch_dev;
-	if (!nothing_touch_dev.class)
-		nothing_touch_dev.class = class_create(THIS_MODULE, "touch");
-
 	if (!nothing_touch_dev.class) {
-		pr_err("%s create device class err\n", __func__);
-		goto class_create_err;
+		nothing_touch_dev.class = class_create(THIS_MODULE, "touch");
+		if (IS_ERR(nothing_touch_dev.class)) {
+			ret = PTR_ERR(nothing_touch_dev.class);
+			nothing_touch_dev.class = NULL;
+			pr_err("%s create device class err:%d\n", __func__, ret);
+			goto class_create_err;
+		}
 	}
 
 	nothing_touch_dev.dev = device_create(nothing_touch_dev.class, NULL, 'T',
 					     NULL, "touch_dev");
-	if (!nothing_touch_dev.dev) {
-		pr_err("%s create device dev err\n", __func__);
+	if (IS_ERR(nothing_touch_dev.dev)) {
+		ret = PTR_ERR(nothing_touch_dev.dev);
+		nothing_touch_dev.dev = NULL;
+		pr_err("%s create device dev err:%d\n", __func__, ret);
 		goto device_create_err;
 	}
 
@@ -1079,6 +1121,7 @@ static int nothing_touch_probe(struct platform_device *pdev)
 	return ret;
 
 sys_group_err:
+	touch_pdata = NULL;
 	if (pdata->touch_data[0]) {
 		kfree(pdata->touch_data[0]);
 		pdata->touch_data[0] = NULL;
@@ -1158,6 +1201,8 @@ static int nothing_touch_remove(struct platform_device *pdev)
 		kfree(touch_pdata->touch_data[1]);
 		touch_pdata->touch_data[1] = NULL;
 	}
+
+	touch_pdata = NULL;
 
 	return 0;
 }

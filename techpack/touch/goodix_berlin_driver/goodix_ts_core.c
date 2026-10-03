@@ -2355,11 +2355,11 @@ static int goodix_set_cur_value(int gtp_mode, int gtp_value)
 		return 0;
 	}
 
-	xm_intf.touch_mode[gtp_mode][SET_CUR_VALUE] = gtp_value;
-	if (gtp_mode >= Touch_Mode_NUM) {
+	if (gtp_mode < 0 || gtp_mode >= Touch_Mode_NUM) {
 		ts_err(NULL, "gtp mode is error:%d", gtp_mode);
 		return -EINVAL;
 	}
+	xm_intf.touch_mode[gtp_mode][SET_CUR_VALUE] = gtp_value;
 
 	if (xm_intf.touch_mode[gtp_mode][SET_CUR_VALUE] >
 			xm_intf.touch_mode[gtp_mode][GET_MAX_VALUE]) {
@@ -2545,6 +2545,12 @@ static int goodix_ts_probe(struct platform_device *pdev)
 	int ret;
 
 	ts_info(bus_interface->dev, "%s IN", __func__);
+
+#ifdef GOODIX_NOTHING_TOUCHFEATURE
+	/* nothing_touch must have probed first, or registration is skipped */
+	if (!nothing_touch_ready())
+		return -EPROBE_DEFER;
+#endif
 
 	if (IS_ENABLED(CONFIG_OF) && bus_interface->dev->of_node) {
 		/* parse devicetree property */
