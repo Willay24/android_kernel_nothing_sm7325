@@ -448,10 +448,12 @@ config SPRD_THERMAL
 	  Support for the Spreadtrum thermal sensor driver in the Linux thermal
 	  framework.
 
-config NT_THERMAL_INTERFACE
+config NOTHING_THERMAL_INTERFACE
 	tristate "Nothing thermal control interface"
-	depends on THERMAL && QGKI && CONFIG_NOTHING
+	depends on THERMAL && QGKI && NOTHING
 	help
-	  Support for thermal control interface.
+	  Support for Nothing thermal control interface. Provides the
+	  /sys/class/thermal/thermal_message control nodes used by Nothing
+	  thermal userspace tooling.
 
 endif

@@ -305,6 +305,7 @@ void *cam_get_priv(int32_t dev_hdl, int handle_type)
 		goto device_priv_fail;
 	}
 
+
 	type = CAM_REQ_MGR_GET_HDL_TYPE(dev_hdl);
 	if (type != handle_type) {
 		CAM_ERR_RATE_LIMIT(CAM_CRM, "Invalid type:%d", type);

@@ -1,1 +1,1 @@
-obj-$(CONFIG_SIMULATED_NTC_THERMAL)     += simulated_ntc.o
+obj-$(CONFIG_NOTHING_SIMULATED_NTC) += simulated_ntc.o

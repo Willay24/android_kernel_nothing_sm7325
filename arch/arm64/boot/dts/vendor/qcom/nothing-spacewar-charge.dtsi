@@ -1,0 +1,9 @@
+&battery_charger {
+	compatible = "qcom,battery-charger";
+	#cooling-cells = <2>;
+	qcom,thermal-mitigation = <6500000 6000000 5500000 5000000 4500000 4000000
+			3500000 3000000 2650000 2200000 1800000 1400000
+			1000000 600000 300000 0>;
+	qcom,display-panels = <&dsi_rm692e5_visionox_amoled_120hz_cmd
+			       &dsi_r66451_amoled_144hz_video_cphy>;
+};

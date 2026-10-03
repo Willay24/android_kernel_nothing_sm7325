@@ -1,11 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
-/*
- * Nothing Thermal Interface
- */
 
 #include <linux/cpu_cooling.h>
 #include <linux/cpufreq.h>
-#include <linux/cpumask.h>
 #include <linux/device.h>
 #include <linux/err.h>
 #include <linux/idr.h>
@@ -21,7 +17,6 @@
 #include <linux/string.h>
 #include <linux/suspend.h>
 #include <linux/thermal.h>
-#include <linux/platform_device.h>
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
 #endif
@@ -31,22 +26,25 @@
 
 #include "thermal_core.h"
 #include "../base/base.h"
-#include "nt-thermal-interface.h"
 
-#define NT_THERMAL_DT_NODE		"nt-thermal-interface"
-#define NT_THERMAL_DT_BOARD_SENSOR	"board-sensor"
-#define NT_THERMAL_DT_BOARD_ZONE	"board-sensor-zone"
-#define NT_THERMAL_DT_BOARD_ZONE2	"board-sensor-second-zone"
+#define CPUFREQ_LIMIT_LEVEL_MARGIN	3
 
-/* How long we keep retrying to create the thermal_message node. */
-#define NT_NODE_RETRY_DELAY		(HZ * 5)
-#define NT_NODE_RETRY_MAX		12
+#ifdef CONFIG_DRM_PANEL
+static struct drm_panel *active_panel;
+static struct notifier_block drm_notifier;
 
-static struct nt_thermal_device {
+struct drm_panel *get_panel(void)
+{
+	return active_panel;
+}
+EXPORT_SYMBOL(get_panel);
+#endif
+
+static struct nothing_thermal_device {
 	struct device *dev;
 	struct class *class;
 	struct attribute_group attrs;
-} nt_thermal_dev;
+} nothing_thermal_dev;
 
 static struct usb_monitor {
 	struct notifier_block psy_nb;
@@ -68,7 +66,7 @@ struct cpufreq_device {
 	struct freq_qos_request *qos_req;
 };
 
-static atomic_t screen_state = ATOMIC_INIT(0);
+static int screen_state = 0;
 static int screen_last_status = 0;
 
 static atomic_t balance_mode = ATOMIC_INIT(0);
@@ -82,43 +80,13 @@ static atomic_t sconfig = ATOMIC_INIT(10);
 static atomic_t wifi_limit = ATOMIC_INIT(0);
 
 static const char *board_sensor;
-static const char *board_sensor_zone;
-static const char *board_sensor_second_zone;
 static char boost[128];
 static char board_sensor_temp[128];
 static char board_sensor_second_temp[128];
 
-/* Steps applied below the ceiling requested via cpu_limits. The stock
- * Nothing behavior is 3; expose it so it can be tuned at runtime.
- */
-static int cpu_limits_backoff = 3;
-module_param(cpu_limits_backoff, int, 0644);
-MODULE_PARM_DESC(cpu_limits_backoff,
-		 "Frequency-table steps to back off below the cpu_limits ceiling");
-
-static void destroy_thermal_cpu(void);
-
 static LIST_HEAD(cpufreq_dev_list);
 static DEFINE_MUTEX(cpufreq_list_lock);
 static DEFINE_PER_CPU(struct freq_qos_request, qos_req);
-
-static int nt_get_zone_temp(const char *name, int *temp)
-{
-	struct thermal_zone_device *tz;
-	int ret;
-
-	if (!name || !strlen(name))
-		return -EINVAL;
-
-	tz = thermal_zone_get_zone_by_name(name);
-	if (IS_ERR(tz))
-		return PTR_ERR(tz);
-
-	ret = thermal_zone_get_temp(tz, temp);
-	put_device(&tz->device);
-
-	return ret;
-}
 
 static int cpufreq_set_level(struct cpufreq_device *cdev, unsigned long state)
 {
@@ -140,24 +108,21 @@ static void cpu_limits_set_level(unsigned int cpu, unsigned int max_freq)
 	struct cpufreq_device *cpufreq_dev;
 	unsigned int level = 0;
 
-	mutex_lock(&cpufreq_list_lock);
 	list_for_each_entry(cpufreq_dev, &cpufreq_dev_list, node) {
-		if (cpufreq_dev->id != cpu)
-			continue;
-
-		for (level = 0; level <= cpufreq_dev->max_level; level++) {
-			if (max_freq >= cpufreq_dev->freq_table[level].frequency) {
-				/* Nothing behavior: back off N steps below the
-				 * requested ceiling (tunable, default 3). */
-				level = (level >= cpu_limits_backoff) ?
-					level - cpu_limits_backoff : 0;
-				cpufreq_set_level(cpufreq_dev, level);
-				break;
+		if (cpufreq_dev->id == cpu) {
+			for (level = 0; level <= cpufreq_dev->max_level; level++) {
+				if (max_freq >= cpufreq_dev->freq_table[level].frequency) {
+					if (level >= CPUFREQ_LIMIT_LEVEL_MARGIN)
+						level -= CPUFREQ_LIMIT_LEVEL_MARGIN;
+					else
+						level = 0;
+					cpufreq_set_level(cpufreq_dev, level);
+					break;
+				}
 			}
+			break;
 		}
-		break;
 	}
-	mutex_unlock(&cpufreq_list_lock);
 }
 
 static unsigned int find_next_max(struct cpufreq_frequency_table *table,
@@ -187,27 +152,21 @@ static int cpu_thermal_init(void)
 		req = &per_cpu(qos_req, cpu);
 		policy = cpufreq_cpu_get(cpu);
 		if (!policy) {
-			/* CPU offline / not ready: skip it instead of tearing
-			 * down limits for every other CPU. */
-			pr_warn("%s: cpufreq policy not found for cpu%d, skipping\n",
-				__func__, cpu);
-			continue;
+			pr_err("%s: cpufreq policy not found for cpu%d\n",
+			       __func__, cpu);
+			return -ESRCH;
 		}
 
 		i = cpufreq_table_count_valid_entries(policy);
 		if (!i) {
-			pr_warn("%s: no valid CPUFreq entries for cpu%d, skipping\n",
-				__func__, cpu);
-			cpufreq_cpu_put(policy);
-			continue;
+			pr_err("%s: CPUFreq table not found or has no valid entries\n",
+			       __func__);
+			return -ENODEV;
 		}
 
 		cpufreq_dev = kzalloc(sizeof(*cpufreq_dev), GFP_KERNEL);
-		if (!cpufreq_dev) {
-			cpufreq_cpu_put(policy);
-			ret = -ENOMEM;
-			goto unwind;
-		}
+		if (!cpufreq_dev)
+			return -ENOMEM;
 
 		cpufreq_dev->policy = policy;
 		cpufreq_dev->qos_req = req;
@@ -217,12 +176,8 @@ static int cpu_thermal_init(void)
 		cpufreq_dev->id = policy->cpu;
 
 		cpufreq_dev->freq_table = kmalloc_array(i, sizeof(*cpufreq_dev->freq_table), GFP_KERNEL);
-		if (!cpufreq_dev->freq_table) {
-			cpufreq_cpu_put(policy);
-			kfree(cpufreq_dev);
-			ret = -ENOMEM;
-			goto unwind;
-		}
+		if (!cpufreq_dev->freq_table)
+			return -ENOMEM;
 
 		/* Fill freq-table in descending order of frequencies */
 		for (i = 0, freq = -1; i <= cpufreq_dev->max_level; i++) {
@@ -240,47 +195,25 @@ static int cpu_thermal_init(void)
 		if (ret < 0) {
 			pr_err("%s: Failed to add freq constraint (%d)\n",
 			       __func__, ret);
-			kfree(cpufreq_dev->freq_table);
-			cpufreq_cpu_put(policy);
-			kfree(cpufreq_dev);
-			goto unwind;
+			return ret;
 		}
-
-		/* We copied everything we need; drop the get reference.
-		 * The qos request keeps the constraints alive, and the policy
-		 * pointer must NOT be put again in destroy_thermal_cpu(). */
-		cpufreq_cpu_put(policy);
-		cpufreq_dev->policy = NULL;
-
 		mutex_lock(&cpufreq_list_lock);
 		list_add(&cpufreq_dev->node, &cpufreq_dev_list);
 		mutex_unlock(&cpufreq_list_lock);
 	}
-	return 0;
-
-unwind:
-	destroy_thermal_cpu();
 	return ret;
 }
 
-static void destroy_thermal_cpu(void)
+static void nothing_thermal_cpu_destroy(void)
 {
 	struct cpufreq_device *priv, *tmp;
 
-	mutex_lock(&cpufreq_list_lock);
 	list_for_each_entry_safe(priv, tmp, &cpufreq_dev_list, node) {
-		list_del(&priv->node);
-		mutex_unlock(&cpufreq_list_lock);
-
 		freq_qos_remove_request(priv->qos_req);
-		if (priv->policy)
-			cpufreq_cpu_put(priv->policy);
+		list_del(&priv->node);
 		kfree(priv->freq_table);
 		kfree(priv);
-
-		mutex_lock(&cpufreq_list_lock);
 	}
-	mutex_unlock(&cpufreq_list_lock);
 }
 
 /*
@@ -297,13 +230,10 @@ static ssize_t thermal_balance_mode_store(struct device *dev,
 					  struct device_attribute *attr,
 					  const char *buf, size_t len)
 {
-	int val, ret;
-
-	ret = kstrtoint(buf, 10, &val);
-	if (ret)
-		return ret;
-
+	int val = -1;
+	val = simple_strtol(buf, NULL, 10);
 	atomic_set(&balance_mode, val);
+
 	return len;
 }
 
@@ -321,30 +251,18 @@ static ssize_t thermal_board_sensor_show(struct device *dev,
 }
 static DEVICE_ATTR(board_sensor, 0664, thermal_board_sensor_show, NULL);
 
-/* Live read of the zone named by board-sensor-zone (millidegree C). */
 static ssize_t thermal_board_sensor_temp_show(struct device *dev,
 					      struct device_attribute *attr,
 					      char *buf)
 {
-	int temp, ret;
-
-	/* Userspace (thermal engine) written value takes precedence. */
-	if (board_sensor_temp[0] != '\0')
-		return snprintf(buf, PAGE_SIZE, "%s", board_sensor_temp);
-
-	ret = nt_get_zone_temp(board_sensor_zone, &temp);
-	if (ret)
-		return ret;
-
-	return snprintf(buf, PAGE_SIZE, "%d\n", temp);
+	return snprintf(buf, PAGE_SIZE, board_sensor_temp);
 }
 
 static ssize_t thermal_board_sensor_temp_store(struct device *dev,
 					       struct device_attribute *attr,
 					       const char *buf, size_t len)
 {
-	snprintf(board_sensor_temp, sizeof(board_sensor_temp), "%s", buf);
-	strim(board_sensor_temp);
+	snprintf(board_sensor_temp, sizeof(board_sensor_temp), buf);
 	return len;
 }
 
@@ -355,24 +273,14 @@ static ssize_t thermal_board_sensor_second_temp_show(struct device *dev,
 						     struct device_attribute *attr,
 						     char *buf)
 {
-	int temp, ret;
-
-	if (board_sensor_second_temp[0] != '\0')
-		return snprintf(buf, PAGE_SIZE, "%s", board_sensor_second_temp);
-
-	ret = nt_get_zone_temp(board_sensor_second_zone, &temp);
-	if (ret)
-		return ret;
-
-	return snprintf(buf, PAGE_SIZE, "%d\n", temp);
+	return snprintf(buf, PAGE_SIZE, board_sensor_second_temp);
 }
 
 static ssize_t thermal_board_sensor_second_temp_store(struct device *dev,
 						      struct device_attribute *attr,
 						      const char *buf, size_t len)
 {
-	snprintf(board_sensor_second_temp, sizeof(board_sensor_second_temp), "%s", buf);
-	strim(board_sensor_second_temp);
+	snprintf(board_sensor_second_temp, sizeof(board_sensor_second_temp), buf);
 	return len;
 }
 
@@ -383,15 +291,14 @@ static DEVICE_ATTR(board_sensor_second_temp, 0664,
 static ssize_t thermal_boost_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%s", boost);
+	return snprintf(buf, PAGE_SIZE, boost);
 }
 
 static ssize_t thermal_boost_store(struct device *dev,
 				   struct device_attribute *attr,
 				   const char *buf, size_t len)
 {
-	snprintf(boost, sizeof(boost), "%s", buf);
-	strim(boost);
+	snprintf(boost, sizeof(boost), buf);
 	return len;
 }
 
@@ -408,13 +315,10 @@ static ssize_t thermal_charger_temp_store(struct device *dev,
 					  struct device_attribute *attr,
 					  const char *buf, size_t len)
 {
-	int val, ret;
-
-	ret = kstrtoint(buf, 10, &val);
-	if (ret)
-		return ret;
-
+	int val = -1;
+	val = simple_strtol(buf, NULL, 10);
 	atomic_set(&charger_temp, val);
+
 	return len;
 }
 
@@ -424,17 +328,7 @@ static DEVICE_ATTR(charger_temp, 0664, thermal_charger_temp_show,
 static ssize_t cpu_limits_show(struct device *dev,
 			       struct device_attribute *attr, char *buf)
 {
-	struct cpufreq_device *cdev;
-	ssize_t len = 0;
-
-	mutex_lock(&cpufreq_list_lock);
-	list_for_each_entry(cdev, &cpufreq_dev_list, node)
-		len += snprintf(buf + len, PAGE_SIZE - len, "cpu%u %u\n",
-				cdev->id,
-				cdev->freq_table[cdev->cpufreq_state].frequency);
-	mutex_unlock(&cpufreq_list_lock);
-
-	return len;
+	return 0;
 }
 
 static ssize_t cpu_limits_store(struct device *dev,
@@ -445,11 +339,6 @@ static ssize_t cpu_limits_store(struct device *dev,
 
 	if (sscanf(buf, "cpu%u %u", &cpu, &max) != 2) {
 		pr_err("input param error, can not prase param\n");
-		return -EINVAL;
-	}
-
-	if (cpu >= nr_cpu_ids) {
-		pr_err("cpu%u out of range (nr_cpu_ids=%u)\n", cpu, nr_cpu_ids);
 		return -EINVAL;
 	}
 
@@ -469,13 +358,10 @@ static ssize_t thermal_flash_state_store(struct device *dev,
 					 struct device_attribute *attr,
 					 const char *buf, size_t len)
 {
-	int val, ret;
-
-	ret = kstrtoint(buf, 10, &val);
-	if (ret)
-		return ret;
-
+	int val = -1;
+	val = simple_strtol(buf, NULL, 10);
 	atomic_set(&flash_state, val);
+
 	return len;
 }
 
@@ -495,13 +381,10 @@ thermal_market_download_limit_store(struct device *dev,
 				    struct device_attribute *attr,
 				    const char *buf, size_t len)
 {
-	int val, ret;
-
-	ret = kstrtoint(buf, 10, &val);
-	if (ret)
-		return ret;
-
+	int val = -1;
+	val = simple_strtol(buf, NULL, 10);
 	atomic_set(&market_download_limit, val);
+
 	return len;
 }
 
@@ -520,13 +403,10 @@ static ssize_t thermal_modem_limit_store(struct device *dev,
 					 struct device_attribute *attr,
 					 const char *buf, size_t len)
 {
-	int val, ret;
-
-	ret = kstrtoint(buf, 10, &val);
-	if (ret)
-		return ret;
-
+	int val = -1;
+	val = simple_strtol(buf, NULL, 10);
 	atomic_set(&modem_limit, val);
+
 	return len;
 }
 
@@ -544,13 +424,10 @@ static ssize_t thermal_poor_modem_limit_store(struct device *dev,
 					      struct device_attribute *attr,
 					      const char *buf, size_t len)
 {
-	int val, ret;
-
-	ret = kstrtoint(buf, 10, &val);
-	if (ret)
-		return ret;
-
+	int val = -1;
+	val = simple_strtol(buf, NULL, 10);
 	atomic_set(&poor_modem_limit, val);
+
 	return len;
 }
 
@@ -567,13 +444,12 @@ static ssize_t thermal_sconfig_store(struct device *dev,
 				     struct device_attribute *attr,
 				     const char *buf, size_t len)
 {
-	int val, ret;
-
+	int ret, val = -1;
 	ret = kstrtoint(buf, 10, &val);
+	atomic_set(&sconfig, val);
+
 	if (ret)
 		return ret;
-
-	atomic_set(&sconfig, val);
 	return len;
 }
 
@@ -583,13 +459,12 @@ static ssize_t thermal_screen_state_show(struct device *dev,
 					 struct device_attribute *attr,
 					 char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&screen_state));
+	return snprintf(buf, PAGE_SIZE, "%d\n", screen_state);
 }
 static DEVICE_ATTR(screen_state, 0664, thermal_screen_state_show, NULL);
 
 static ssize_t thermal_temp_state_show(struct device *dev,
-				       struct device_attribute *attr,
-				       char *buf)
+				       struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&temp_state));
 }
@@ -598,13 +473,12 @@ static ssize_t thermal_temp_state_store(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t len)
 {
-	int val, ret;
-
+	int ret, val = -1;
 	ret = kstrtoint(buf, 10, &val);
+	atomic_set(&temp_state, val);
+
 	if (ret)
 		return ret;
-
-	atomic_set(&temp_state, val);
 	return len;
 }
 
@@ -612,16 +486,14 @@ static DEVICE_ATTR(temp_state, 0664, thermal_temp_state_show,
 		   thermal_temp_state_store);
 
 static ssize_t thermal_usb_online_show(struct device *dev,
-				       struct device_attribute *attr,
-				       char *buf)
+				       struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%d\n", usb_state.usb_online);
 }
 static DEVICE_ATTR(usb_online, 0664, thermal_usb_online_show, NULL);
 
 static ssize_t thermal_wifi_limit_show(struct device *dev,
-				       struct device_attribute *attr,
-				       char *buf)
+				       struct device_attribute *attr, char *buf)
 {
 	return snprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&wifi_limit));
 }
@@ -630,20 +502,17 @@ static ssize_t thermal_wifi_limit_store(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t len)
 {
-	int val, ret;
-
-	ret = kstrtoint(buf, 10, &val);
-	if (ret)
-		return ret;
-
+	int val = -1;
+	val = simple_strtol(buf, NULL, 10);
 	atomic_set(&wifi_limit, val);
+
 	return len;
 }
 
 static DEVICE_ATTR(wifi_limit, 0664, thermal_wifi_limit_show,
 		   thermal_wifi_limit_store);
 
-static struct attribute *nt_thermal_dev_attr_group[] = {
+static struct attribute *nothing_thermal_dev_attr_group[] = {
 	&dev_attr_balance_mode.attr,
 	&dev_attr_board_sensor.attr,
 	&dev_attr_board_sensor_temp.attr,
@@ -663,7 +532,7 @@ static struct attribute *nt_thermal_dev_attr_group[] = {
 	NULL
 };
 
-static int create_thermal_message_node(void)
+static void nothing_create_thermal_message_node(void)
 {
 	int ret = 0;
 	struct class *cls = NULL;
@@ -675,15 +544,15 @@ static int create_thermal_message_node(void)
 
 	sysfs_sd = kernel_kobj->sd->parent;
 	if (!sysfs_sd)
-		return -ENODEV;
+		return;
 
 	class_sd = kernfs_find_and_get(sysfs_sd, "class");
 	if (!class_sd)
-		return -ENODEV;
+		return;
 
 	thermal_sd = kernfs_find_and_get(class_sd, "thermal");
 	if (!thermal_sd)
-		goto put_class;
+		return;
 
 	kobj_tmp = (struct kobject *)thermal_sd->priv;
 	if (kobj_tmp) {
@@ -691,86 +560,40 @@ static int create_thermal_message_node(void)
 		cls = cp->class;
 	}
 
-	if (!nt_thermal_dev.class && cls) {
-		nt_thermal_dev.class = cls;
-		nt_thermal_dev.dev = device_create(nt_thermal_dev.class, NULL,
+	if (!nothing_thermal_dev.class && cls) {
+		nothing_thermal_dev.class = cls;
+		nothing_thermal_dev.dev = device_create(nothing_thermal_dev.class, NULL,
 						   'H', NULL, "thermal_message");
-		if (!nt_thermal_dev.dev) {
+		if (!nothing_thermal_dev.dev) {
 			pr_err("%s create device dev err\n", __func__);
-			ret = -ENODEV;
-			goto put_thermal;
+			return;
 		}
 
-		nt_thermal_dev.attrs.attrs = nt_thermal_dev_attr_group;
-		ret = sysfs_create_group(&nt_thermal_dev.dev->kobj, &nt_thermal_dev.attrs);
+		nothing_thermal_dev.attrs.attrs = nothing_thermal_dev_attr_group;
+		ret = sysfs_create_group(&nothing_thermal_dev.dev->kobj, &nothing_thermal_dev.attrs);
 		if (ret) {
 			pr_err("%s ERROR: Cannot create sysfs structure!:%d\n",
 			       __func__, ret);
-			device_destroy(nt_thermal_dev.class, 'H');
-			nt_thermal_dev.dev = NULL;
-			nt_thermal_dev.class = NULL;
+			return;
 		}
-	} else {
-		ret = -ENODEV;
-	}
-
-put_thermal:
-	kernfs_put(thermal_sd);
-put_class:
-	kernfs_put(class_sd);
-	return ret;
-}
-
-static void destroy_thermal_message_node(void)
-{
-	if (!nt_thermal_dev.dev)
-		return;
-
-	sysfs_remove_group(&nt_thermal_dev.dev->kobj, &nt_thermal_dev.attrs);
-	if (nt_thermal_dev.class != NULL) {
-		device_destroy(nt_thermal_dev.class, 'H');
-		nt_thermal_dev.dev = NULL;
-		nt_thermal_dev.class = NULL;
 	}
 }
 
-/*
- * The thermal class may not be registered yet when we probe (initcall
- * ordering when built-in). Retry a few times instead of giving up
- * silently, otherwise thermal-engine ends up with no interface at all.
- */
-static struct delayed_work node_retry_work;
-static int node_retry_count;
-
-static void nt_thermal_node_retry(struct work_struct *work)
+static void nothing_destroy_thermal_message_node(void)
 {
-	if (nt_thermal_dev.dev || node_retry_count++ >= NT_NODE_RETRY_MAX)
-		return;
-
-	create_thermal_message_node();
-
-	if (!nt_thermal_dev.dev)
-		schedule_delayed_work(&node_retry_work, NT_NODE_RETRY_DELAY);
-	else
-		pr_info("thermal_message node created on retry %d\n",
-			node_retry_count);
+	sysfs_remove_group(&nothing_thermal_dev.dev->kobj, &nothing_thermal_dev.attrs);
+	if (nothing_thermal_dev.class != NULL) {
+		device_destroy(nothing_thermal_dev.class, 'H');
+		nothing_thermal_dev.class = NULL;
+	}
 }
 
 #ifdef CONFIG_DRM_PANEL
-static struct drm_panel *active_panel;
-static struct notifier_block drm_notifier;
-
-struct drm_panel *get_panel(void)
-{
-	return active_panel;
-}
-EXPORT_SYMBOL(get_panel);
-
 static int thermal_check_panel(struct device_node *np)
 {
 	int i, count;
 	struct device_node *node;
-	struct drm_panel *panel = NULL;
+	struct drm_panel *panel;
 
 	count = of_count_phandle_with_args(np, "qcom,display-panels", NULL);
 	if (count <= 0)
@@ -778,56 +601,41 @@ static int thermal_check_panel(struct device_node *np)
 
 	for (i = 0; i < count; i++) {
 		node = of_parse_phandle(np, "qcom,display-panels", i);
-		if (!node)
-			continue;
-
 		panel = of_drm_find_panel(node);
 		of_node_put(node);
 		if (!IS_ERR(panel)) {
-			/* Keep the panel so the notifier can be registered
-			 * and screen_state is reported to thermal-engine. */
 			active_panel = panel;
 			return 0;
 		}
 	}
 
-	/* All lookups deferred (or nodes missing): report defer. */
-	if (panel)
-		return PTR_ERR(panel);
-
-	return -EPROBE_DEFER;
+	return PTR_ERR(panel);
 }
 
-static int nt_thermal_notify(struct notifier_block *self, unsigned long event,
+static int nothing_thermal_notify(struct notifier_block *self, unsigned long event,
 			     void *data)
 {
 	struct drm_panel_notifier *evdata = data;
-	int *blank;
-	int state;
+	int *blank = evdata->data;
 
-	if (event != DRM_PANEL_EVENT_BLANK || !evdata || !evdata->data)
+	if (event != DRM_PANEL_EVENT_BLANK)
 		return NOTIFY_DONE;
-
-	blank = evdata->data;
 
 	switch (*blank) {
 	case DRM_PANEL_BLANK_UNBLANK:
-		state = 1;
+		screen_state = 1;
 		break;
 	case DRM_PANEL_BLANK_LP:
 	case DRM_PANEL_BLANK_POWERDOWN:
-		state = 0;
+		screen_state = 0;
 		break;
 	default:
-		return NOTIFY_DONE;
+		break;
 	}
 
-	atomic_set(&screen_state, state);
-
-	if (screen_last_status != state) {
-		if (nt_thermal_dev.dev)
-			sysfs_notify(&nt_thermal_dev.dev->kobj, NULL, "screen_state");
-		screen_last_status = state;
+	if (screen_last_status != screen_state) {
+		sysfs_notify(&nothing_thermal_dev.dev->kobj, NULL, "screen_state");
+		screen_last_status = screen_state;
 	}
 
 	return NOTIFY_OK;
@@ -862,63 +670,57 @@ static void usb_online_work(struct work_struct *work)
 			return;
 		}
 		usb_state.usb_online = ret.intval;
-		if (nt_thermal_dev.dev)
-			sysfs_notify(&nt_thermal_dev.dev->kobj, NULL, "usb_online");
+		if (nothing_thermal_dev.dev)
+			sysfs_notify(&nothing_thermal_dev.dev->kobj, NULL, "usb_online");
 	}
 }
 
-static int of_parse_thermal_message(struct device_node *np)
+static int of_parse_thermal_message(void)
 {
+	struct device_node *np;
+
+	np = of_find_node_by_name(NULL, "nothing-thermal-interface");
 	if (!np)
 		return -EINVAL;
 
-	if (of_property_read_string(np, NT_THERMAL_DT_BOARD_SENSOR, &board_sensor))
-		board_sensor = "invalid";
+	if (of_property_read_string(np, "board-sensor", &board_sensor))
+		return -EINVAL;
 
-	/* Optional: kernel zones used for live temp fallback reads. */
-	of_property_read_string(np, NT_THERMAL_DT_BOARD_ZONE, &board_sensor_zone);
-	of_property_read_string(np, NT_THERMAL_DT_BOARD_ZONE2, &board_sensor_second_zone);
-
-	pr_info("%s board sensor: %s (zone: %s, second zone: %s)\n",
-		__func__, board_sensor,
-		board_sensor_zone ?: "none",
-		board_sensor_second_zone ?: "none");
+	pr_info("%s board sensor: %s\n", __func__, board_sensor);
 
 	return 0;
 }
 
-static int nt_thermal_probe(struct platform_device *pdev)
+static int __init nothing_thermal_interface_init(void)
 {
 	int ret = 0;
 #ifdef CONFIG_DRM_PANEL
-	struct device_node *node = pdev->dev.of_node;
+	struct device_node *node;
+
+	node = of_find_node_by_name(NULL, "nothing-thermal-interface");
+	if (!node) {
+		pr_err("%s: Cannot find nothing-thermal-interface node\n", __func__);
+		return ret;
+	}
 
 	ret = thermal_check_panel(node);
-	if (ret == -EPROBE_DEFER)
-		return -EPROBE_DEFER;
-	if (ret)
-		pr_warn("%s: panel check failed (%d), continuing without panel notifier\n",
-			__func__, ret);
+	if (ret == -EPROBE_DEFER) {
+		pr_err("%s: Failed to parse active panel\n", __func__);
+		return ret;
+	}
 #endif
 
-	ret = cpu_thermal_init();
-	if (ret)
-		pr_err("%s: cpu_thermal_init failed: %d\n", __func__, ret);
+	cpu_thermal_init();
 
-	ret = of_parse_thermal_message(pdev->dev.of_node);
+	ret = of_parse_thermal_message();
 	if (ret)
 		pr_err("%s: Can not parse thermal message node: %d\n", __func__,
 		       ret);
 
-	create_thermal_message_node();
-	if (!nt_thermal_dev.dev) {
-		node_retry_count = 0;
-		INIT_DELAYED_WORK(&node_retry_work, nt_thermal_node_retry);
-		schedule_delayed_work(&node_retry_work, NT_NODE_RETRY_DELAY);
-	}
+	nothing_create_thermal_message_node();
 
 #ifdef CONFIG_DRM_PANEL
-	drm_notifier.notifier_call = nt_thermal_notify;
+	drm_notifier.notifier_call = nothing_thermal_notify;
 	if (active_panel) {
 		ret = drm_panel_notifier_register(active_panel, &drm_notifier);
 		if (ret)
@@ -939,37 +741,18 @@ static int nt_thermal_probe(struct platform_device *pdev)
 
 	return 0;
 }
+late_initcall(nothing_thermal_interface_init);
 
-static int nt_thermal_remove(struct platform_device *pdev)
+static void __exit nothing_thermal_interface_exit(void)
 {
 #ifdef CONFIG_DRM_PANEL
 	if (active_panel)
 		drm_panel_notifier_unregister(active_panel, &drm_notifier);
 #endif
-	cancel_delayed_work_sync(&node_retry_work);
-	power_supply_unreg_notifier(&usb_state.psy_nb);
-	cancel_work_sync(&usb_state.usb_state_work);
-	destroy_thermal_message_node();
-	destroy_thermal_cpu();
-
-	return 0;
+	nothing_destroy_thermal_message_node();
+	nothing_thermal_cpu_destroy();
 }
-
-static const struct of_device_id nt_thermal_of_match[] = {
-	{ .compatible = "nothing,nt-thermal-interface" },
-	{ }
-};
-MODULE_DEVICE_TABLE(of, nt_thermal_of_match);
-
-static struct platform_driver nt_thermal_driver = {
-	.probe = nt_thermal_probe,
-	.remove = nt_thermal_remove,
-	.driver = {
-		.name = "nt-thermal-interface",
-		.of_match_table = nt_thermal_of_match,
-	},
-};
-module_platform_driver(nt_thermal_driver);
+module_exit(nothing_thermal_interface_exit);
 
 MODULE_AUTHOR("Nothing kernel");
 MODULE_DESCRIPTION("Nothing thermal control interface");
