@@ -24,10 +24,13 @@
 	for (index = 0; (index < (display)->ctrl_count) &&\
 			(index < MAX_DSI_CTRLS_PER_DISPLAY); index++)
 
-#define DSI_WARN(fmt, ...)
-#define DSI_ERR(fmt, ...)
-#define DSI_INFO(fmt, ...)
-#define DSI_DEBUG(fmt, ...)
+#define DSI_WARN(fmt, ...)	DRM_WARN("[msm-dsi-warn]: "fmt, ##__VA_ARGS__)
+#define DSI_ERR(fmt, ...)	DRM_DEV_ERROR(NULL, "[msm-dsi-error]: " fmt, \
+								##__VA_ARGS__)
+#define DSI_INFO(fmt, ...)	DRM_DEV_INFO(NULL, "[msm-dsi-info]: "fmt, \
+								##__VA_ARGS__)
+#define DSI_DEBUG(fmt, ...)	DRM_DEV_DEBUG(NULL, "[msm-dsi-debug]: "fmt, \
+								##__VA_ARGS__)
 /**
  * enum dsi_pixel_format - DSI pixel formats
  * @DSI_PIXEL_FORMAT_RGB565:
@@ -506,8 +509,6 @@ struct dsi_host_common_cfg {
 	u32 byte_intf_clk_div;
 	u32 dma_sched_line;
 	u32 dma_sched_window;
-	u32 clk_strength;
-	u32 phy_voltage;
 };
 
 /**

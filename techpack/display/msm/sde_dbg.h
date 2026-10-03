@@ -80,7 +80,8 @@ enum sde_dbg_dump_context {
  */
 #define SDE_REG_LOG_RSCC    33
 
-#define SDE_EVTLOG_DEFAULT_ENABLE 0
+#define SDE_EVTLOG_DEFAULT_ENABLE (SDE_EVTLOG_CRITICAL | SDE_EVTLOG_IRQ | \
+		SDE_EVTLOG_EXTERNAL)
 
 /*
  * evtlog will print this number of entries when it is called through
