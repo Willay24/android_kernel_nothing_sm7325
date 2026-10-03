@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2022-2023 Qualcomm Innovation Center, Inc. All rights reserved.
+ * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  * Copyright (c) 2016-2021, The Linux Foundation. All rights reserved.
  */
 
@@ -22,6 +22,13 @@
 #include "sde_dbg.h"
 #include "dsi_parser.h"
 #include <video/mipi_display.h>
+#ifdef CONFIG_DRM_PANEL
+extern int lpm_levels_register_panel(struct drm_panel *panel);
+static bool lpm_panel_registered;
+#ifdef CONFIG_NOTHING_THERMAL_INTERFACE
+extern int nothing_thermal_register_panel(struct drm_panel *panel);
+#endif
+#endif
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -1254,24 +1261,14 @@ int dsi_display_set_power(struct drm_connector *connector,
 
 	switch (power_mode) {
 	case SDE_MODE_DPMS_LP1:
-		if (display->panel->power_mode == SDE_MODE_DPMS_LP2) {
-			if (dsi_display_set_ulp_load(display, false) < 0)
-				DSI_WARN("failed to set load for lp1 state\n");
-		}
 		rc = dsi_panel_set_lp1(display->panel);
 		break;
 	case SDE_MODE_DPMS_LP2:
 		rc = dsi_panel_set_lp2(display->panel);
-		if (dsi_display_set_ulp_load(display, true) < 0)
-			DSI_WARN("failed to set load for lp2 state\n");
 		break;
 	case SDE_MODE_DPMS_ON:
-		if (display->panel->power_mode == SDE_MODE_DPMS_LP2) {
-			if (dsi_display_set_ulp_load(display, false) < 0)
-				DSI_WARN("failed to set load for on state\n");
-		}
 		if ((display->panel->power_mode == SDE_MODE_DPMS_LP1) ||
-			(display->panel->power_mode == SDE_MODE_DPMS_LP2))
+		    (display->panel->power_mode == SDE_MODE_DPMS_LP2))
 			rc = dsi_panel_set_nolp(display->panel);
 		break;
 	case SDE_MODE_DPMS_OFF:
@@ -4041,35 +4038,6 @@ int dsi_pre_clkon_cb(void *priv,
 	return rc;
 }
 
-int dsi_display_set_ulp_load(struct dsi_display *display, bool enable)
-{
-	int i, rc = 0;
-	struct dsi_display_ctrl *display_ctrl;
-	struct dsi_ctrl *ctrl;
-	struct dsi_panel *panel;
-
-	display_for_each_ctrl(i, display) {
-		display_ctrl = &display->ctrl[i];
-		if (!display_ctrl->ctrl)
-			continue;
-		ctrl = display_ctrl->ctrl;
-
-		rc = dsi_pwr_config_vreg_opt_mode(&ctrl->pwr_info.host_pwr, enable);
-		if (rc) {
-			DSI_ERR("failed to set ctrl load\n");
-			return rc;
-		}
-	}
-
-	panel = display->panel;
-	rc = dsi_pwr_config_vreg_opt_mode(&panel->power_info, enable);
-	if (rc) {
-		DSI_ERR("failed to set panel load\n");
-		return rc;
-	}
-	return rc;
-}
-
 static void __set_lane_map_v2(u8 *lane_map_v2,
 	enum dsi_phy_data_lanes lane0,
 	enum dsi_phy_data_lanes lane1,
@@ -4540,10 +4508,7 @@ void dsi_display_update_byte_intf_div(struct dsi_display *display)
 	config = &display->panel->host_config;
 
 	phy_ver = dsi_phy_get_version(m_ctrl->phy);
-	if (phy_ver <= DSI_PHY_VERSION_2_0)
-		config->byte_intf_clk_div = 1;
-	else
-		config->byte_intf_clk_div = 2;
+	config->byte_intf_clk_div = 2;
 }
 
 static int dsi_display_update_dsi_bitrate(struct dsi_display *display,
@@ -5860,6 +5825,15 @@ static int dsi_display_bind(struct device *dev,
 		goto error_host_deinit;
 	}
 
+#ifdef CONFIG_DRM_PANEL
+	if (!lpm_panel_registered &&
+	    !lpm_levels_register_panel(&display->panel->drm_panel))
+		lpm_panel_registered = true;
+#ifdef CONFIG_NOTHING_THERMAL_INTERFACE
+	nothing_thermal_register_panel(&display->panel->drm_panel);
+#endif
+#endif
+
 	DSI_INFO("Successfully bind display panel '%s'\n", display->name);
 	display->drm_dev = drm;
 
@@ -6175,6 +6149,10 @@ int dsi_display_dev_remove(struct platform_device *pdev)
 	}
 
 	display = platform_get_drvdata(pdev);
+	if (!display || !display->panel_node) {
+		DSI_ERR("invalid display\n");
+		return -EINVAL;
+	}
 
 	/* decrement ref count */
 	of_node_put(display->panel_node);

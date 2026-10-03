@@ -4178,7 +4178,6 @@ int sde_encoder_prepare_for_kickoff(struct drm_encoder *drm_enc,
 			 _sde_encoder_is_autorefresh_enabled(sde_enc)))
 		_sde_encoder_update_rsc_client(drm_enc, true);
 
-
 	rc = sde_encoder_resource_control(drm_enc, SDE_ENC_RC_EVENT_KICKOFF);
 	if (rc) {
 		SDE_ERROR_ENC(sde_enc, "resource kickoff failed rc %d\n", rc);
