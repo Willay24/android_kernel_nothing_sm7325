@@ -1,7 +1,7 @@
 &tlmm {
-	qcom,gpios-reserved = <32 33 48 51>;
+	qcom,gpios-reserved = <32 33 51>;
 
-	qupv3_se13_spi_sleep: qupv3_se13_spi_sleep {
+	qupv3_se13_spi_sleep_nt: qupv3_se13_spi_sleep_nt {
 		mux {
 			pins = "gpio52", "gpio53", "gpio54";
 			function = "gpio";
@@ -24,38 +24,5 @@
 			bias-pull-up;
 			output-high;
 		};
-	};
-
-	nfc_int_active: nfc_int_active {
-		mux { pins = "gpio41"; function = "gpio"; };
-		config { pins = "gpio41"; bias-pull-up; drive-strength = <2>; input-enable; };
-	};
-	nfc_int_suspend: nfc_int_suspend {
-		mux { pins = "gpio41"; function = "gpio"; };
-		config { pins = "gpio41"; bias-pull-down; drive-strength = <2>; input-enable; };
-	};
-	nfc_enable_active: nfc_enable_active {
-		mux { pins = "gpio38"; function = "gpio"; };
-		config { pins = "gpio38"; bias-disable; drive-strength = <2>; output-low; };
-	};
-	nfc_enable_suspend: nfc_enable_suspend {
-		mux { pins = "gpio38"; function = "gpio"; };
-		config { pins = "gpio38"; bias-pull-down; drive-strength = <2>; output-low; };
-	};
-	nfc_clkreq_active: nfc_clkreq_active {
-		mux { pins = "gpio39"; function = "gpio"; };
-		config { pins = "gpio39"; bias-disable; drive-strength = <2>; input-enable; };
-	};
-	nfc_clkreq_suspend: nfc_clkreq_suspend {
-		mux { pins = "gpio39"; function = "gpio"; };
-		config { pins = "gpio39"; bias-pull-down; drive-strength = <2>; input-enable; };
-	};
-	nfc_dwl_active: nfc_dwl_active {
-		mux { pins = "gpio40"; function = "gpio"; };
-		config { pins = "gpio40"; bias-disable; drive-strength = <2>; output-low; };
-	};
-	nfc_dwl_suspend: nfc_dwl_suspend {
-		mux { pins = "gpio40"; function = "gpio"; };
-		config { pins = "gpio40"; bias-pull-down; drive-strength = <2>; output-low; };
 	};
 };
