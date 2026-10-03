@@ -659,6 +659,7 @@ int dsi_panel_set_backlight(struct dsi_panel *panel, u32 bl_lvl)
 	if (panel->host_config.ext_bridge_mode)
 		return 0;
 
+	DSI_DEBUG("backlight type:%d lvl:%d\n", bl->type, bl_lvl);
 	switch (bl->type) {
 	case DSI_BACKLIGHT_WLED:
 		rc = backlight_device_set_brightness(bl->raw_bd, bl_lvl);
@@ -1208,23 +1209,6 @@ static int dsi_panel_parse_misc_host_config(struct dsi_host_common_cfg *host,
 
 	DSI_DEBUG("[%s] DMA scheduling parameters Line: %d Window: %d\n", name,
 			host->dma_sched_line, host->dma_sched_window);
-
-	rc = utils->read_u32(utils->data, "qcom,mdss-dsi-clk-strength", &val);
-	if (!rc)
-		host->clk_strength = val;
-	else
-		host->clk_strength = 0;
-
-	DSI_DEBUG("[%s] clk_strength = %d\n", name, val);
-
-	rc = utils->read_u32(utils->data, "qcom,mdss-dsi-phy-voltage", &val);
-	if (!rc)
-		host->phy_voltage = val;
-	else
-		host->phy_voltage = 0;
-
-	DSI_DEBUG("[%s] phy_voltage = %d\n", name, val);
-
 	return 0;
 }
 
@@ -2667,7 +2651,6 @@ static int dsi_panel_parse_dsc_params(struct dsi_display_mode *mode,
 				struct dsi_parser_utils *utils)
 {
 	u32 data;
-	u64 dsc_panel_id;
 	int rc = -EINVAL;
 	int intf_width;
 	const char *compression;
@@ -2814,14 +2797,8 @@ static int dsi_panel_parse_dsc_params(struct dsi_display_mode *mode,
 	priv_info->dsc.config.slice_count = DIV_ROUND_UP(intf_width,
 		priv_info->dsc.config.slice_width);
 
-	rc = utils->read_u64(utils->data, "mi,mdss-dsc-panel-id", &dsc_panel_id);
-	if (rc) {
-		rc = sde_dsc_populate_dsc_config(&priv_info->dsc.config, priv_info->dsc.scr_rev);
-	} else {
-		rc = sde_dsc_populate_dsc_config_nt(&priv_info->dsc.config, priv_info->dsc.scr_rev, dsc_panel_id);
-		DSI_DEBUG("mi,mdss-dsc-panel-id is 0x%llx\n", dsc_panel_id);
-	}
-
+	rc = sde_dsc_populate_dsc_config(&priv_info->dsc.config,
+			priv_info->dsc.scr_rev);
 	if (rc) {
 		DSI_DEBUG("failed populating dsc params\n");
 		rc = -EINVAL;
