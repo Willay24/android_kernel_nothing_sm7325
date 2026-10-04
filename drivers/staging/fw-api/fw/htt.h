@@ -286,9 +286,10 @@
  * 3.156 Add qdata_consent_pkt flag in rx_peer_metadata_v1a and v2.
  * 3.157 Add TCL_METADATA_V3 defs.
  * 3.158 Add more fields in htt_tx_monitor_cfg_t.
+ * 3.159 Add enable_sa_search and enable_da_search flags in htt_ast_info_t.
  */
 #define HTT_CURRENT_VERSION_MAJOR 3
-#define HTT_CURRENT_VERSION_MINOR 158
+#define HTT_CURRENT_VERSION_MINOR 159
 
 #define HTT_NUM_TX_FRAG_DESC  1024
 
@@ -12897,9 +12898,9 @@ PREPACK struct htt_h2t_mpduq_or_msduq_info {
  *    |                           ase_hash_key2                                |
  *    |------------------------------------------------------------------------|
  *    |                           ase_hash_key3                                |
- *    |--------------------+--+--+--+--+--+----------------+-------------------|
- *    |    reserved        |L |K |J |I |H |     tmo        |ast_base_addr_39_32|
- *    |--------------------+--+--+--+--+--+----------------+-------------------|
+ *    |--------------+--+--+--+--+--+--+--+----------------+-------------------|
+ *    |    reserved  |N |M |L |K |J |I |H |     tmo        |ast_base_addr_39_32|
+ *    |--------------+--+--+--+--+--+--+--+----------------+-------------------|
  *
  * The message is interpreted as follows:
  * dword0    b'7:0   - msg_type
@@ -12925,6 +12926,8 @@ PREPACK struct htt_h2t_mpduq_or_msduq_info {
  *                     If enabled, a new cache entry will always be created
  *                     for requests for which matching data was found
  *                     neither in cache nor in memory.
+ *           b'21    - M - enable_sa_search
+ *           b'22    - N - enable_da_search
  */
 PREPACK struct htt_ast_info_t {
         A_UINT32 msg_type:        8,
@@ -12941,7 +12944,9 @@ PREPACK struct htt_ast_info_t {
                  ast_cache_cmd_read_bypass_dis:     1, /* 18 */
                  ast_cache_write_back_fix_dis:      1, /* 19 */
                  ast_cache_only_entry_cmd_fix_dis:  1, /* 20 */
-                 reserved:                         11;
+                 enable_sa_search:                  1, /* 21 */
+                 enable_da_search:                  1, /* 22 */
+                 reserved:                          9;
 } POSTPACK;
 
 
@@ -13048,6 +13053,28 @@ PREPACK struct htt_ast_info_t {
         do { \
             HTT_CHECK_SET_VAL(HTT_AST_INFO_AST_CACHE_ONLY_ENTRY_CMD_FIX_DIS, _val); \
             ((_var) |= ((_val) << HTT_AST_INFO_AST_CACHE_ONLY_ENTRY_CMD_FIX_DIS_S)); \
+        } while (0)
+
+#define HTT_AST_INFO_ENABLE_SA_SEARCH_M                         0x00200000
+#define HTT_AST_INFO_ENABLE_SA_SEARCH_S                         21
+#define HTT_AST_INFO_ENABLE_SA_SEARCH_GET(_var) \
+        (((_var) & HTT_AST_INFO_ENABLE_SA_SEARCH_M) >> \
+            HTT_AST_INFO_ENABLE_SA_SEARCH_S)
+#define HTT_AST_INFO_ENABLE_SA_SEARCH_SET(_var, _val) \
+        do { \
+            HTT_CHECK_SET_VAL(HTT_AST_INFO_ENABLE_SA_SEARCH, _val); \
+            ((_var) |= ((_val) << HTT_AST_INFO_ENABLE_SA_SEARCH_S)); \
+        } while (0)
+
+#define HTT_AST_INFO_ENABLE_DA_SEARCH_M                         0x00400000
+#define HTT_AST_INFO_ENABLE_DA_SEARCH_S                         22
+#define HTT_AST_INFO_ENABLE_DA_SEARCH_GET(_var) \
+        (((_var) & HTT_AST_INFO_ENABLE_DA_SEARCH_M) >> \
+            HTT_AST_INFO_ENABLE_DA_SEARCH_S)
+#define HTT_AST_INFO_ENABLE_DA_SEARCH_SET(_var, _val) \
+        do { \
+            HTT_CHECK_SET_VAL(HTT_AST_INFO_ENABLE_DA_SEARCH, _val); \
+            ((_var) |= ((_val) << HTT_AST_INFO_ENABLE_DA_SEARCH_S)); \
         } while (0)
 
 
