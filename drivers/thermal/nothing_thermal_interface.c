@@ -30,8 +30,13 @@
 #define CPUFREQ_LIMIT_LEVEL_MARGIN	3
 
 #ifdef CONFIG_DRM_PANEL
+static int nothing_thermal_notify(struct notifier_block *self,
+		unsigned long event, void *data);
+
 static struct drm_panel *active_panel;
-static struct notifier_block drm_notifier;
+static struct notifier_block drm_notifier = {
+	.notifier_call = nothing_thermal_notify,
+};
 
 struct drm_panel *get_panel(void)
 {
@@ -589,29 +594,6 @@ static void nothing_destroy_thermal_message_node(void)
 }
 
 #ifdef CONFIG_DRM_PANEL
-static int thermal_check_panel(struct device_node *np)
-{
-	int i, count;
-	struct device_node *node;
-	struct drm_panel *panel;
-
-	count = of_count_phandle_with_args(np, "qcom,display-panels", NULL);
-	if (count <= 0)
-		return 0;
-
-	for (i = 0; i < count; i++) {
-		node = of_parse_phandle(np, "qcom,display-panels", i);
-		panel = of_drm_find_panel(node);
-		of_node_put(node);
-		if (!IS_ERR(panel)) {
-			active_panel = panel;
-			return 0;
-		}
-	}
-
-	return PTR_ERR(panel);
-}
-
 static int nothing_thermal_notify(struct notifier_block *self, unsigned long event,
 			     void *data)
 {
@@ -634,11 +616,31 @@ static int nothing_thermal_notify(struct notifier_block *self, unsigned long eve
 	}
 
 	if (screen_last_status != screen_state) {
-		sysfs_notify(&nothing_thermal_dev.dev->kobj, NULL, "screen_state");
+		if (nothing_thermal_dev.dev)
+			sysfs_notify(&nothing_thermal_dev.dev->kobj, NULL, "screen_state");
 		screen_last_status = screen_state;
 	}
 
 	return NOTIFY_OK;
+}
+
+int nothing_thermal_register_panel(struct drm_panel *panel)
+{
+	int ret;
+
+	if (active_panel)
+		return 0;
+
+	ret = drm_panel_notifier_register(panel, &drm_notifier);
+	if (ret) {
+		pr_err("%s: Failed to register DRM panel notifier, rc=%d\n",
+		       __func__, ret);
+		return ret;
+	}
+
+	active_panel = panel;
+	pr_info("%s: Registered DRM panel notifier successfully\n", __func__);
+	return 0;
 }
 #endif
 
@@ -694,21 +696,6 @@ static int of_parse_thermal_message(void)
 static int __init nothing_thermal_interface_init(void)
 {
 	int ret = 0;
-#ifdef CONFIG_DRM_PANEL
-	struct device_node *node;
-
-	node = of_find_node_by_name(NULL, "nothing-thermal-interface");
-	if (!node) {
-		pr_err("%s: Cannot find nothing-thermal-interface node\n", __func__);
-		return ret;
-	}
-
-	ret = thermal_check_panel(node);
-	if (ret == -EPROBE_DEFER) {
-		pr_err("%s: Failed to parse active panel\n", __func__);
-		return ret;
-	}
-#endif
 
 	cpu_thermal_init();
 
@@ -718,19 +705,6 @@ static int __init nothing_thermal_interface_init(void)
 		       ret);
 
 	nothing_create_thermal_message_node();
-
-#ifdef CONFIG_DRM_PANEL
-	drm_notifier.notifier_call = nothing_thermal_notify;
-	if (active_panel) {
-		ret = drm_panel_notifier_register(active_panel, &drm_notifier);
-		if (ret)
-			pr_err("%s: Failed to register DRM panel notifier, rc=%d\n",
-			       __func__, ret);
-		else
-			pr_info("%s: Registered DRM panel notifier successfully\n",
-				__func__);
-	}
-#endif
 
 	INIT_WORK(&usb_state.usb_state_work, usb_online_work);
 	usb_state.psy_nb.notifier_call = usb_online_callback;
