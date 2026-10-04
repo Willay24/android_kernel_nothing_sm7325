@@ -1566,6 +1566,8 @@ void *msm_vidc_open(int core_id, int session_type)
 	inst->boost_qp_enabled = false;
 	inst->boost_min_qp = 0;
 	inst->boost_max_qp = 0;
+	inst->reconfig_OutPort_height = 0;
+	inst->reconfig_OutPort_width = 0;
 
 	for (i = SESSION_MSG_INDEX(SESSION_MSG_START);
 		i <= SESSION_MSG_INDEX(SESSION_MSG_END); i++) {

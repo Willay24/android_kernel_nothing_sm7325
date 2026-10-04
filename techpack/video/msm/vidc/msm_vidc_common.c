@@ -1667,10 +1667,12 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 
 		fmt = &inst->fmts[OUTPUT_PORT];
 		event_fields_changed |=
-			(fmt->v4l2_fmt.fmt.pix_mp.height !=
-							event_notify->height);
+				(fmt->v4l2_fmt.fmt.pix_mp.height != event_notify->height) ?
+				true : ((inst->reconfig_OutPort_height != 0) && (inst->reconfig_OutPort_height != event_notify->height));
+
 		event_fields_changed |=
-			(fmt->v4l2_fmt.fmt.pix_mp.width != event_notify->width);
+				(fmt->v4l2_fmt.fmt.pix_mp.width != event_notify->width) ?
+				true : ((inst->reconfig_OutPort_width != 0) && (inst->reconfig_OutPort_width != event_notify->width));
 
 		if (event_fields_changed) {
 			event = V4L2_EVENT_SEQ_CHANGED_INSUFFICIENT;
@@ -1786,6 +1788,8 @@ static void handle_event_change(enum hal_command_response cmd, void *data)
 	fmt = &inst->fmts[OUTPUT_PORT];
 	fmt->v4l2_fmt.fmt.pix_mp.height = event_notify->height;
 	fmt->v4l2_fmt.fmt.pix_mp.width = event_notify->width;
+	inst->reconfig_OutPort_height = event_notify->height; // Update the cache height for OutPort
+	inst->reconfig_OutPort_width = event_notify->width; // Update the cache width for OutPort
 	mutex_unlock(&inst->lock);
 
 	if (event == V4L2_EVENT_SEQ_CHANGED_INSUFFICIENT)
@@ -3115,6 +3119,30 @@ fail_core_init:
 	core->state = VIDC_CORE_UNINIT;
 	mutex_unlock(&core->lock);
 	return rc;
+}
+
+int msm_vidc_unload_core(struct msm_vidc_core *core)
+{
+	if (!core || !core->device) {
+		d_vpr_e("%s: invalid parameters\n", __func__);
+		return -EINVAL;
+	}
+
+	if (core->state == VIDC_CORE_UNINIT) {
+		d_vpr_h("Video core: %d is already in state: %d\n",
+				core->id, core->state);
+		return 0;
+	}
+
+	if (!list_empty(&core->instances)) {
+		d_vpr_e("%s: Active video instances are already present\n", __func__);
+		return -ECANCELED;
+	}
+
+	cancel_delayed_work(&core->fw_unload_work);
+	schedule_delayed_work(&core->fw_unload_work, 0);
+
+	return 0;
 }
 
 static int msm_vidc_deinit_core(struct msm_vidc_inst *inst)
