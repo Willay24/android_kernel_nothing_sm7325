@@ -43,7 +43,7 @@
 #include <trace/events/power.h>
 #include <linux/clk.h>
 #ifdef CONFIG_DRM_PANEL
-#include <drm/drm_notifier.h>
+#include <drm/drm_panel.h>
 #endif
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
@@ -100,25 +100,25 @@ static void cluster_prepare(struct lpm_cluster *cluster,
 static bool sleep_disabled = true;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0444);
 
-static int lpm_drm_notify(struct notifier_block *nb,
+static int lpm_drm_panel_notify(struct notifier_block *nb,
 		unsigned long val, void *ptr)
 {
-	struct drm_notify_data *evdata = ptr;
+	struct drm_panel_notifier *evdata = ptr;
 	int *blank = evdata->data;
 
-	if (val != DRM_EARLY_EVENT_BLANK)
-		return NOTIFY_OK;
-
 	switch (*blank) {
-	case DRM_BLANK_UNBLANK:
-		sleep_disabled = true;
-		wake_up_all_idle_cpus();
+	case DRM_PANEL_BLANK_UNBLANK:
+		if (val == DRM_PANEL_EARLY_EVENT_BLANK) {
+			sleep_disabled = true;
+			wake_up_all_idle_cpus();
+		}
 		break;
-	case DRM_BLANK_POWERDOWN:
-	case DRM_BLANK_LP1:
-	case DRM_BLANK_LP2:
-		sleep_disabled = false;
-		wake_up_all_idle_cpus();
+	case DRM_PANEL_BLANK_POWERDOWN:
+	case DRM_PANEL_BLANK_LP:
+		if (val == DRM_PANEL_EARLY_EVENT_BLANK) {
+			sleep_disabled = false;
+			wake_up_all_idle_cpus();
+		}
 		break;
 	default:
 		break;
@@ -128,8 +128,10 @@ static int lpm_drm_notify(struct notifier_block *nb,
 }
 
 static struct notifier_block drm_notifier = {
-	.notifier_call = lpm_drm_notify,
+	.notifier_call = lpm_drm_panel_notify,
 };
+
+extern struct drm_panel *get_panel(void);
 #else
 static bool sleep_disabled;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0664);
@@ -1761,11 +1763,16 @@ static int lpm_probe(struct platform_device *pdev)
 	struct hrtimer *cpu_histtimer;
 	struct kobject *module_kobj = NULL;
 #ifdef CONFIG_DRM_PANEL
-	ret = drm_register_client(&drm_notifier);
+	struct drm_panel *active_panel = get_panel();
+
+	if (!active_panel)
+		return -EPROBE_DEFER;
+
+	ret = drm_panel_notifier_register(active_panel, &drm_notifier);
 	if (ret)
-		pr_err("Failed to register DRM notifier, ret=%d\n", ret);
+		pr_err("Failed to register DRM panel notifier, ret=%d\n", ret);
 	else
-		pr_info("Registered DRM notifier\n");
+		pr_info("Registered DRM panel notifier\n");
 #endif
 
 	get_online_cpus();
