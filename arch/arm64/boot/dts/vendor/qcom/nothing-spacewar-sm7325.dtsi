@@ -188,11 +188,11 @@
 		};
 	};
 
-	nt-thermal-interface {
-		compatible = "nothing,nt-thermal-interface";
-		board-sensor = "spacewar-board-sensor";
+	nothing_thermal_interface: nothing-thermal-interface {
+		compatible = "nothing,thermal-interface";
+		board-sensor = "pm8350b_chg_skin_therm";
 		qcom,display-panels = <&dsi_rm692e5_visionox_amoled_120hz_cmd
-					&dsi_r66451_amoled_144hz_video_cphy>;
+				       &dsi_r66451_amoled_144hz_video_cphy>;
 	};
 
 	qcom_qseecom: qseecom@c1800000 {
