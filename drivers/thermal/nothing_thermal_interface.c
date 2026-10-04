@@ -17,7 +17,6 @@
 #include <linux/string.h>
 #include <linux/suspend.h>
 #include <linux/thermal.h>
-#include <linux/platform_device.h> 
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
 #endif
@@ -28,8 +27,7 @@
 #include "thermal_core.h"
 #include "../base/base.h"
 
-#define NT_THERMAL_DT_NODE	"nt-thermal-interface"
-#define NT_THERMAL_DT_PROP	"board-sensor"
+#define CPUFREQ_LIMIT_LEVEL_MARGIN	3
 
 #ifdef CONFIG_DRM_PANEL
 static struct drm_panel *active_panel;
@@ -42,11 +40,11 @@ struct drm_panel *get_panel(void)
 EXPORT_SYMBOL(get_panel);
 #endif
 
-static struct nt_thermal_device {
+static struct nothing_thermal_device {
 	struct device *dev;
 	struct class *class;
 	struct attribute_group attrs;
-} nt_thermal_dev;
+} nothing_thermal_dev;
 
 static struct usb_monitor {
 	struct notifier_block psy_nb;
@@ -114,7 +112,10 @@ static void cpu_limits_set_level(unsigned int cpu, unsigned int max_freq)
 		if (cpufreq_dev->id == cpu) {
 			for (level = 0; level <= cpufreq_dev->max_level; level++) {
 				if (max_freq >= cpufreq_dev->freq_table[level].frequency) {
-					level = (level >= 3) ? level - 3 : 0;
+					if (level >= CPUFREQ_LIMIT_LEVEL_MARGIN)
+						level -= CPUFREQ_LIMIT_LEVEL_MARGIN;
+					else
+						level = 0;
 					cpufreq_set_level(cpufreq_dev, level);
 					break;
 				}
@@ -203,7 +204,7 @@ static int cpu_thermal_init(void)
 	return ret;
 }
 
-static void destory_thermal_cpu(void)
+static void nothing_thermal_cpu_destroy(void)
 {
 	struct cpufreq_device *priv, *tmp;
 
@@ -254,14 +255,14 @@ static ssize_t thermal_board_sensor_temp_show(struct device *dev,
 					      struct device_attribute *attr,
 					      char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%s", board_sensor_temp);
+	return snprintf(buf, PAGE_SIZE, board_sensor_temp);
 }
 
 static ssize_t thermal_board_sensor_temp_store(struct device *dev,
 					       struct device_attribute *attr,
 					       const char *buf, size_t len)
 {
-	snprintf(board_sensor_temp, sizeof(board_sensor_temp), "%s", buf);
+	snprintf(board_sensor_temp, sizeof(board_sensor_temp), buf);
 	return len;
 }
 
@@ -272,14 +273,14 @@ static ssize_t thermal_board_sensor_second_temp_show(struct device *dev,
 						     struct device_attribute *attr,
 						     char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%s", board_sensor_second_temp);
+	return snprintf(buf, PAGE_SIZE, board_sensor_second_temp);
 }
 
 static ssize_t thermal_board_sensor_second_temp_store(struct device *dev,
 						      struct device_attribute *attr,
 						      const char *buf, size_t len)
 {
-	snprintf(board_sensor_second_temp, sizeof(board_sensor_second_temp), "%s", buf);
+	snprintf(board_sensor_second_temp, sizeof(board_sensor_second_temp), buf);
 	return len;
 }
 
@@ -290,14 +291,14 @@ static DEVICE_ATTR(board_sensor_second_temp, 0664,
 static ssize_t thermal_boost_show(struct device *dev,
 				  struct device_attribute *attr, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%s", boost);
+	return snprintf(buf, PAGE_SIZE, boost);
 }
 
 static ssize_t thermal_boost_store(struct device *dev,
 				   struct device_attribute *attr,
 				   const char *buf, size_t len)
 {
-	snprintf(boost, sizeof(boost), "%s", buf);
+	snprintf(boost, sizeof(boost), buf);
 	return len;
 }
 
@@ -443,10 +444,12 @@ static ssize_t thermal_sconfig_store(struct device *dev,
 				     struct device_attribute *attr,
 				     const char *buf, size_t len)
 {
-	int val = -1;
-	val = simple_strtol(buf, NULL, 10);
+	int ret, val = -1;
+	ret = kstrtoint(buf, 10, &val);
 	atomic_set(&sconfig, val);
 
+	if (ret)
+		return ret;
 	return len;
 }
 
@@ -470,10 +473,12 @@ static ssize_t thermal_temp_state_store(struct device *dev,
 					struct device_attribute *attr,
 					const char *buf, size_t len)
 {
-	int val = -1;
-	val = simple_strtol(buf, NULL, 10);
+	int ret, val = -1;
+	ret = kstrtoint(buf, 10, &val);
 	atomic_set(&temp_state, val);
 
+	if (ret)
+		return ret;
 	return len;
 }
 
@@ -507,7 +512,7 @@ static ssize_t thermal_wifi_limit_store(struct device *dev,
 static DEVICE_ATTR(wifi_limit, 0664, thermal_wifi_limit_show,
 		   thermal_wifi_limit_store);
 
-static struct attribute *nt_thermal_dev_attr_group[] = {
+static struct attribute *nothing_thermal_dev_attr_group[] = {
 	&dev_attr_balance_mode.attr,
 	&dev_attr_board_sensor.attr,
 	&dev_attr_board_sensor_temp.attr,
@@ -527,7 +532,7 @@ static struct attribute *nt_thermal_dev_attr_group[] = {
 	NULL
 };
 
-static void create_thermal_message_node(void)
+static void nothing_create_thermal_message_node(void)
 {
 	int ret = 0;
 	struct class *cls = NULL;
@@ -555,17 +560,17 @@ static void create_thermal_message_node(void)
 		cls = cp->class;
 	}
 
-	if (!nt_thermal_dev.class && cls) {
-		nt_thermal_dev.class = cls;
-		nt_thermal_dev.dev = device_create(nt_thermal_dev.class, NULL,
+	if (!nothing_thermal_dev.class && cls) {
+		nothing_thermal_dev.class = cls;
+		nothing_thermal_dev.dev = device_create(nothing_thermal_dev.class, NULL,
 						   'H', NULL, "thermal_message");
-		if (!nt_thermal_dev.dev) {
+		if (!nothing_thermal_dev.dev) {
 			pr_err("%s create device dev err\n", __func__);
 			return;
 		}
 
-		nt_thermal_dev.attrs.attrs = nt_thermal_dev_attr_group;
-		ret = sysfs_create_group(&nt_thermal_dev.dev->kobj, &nt_thermal_dev.attrs);
+		nothing_thermal_dev.attrs.attrs = nothing_thermal_dev_attr_group;
+		ret = sysfs_create_group(&nothing_thermal_dev.dev->kobj, &nothing_thermal_dev.attrs);
 		if (ret) {
 			pr_err("%s ERROR: Cannot create sysfs structure!:%d\n",
 			       __func__, ret);
@@ -574,15 +579,12 @@ static void create_thermal_message_node(void)
 	}
 }
 
-static void destroy_thermal_message_node(void)
+static void nothing_destroy_thermal_message_node(void)
 {
-	if (!nt_thermal_dev.dev)
-		return;
-
-	sysfs_remove_group(&nt_thermal_dev.dev->kobj, &nt_thermal_dev.attrs);
-	if (nt_thermal_dev.class != NULL) {
-		device_destroy(nt_thermal_dev.class, 'H');
-		nt_thermal_dev.class = NULL;
+	sysfs_remove_group(&nothing_thermal_dev.dev->kobj, &nothing_thermal_dev.attrs);
+	if (nothing_thermal_dev.class != NULL) {
+		device_destroy(nothing_thermal_dev.class, 'H');
+		nothing_thermal_dev.class = NULL;
 	}
 }
 
@@ -610,7 +612,7 @@ static int thermal_check_panel(struct device_node *np)
 	return PTR_ERR(panel);
 }
 
-static int nt_thermal_notify(struct notifier_block *self, unsigned long event,
+static int nothing_thermal_notify(struct notifier_block *self, unsigned long event,
 			     void *data)
 {
 	struct drm_panel_notifier *evdata = data;
@@ -632,7 +634,7 @@ static int nt_thermal_notify(struct notifier_block *self, unsigned long event,
 	}
 
 	if (screen_last_status != screen_state) {
-		sysfs_notify(&nt_thermal_dev.dev->kobj, NULL, "screen_state");
+		sysfs_notify(&nothing_thermal_dev.dev->kobj, NULL, "screen_state");
 		screen_last_status = screen_state;
 	}
 
@@ -668,8 +670,8 @@ static void usb_online_work(struct work_struct *work)
 			return;
 		}
 		usb_state.usb_online = ret.intval;
-		if (nt_thermal_dev.dev)
-			sysfs_notify(&nt_thermal_dev.dev->kobj, NULL, "usb_online");
+		if (nothing_thermal_dev.dev)
+			sysfs_notify(&nothing_thermal_dev.dev->kobj, NULL, "usb_online");
 	}
 }
 
@@ -677,11 +679,11 @@ static int of_parse_thermal_message(void)
 {
 	struct device_node *np;
 
-	np = of_find_node_by_name(NULL, NT_THERMAL_DT_NODE);
+	np = of_find_node_by_name(NULL, "nothing-thermal-interface");
 	if (!np)
 		return -EINVAL;
 
-	if (of_property_read_string(np, NT_THERMAL_DT_PROP, &board_sensor))
+	if (of_property_read_string(np, "board-sensor", &board_sensor))
 		return -EINVAL;
 
 	pr_info("%s board sensor: %s\n", __func__, board_sensor);
@@ -689,33 +691,36 @@ static int of_parse_thermal_message(void)
 	return 0;
 }
 
-static int nt_thermal_probe(struct platform_device *pdev)
+static int __init nothing_thermal_interface_init(void)
 {
 	int ret = 0;
 #ifdef CONFIG_DRM_PANEL
-	struct device_node *node = pdev->dev.of_node;
+	struct device_node *node;
+
+	node = of_find_node_by_name(NULL, "nothing-thermal-interface");
+	if (!node) {
+		pr_err("%s: Cannot find nothing-thermal-interface node\n", __func__);
+		return ret;
+	}
 
 	ret = thermal_check_panel(node);
-	if (ret == -EPROBE_DEFER)
-		return -EPROBE_DEFER;
-	if (ret)
-		pr_warn("%s: panel check failed (%d), continuing without panel notifier\n",
-			__func__, ret);
+	if (ret == -EPROBE_DEFER) {
+		pr_err("%s: Failed to parse active panel\n", __func__);
+		return ret;
+	}
 #endif
 
-	ret = cpu_thermal_init();
-	if (ret)
-		pr_err("%s: cpu_thermal_init failed: %d\n", __func__, ret);
+	cpu_thermal_init();
 
 	ret = of_parse_thermal_message();
 	if (ret)
 		pr_err("%s: Can not parse thermal message node: %d\n", __func__,
 		       ret);
 
-	create_thermal_message_node();
+	nothing_create_thermal_message_node();
 
 #ifdef CONFIG_DRM_PANEL
-	drm_notifier.notifier_call = nt_thermal_notify;
+	drm_notifier.notifier_call = nothing_thermal_notify;
 	if (active_panel) {
 		ret = drm_panel_notifier_register(active_panel, &drm_notifier);
 		if (ret)
@@ -736,35 +741,18 @@ static int nt_thermal_probe(struct platform_device *pdev)
 
 	return 0;
 }
+late_initcall(nothing_thermal_interface_init);
 
-static int nt_thermal_remove(struct platform_device *pdev)
+static void __exit nothing_thermal_interface_exit(void)
 {
 #ifdef CONFIG_DRM_PANEL
 	if (active_panel)
 		drm_panel_notifier_unregister(active_panel, &drm_notifier);
 #endif
-	power_supply_unreg_notifier(&usb_state.psy_nb);
-	destroy_thermal_message_node();
-	destory_thermal_cpu();
-
-	return 0;
+	nothing_destroy_thermal_message_node();
+	nothing_thermal_cpu_destroy();
 }
-
-static const struct of_device_id nt_thermal_of_match[] = {
-	{ .compatible = "nothing,nt-thermal-interface" },
-	{ }
-};
-MODULE_DEVICE_TABLE(of, nt_thermal_of_match);
-
-static struct platform_driver nt_thermal_driver = {
-	.probe = nt_thermal_probe,
-	.remove = nt_thermal_remove,
-	.driver = {
-		.name = "nt-thermal-interface",
-		.of_match_table = nt_thermal_of_match,
-	},
-};
-module_platform_driver(nt_thermal_driver);
+module_exit(nothing_thermal_interface_exit);
 
 MODULE_AUTHOR("Nothing kernel");
 MODULE_DESCRIPTION("Nothing thermal control interface");
