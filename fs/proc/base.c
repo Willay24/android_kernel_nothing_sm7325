@@ -1713,7 +1713,24 @@ static int do_proc_readlink(struct path *path, char __user *buffer, int buflen)
 	len = PTR_ERR(pathname);
 	if (IS_ERR(pathname))
 		goto out;
+
+	/* A corrupt path (e.g. a racing task teardown that leaves a dangling
+	 * dentry) can make d_path() return a pointer that is neither a valid
+	 * ERR_PTR nor inside the buffer we supplied.  Bailing out here keeps the
+	 * bogus pointer from reaching copy_to_user(), which would otherwise
+	 * compute a negative/huge length and fault in __arch_copy_to_user().
+	 */
+	if ((unsigned long)pathname < (unsigned long)tmp ||
+	    (unsigned long)pathname >= (unsigned long)tmp + PAGE_SIZE) {
+		len = -EIO;
+		goto out;
+	}
+
 	len = tmp + PAGE_SIZE - 1 - pathname;
+	if (len < 0) {
+		len = -EIO;
+		goto out;
+	}
 
 	if (len > buflen)
 		len = buflen;
