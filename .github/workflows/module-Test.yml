@@ -1,6 +1,7 @@
 name: Neutrino
+
 on:
-  workflow_dispatch:  # Start only manually
+  workflow_dispatch:
     inputs:
       branch:
         description: 'Branch to build from'
@@ -51,7 +52,7 @@ on:
       defconfig:
         description: 'Defconfig filename (used for KernelSU CONFIG_KSU / Baseband-guard CONFIG_BBG injection)'
         required: true
-        default: 'phone1_defconfig'
+        default: 'vendor/lahaina-qgki_defconfig'
         type: string
 
 jobs:
@@ -63,7 +64,6 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch }}
 
-      # Required step to ensure gcc, clang, and kernel dependencies exist
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
@@ -72,53 +72,49 @@ jobs:
       - name: Setup KernelSU (if enabled)
         if: ${{ github.event.inputs.enable_kernelsu_next == 'yes' }}
         run: |
-          echo "🔧 Enabling KernelSU..."
-          curl -LSs "https://raw.githubusercontent.com/backslashxx/KernelSU/master/kernel/setup.sh" | bash -s master
-          sudo rm -rf KernelSU
-          git clone -b master-susfs https://github.com/William24hmar/KernelSU.git KernelSU
-          
+          echo "Enabling KernelSU..."
+          curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s master-susfs
+
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
           if [ -f "$DEFCONFIG_PATH" ]; then
-            echo "✅ Adding CONFIG_KSU=y to defconfig"
+            echo "Adding CONFIG_KSU=y to defconfig"
             echo -e "\n# KernelSU\nCONFIG_KSU=y" >> "$DEFCONFIG_PATH"
           else
-            echo "⚠️ Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_KSU injection"
+            echo "Defconfig not found at $DEFCONFIG_PATH, skipping CONFIG_KSU injection"
           fi
 
       - name: Setup nomount (if enabled)
         if: ${{ github.event.inputs.enable_nomount == 'yes' }}
         run: |
-          echo "🔧 Enabling NoMount..."
-          curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
-          rm -rf NoMount
-          git clone -b dev https://github.com/Willay24/nomount.git NoMount
+          echo "Enabling NoMount..."
+          curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/dev/kernel/setup.sh" | bash -s dev
           echo "nomount (dev) setup complete"
 
       - name: Setup Encore FAS (if enabled)
         if: ${{ github.event.inputs.enable_encore_fas == 'yes' }}
         run: |
-          echo "🔧 Enabling Encore FAS..."
+          echo "Enabling Encore FAS..."
           curl https://raw.githubusercontent.com/rem01project/encore_fas/refs/heads/main/kernel/scripts/setup.sh | bash
 
-      - name: Setup Baseband-guard
+      - name: Setup Baseband-guard (if enabled)
         if: ${{ github.event.inputs.enable_basebandguard == 'yes' }}
         run: |
           set -e
           DEFCONFIG_PATH="arch/arm64/configs/${{ github.event.inputs.defconfig }}"
-          echo "🛡️ Integrating Baseband-guard LSM..."
+          echo "Integrating Baseband-guard LSM..."
           wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
           if [ -f "$DEFCONFIG_PATH" ]; then
-            echo "✅ Injecting CONFIG_BBG=y into defconfig ($DEFCONFIG_PATH)"
+            echo "Injecting CONFIG_BBG=y into defconfig ($DEFCONFIG_PATH)"
             echo -e "\n# Baseband-guard\nCONFIG_BBG=y" >> "$DEFCONFIG_PATH"
           else
-            echo "⚠️ Defconfig not found at $DEFCONFIG_PATH — skipping CONFIG_BBG injection"
+            echo "Defconfig not found at $DEFCONFIG_PATH, skipping CONFIG_BBG injection"
           fi
           if [ -f "security/Kconfig" ]; then
-            echo "🩹 Patching security/Kconfig LSM default list..."
+            echo "Patching security/Kconfig LSM default list..."
             sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
-            echo "✅ security/Kconfig patched (baseband_guard added to LSM default list)"
+            echo "security/Kconfig patched (baseband_guard added to LSM default list)"
           else
-            echo "⚠️ security/Kconfig not found — skipping LSM default patch"
+            echo "security/Kconfig not found, skipping LSM default patch"
           fi
 
       - name: Make build.sh executable
@@ -135,8 +131,7 @@ jobs:
         run: |
           mkdir -p artifacts
           OUT_PARENT_DIR="$(dirname $GITHUB_WORKSPACE)"
-          
-          # Check parent directory out location first, fallback to workspace directory
+
           if [ -d "$OUT_PARENT_DIR/SPACEWAR_OUT/AnyKernel3" ]; then
             cp "$OUT_PARENT_DIR/SPACEWAR_OUT/AnyKernel3/"*.zip artifacts/ || true
           elif [ -d "$GITHUB_WORKSPACE/SPACEWAR_OUT/AnyKernel3" ]; then

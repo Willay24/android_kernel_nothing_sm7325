@@ -50,7 +50,7 @@ on:
       defconfig:
         description: 'Defconfig filename (used for KernelSU CONFIG_KSU / Baseband-guard CONFIG_BBG injection)'
         required: true
-        default: 'phone1_defconfig'
+        default: 'vendor/lahaina-qgki_defconfig'
         type: string
 
 jobs:
@@ -151,9 +151,7 @@ jobs:
         if: ${{ github.event.inputs.enable_nomount == 'yes' }}
         run: |
           echo "Enabling NoMount..."
-          curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
-          rm -rf NoMount
-          git clone -b dev https://github.com/Willay24/nomount.git NoMount
+          curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/dev/kernel/setup.sh" | bash -s dev
           echo "nomount (dev) setup complete"
 
       - name: Setup Encore FAS (if enabled)
