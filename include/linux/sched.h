@@ -672,6 +672,7 @@ struct bore_bc {
 
 struct bore_ctx {
 	u64				burst_time;
+	u64				credit_sleep;
 	u16				prev_penalty;
 	u16				curr_penalty;
 	u16				penalty;
