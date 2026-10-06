@@ -97,9 +97,7 @@ jobs:
       - name: Setup KernelSU (if enabled)
         if: ${{ inputs.enable_kernelsu_next == 'yes' }}
         run: |
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
-          rm -rf KernelSU
-          git clone -b master-susfs https://github.com/William24hmar/KernelSU.git KernelSU
+          curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s master-susfs
           DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
           if [ -f "$DEFCONFIG_PATH" ]; then
             echo -e "\n# KernelSU\nCONFIG_KSU=y" >> "$DEFCONFIG_PATH"
@@ -110,9 +108,7 @@ jobs:
       - name: Setup nomount (if enabled)
         if: ${{ inputs.enable_nomount == 'yes' }}
         run: |
-          curl https://raw.githubusercontent.com/maxsteeel/nomount/refs/heads/dev/kernel/setup.sh | bash -s dev
-          rm -rf NoMount
-          git clone -b dev https://github.com/Willay24/nomount.git NoMount
+          curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/dev/kernel/setup.sh" | bash -s dev
 
       - name: Setup E.V.A (if enabled)
         if: ${{ inputs.enable_eva == 'yes' }}
