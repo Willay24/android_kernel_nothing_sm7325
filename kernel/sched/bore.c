@@ -20,6 +20,8 @@ u8   __read_mostly sched_burst_penalty_offset   = 24;
 uint __read_mostly sched_burst_penalty_scale    = 1536;
 uint __read_mostly sched_burst_cache_lifetime   = 75000000;
 
+uint __read_mostly sched_credit_cap_us = 16000;
+
 /* extra1/extra2 limits for proc_dou8vec_minmax()/proc_douintvec_minmax() */
 static int zero = 0;
 static int one = 1;
@@ -27,6 +29,7 @@ static int two = 2;
 static int three = 3;
 static int max_penalty_offset = 63;
 static int max_penalty_scale = 4095;
+static int max_credit_cap_us = 1000000;
 
 static int maxval_prio = 39;
 
@@ -40,6 +43,7 @@ DEFINE_STATIC_KEY_TRUE(sched_burst_inherit_key);
 DEFINE_STATIC_KEY_TRUE(sched_burst_ancestor_key);
 DEFINE_STATIC_KEY_TRUE (sched_burst_protect_slice_cond_key);
 DEFINE_STATIC_KEY_FALSE(sched_burst_protect_slice_prefer_key);
+DEFINE_STATIC_KEY_FALSE(sched_credit_key);
 
 static inline u32 log2p1_u64_u32fp(u64 v, u8 fp) {
 	int clz;
@@ -50,6 +54,27 @@ static inline u32 log2p1_u64_u32fp(u64 v, u8 fp) {
 	exponent = 64 - clz;
 	mantissa = (u32)((v << clz) << 1 >> (64 - fp));
 	return exponent << fp | mantissa;
+}
+
+void bore_note_sleep(struct task_struct *p, u64 now)
+{
+	p->bore.credit_sleep = now;
+}
+
+u64 bore_credit_ns(struct task_struct *p)
+{
+	u64 cap = (u64)sched_credit_cap_us * 1000ULL;
+	u64 slept, credit = 0;
+
+	if (p->bore.credit_sleep) {
+		slept = rq_clock(task_rq(p)) - p->bore.credit_sleep;
+		if ((s64)slept > 0) {
+			p->bore.credit_sleep = 0;
+			credit = slept < cap ? slept : cap;
+		}
+	}
+
+	return credit;
 }
 
 static inline u32 calc_burst_penalty(u64 burst_time) {
@@ -348,6 +373,9 @@ void __init sched_init_bore(void) {
 
 	reset_task_bore(&init_task);
 	update_inherit_type();
+
+	if (sched_credit_cap_us)
+		static_branch_enable(&sched_credit_key);
 }
 
 static void readjust_all_task_weights(void) {
@@ -409,6 +437,20 @@ int sched_burst_protect_slice_lv_update_handler(struct ctl_table *table,
 		static_branch_enable(&sched_burst_protect_slice_prefer_key);
 	else
 		static_branch_disable(&sched_burst_protect_slice_prefer_key);
+
+	return 0;
+}
+
+int sched_credit_cap_us_update_handler(struct ctl_table *table,
+		int write, void *buffer, size_t *lenp, loff_t *ppos) {
+	int ret = proc_douintvec_minmax(table, write, buffer, lenp, ppos);
+	if (ret || !write)
+		return ret;
+
+	if (sched_credit_cap_us)
+		static_branch_enable(&sched_credit_key);
+	else
+		static_branch_disable(&sched_credit_key);
 
 	return 0;
 }
@@ -475,6 +517,15 @@ static struct ctl_table sched_bore_sysctls[] = {
 		.proc_handler = sched_burst_protect_slice_lv_update_handler,
 		.extra1		= &zero,
 		.extra2		= &three,
+	},
+	{
+		.procname	= "sched_credit_cap_us",
+		.data		= &sched_credit_cap_us,
+		.maxlen		= sizeof(uint),
+		.mode		= 0644,
+		.proc_handler = sched_credit_cap_us_update_handler,
+		.extra1		= &zero,
+		.extra2		= &max_credit_cap_us,
 	},
 	{}
 };
