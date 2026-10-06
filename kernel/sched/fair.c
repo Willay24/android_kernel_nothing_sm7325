@@ -5291,6 +5291,17 @@ vslice_found:
 	 * EEVDF: vd_i = ve_i + r_i/w_i
 	 */
 	se->deadline = se->vruntime + vslice;
+
+#ifdef CONFIG_SCHED_BORE
+	if (static_branch_likely(&sched_bore_key) &&
+	    static_branch_unlikely(&sched_credit_key) &&
+	    entity_is_task(se) && (flags & ENQUEUE_WAKEUP)) {
+		u64 credit = bore_credit_ns(task_of(se));
+
+		if (credit && se->deadline > credit)
+			se->deadline -= credit;
+	}
+#endif /* CONFIG_SCHED_BORE */
 }
 
 static void check_enqueue_throttle(struct cfs_rq *cfs_rq);
@@ -6834,6 +6845,7 @@ static bool dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 
 		if (cfs_rq->curr == se)
 			update_curr(cfs_rq);
+		bore_note_sleep(p, rq_clock(rq));
 		restart_burst_bore(p);
 	}
 #endif /* CONFIG_SCHED_BORE */
@@ -8258,7 +8270,7 @@ preempt_sync(struct rq *rq, int wake_flags,
 static inline bool do_preempt_weight(struct cfs_rq *cfs_rq,
 				     struct sched_entity *pse, struct sched_entity *se)
 {
-	if (!sched_feat(RUN_TO_PARITY))
+	if (!static_branch_likely(&sched_bore_key))
 		return false;
 
 	if (!static_branch_likely(&sched_burst_protect_slice_cond_key))
