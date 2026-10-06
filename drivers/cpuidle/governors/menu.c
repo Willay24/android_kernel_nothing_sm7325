@@ -22,6 +22,8 @@
 #include <trace/events/power.h>
 #endif
 
+#include "gov.h"
+
 /*
  * Please note when changing the tuning values:
  * If (MAX_INTERESTING-1) * RESOLUTION > UINT_MAX, the result of
