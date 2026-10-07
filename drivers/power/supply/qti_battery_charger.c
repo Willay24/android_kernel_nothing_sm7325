@@ -73,6 +73,14 @@ enum{
 };
 int nt_fcc_flag = -1;
 #define CYCLE_COUNT		20
+
+/*
+ * Bypass / smart charging tunables.
+ */
+static int bypass_charging_enabled = 0;
+static int bypass_thermal_level_percent = 89;
+static int smart_charging_enabled = 0;
+static int smart_charging_limit = 80;
 enum nt_health_chg_ctrol {
      NT_HEALTH_ENABLE_CHG = 3,
      NT_HEALTH_DISABLE_CHG = 4,
@@ -304,6 +312,12 @@ struct battery_chg_dev {
 	u32				connector_type;
 	u32				usb_prev_mode;
 	bool				restrict_chg_en;
+	/* Bypass charging: thermal level to return to, -1 = bypass inactive */
+	int				bypass_saved_level;
+	/* Bypass charging: thermal level currently enforced as a floor */
+	int				bypass_level;
+	/* Smart charging: true while charging is paused at the limit */
+	bool				smart_chg_paused;
 	/* To track the driver initialization status */
 	bool				initialized;
 	struct delayed_work 	nt_update_status_work;
@@ -840,6 +854,17 @@ static void battery_chg_update_usb_type_work(struct work_struct *work)
 	battery_chg_update_uusb_type(bcdev, pst->prop[USB_ADAP_TYPE]);
 }
 
+static int __battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
+					u32 fcc_ua);
+
+static void nt_smart_chg_apply(struct battery_chg_dev *bcdev)
+{
+	u32 fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
+					DEFAULT_RESTRICT_FCC_UA;
+
+	__battery_psy_set_charge_current(bcdev, fcc_ua);
+}
+
 #define LOW_BAT_THR 3400 * 1000
 #define PLUGIN_VOLTAGE 2500 * 1000
 
@@ -897,6 +922,28 @@ static void nt_update_status_function_work(struct work_struct *work)
 			pm_wakeup_dev_event(bcdev->dev, 50, true);
 		}
 		pre_capacity = capacity;
+
+		/* Smart charging: pause at limit, resume with 5% hysteresis */
+		if (rc >= 0) {
+			if (smart_charging_enabled) {
+				if (!bcdev->smart_chg_paused &&
+				    capacity >= smart_charging_limit) {
+					bcdev->smart_chg_paused = true;
+					nt_smart_chg_apply(bcdev);
+					pr_info("smart charging: paused at %d%% (limit %d%%)\n",
+						capacity, smart_charging_limit);
+				} else if (bcdev->smart_chg_paused &&
+					   capacity <= smart_charging_limit - 5) {
+					bcdev->smart_chg_paused = false;
+					nt_smart_chg_apply(bcdev);
+					pr_info("smart charging: resumed at %d%%\n",
+						capacity);
+				}
+			} else if (bcdev->smart_chg_paused) {
+				bcdev->smart_chg_paused = false;
+				nt_smart_chg_apply(bcdev);
+			}
+		}
 	}
 	count++;
 	if (count > CYCLE_COUNT) {
@@ -944,8 +991,7 @@ static void handle_notification(struct battery_chg_dev *bcdev, void *data,
 		 * so that device won't enter suspend when a non-SDP charger
 		 * is removed. This would allow the userspace process like
 		 * "charger" to be able to read power supply uevents to take
-		 * appropriate actions (e.g. shutting down when the charger is
-		 * unplugged).
+		 * appropriate actions.
 		 */
 		power_supply_changed(pst->psy);
 		pm_wakeup_dev_event(bcdev->dev, 50, true);
@@ -1197,6 +1243,9 @@ static int __battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
 {
 	int rc;
 
+	if (smart_charging_enabled && bcdev->smart_chg_paused)
+		fcc_ua = 0;
+
 	if (bcdev->restrict_chg_en) {
 		fcc_ua = min_t(u32, fcc_ua, bcdev->restrict_fcc_ua);
 		fcc_ua = min_t(u32, fcc_ua, bcdev->thermal_fcc_ua);
@@ -1214,8 +1263,7 @@ static int __battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
 	return rc;
 }
 
-static int battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
-					int val)
+static int battery_psy_apply_level(struct battery_chg_dev *bcdev, int val)
 {
 	int rc;
 	u32 fcc_ua, prev_fcc_ua;
@@ -1240,6 +1288,26 @@ static int battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
 		bcdev->curr_thermal_level = val;
 	else
 		bcdev->thermal_fcc_ua = prev_fcc_ua;
+
+	return rc;
+}
+
+static int battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
+					int val)
+{
+	int rc, req = val;
+
+	if (bcdev->bypass_saved_level >= 0 && val >= 0 &&
+	    val < bcdev->bypass_level)
+		val = bcdev->bypass_level;
+
+	rc = battery_psy_apply_level(bcdev, val);
+
+	if (!rc && bcdev->bypass_saved_level >= 0) {
+		bcdev->bypass_saved_level = req;
+		/* report what thermal asked for, not the bypass floor */
+		bcdev->curr_thermal_level = req;
+	}
 
 	return rc;
 }
@@ -2457,13 +2525,6 @@ static CLASS_ATTR_RW(charging_en);
 #endif
 
 #ifdef CONFIG_NOTHING
-/*
- * Charging control nodes, wired up regardless of wireless support.
- * Both just move FCC (fast-charge current limit) between 0 and its
- * default via the existing __battery_psy_set_charge_current() —
- * that's already restrict_chg/restrict_cur's mechanism, so it's safe
- * on every board this driver targets, wls or not.
- */
 static ssize_t charging_enabled_store(struct class *c,
 				      struct class_attribute *attr,
 				      const char *buf, size_t count)
@@ -2553,6 +2614,182 @@ static ssize_t bypass_charging_show(struct class *c,
 			bcdev->restrict_chg_en && !bcdev->restrict_fcc_ua);
 }
 static CLASS_ATTR_RW(bypass_charging);
+
+static ssize_t bypass_charging_enable_show(struct class *c,
+					   struct class_attribute *attr,
+					   char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", bypass_charging_enabled);
+}
+
+static ssize_t bypass_charging_enable_store(struct class *c,
+					    struct class_attribute *attr,
+					    const char *buf, size_t count)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+	int rc, val, thermal_level;
+
+	if (kstrtoint(buf, 10, &val))
+		return -EINVAL;
+
+	val = !!val;
+
+	pr_info("%s,val:%d", __func__, val);
+
+	/* Already in the requested state: don't clobber the saved level */
+	if (val == bypass_charging_enabled)
+		return count;
+
+	if (!bcdev->num_thermal_levels || bcdev->num_thermal_levels < 0) {
+		pr_err("bypass: thermal levels not configured (%d)\n",
+			bcdev->num_thermal_levels);
+		return -EINVAL;
+	}
+
+	if (val) {
+		/*
+		 * Map the configured percent onto the thermal-mitigation
+		 * ladder. Clamp to the last charging step so that 100% still
+		 * leaves a 200 mA trickle instead of switching charging off.
+		 */
+		thermal_level = (bcdev->num_thermal_levels *
+				 bypass_thermal_level_percent) / 100;
+		if (thermal_level >= bcdev->num_thermal_levels)
+			thermal_level = bcdev->num_thermal_levels - 1;
+		if (thermal_level < 1)
+			thermal_level = 1;
+
+		/* Remember where to return to, then enforce the bypass level */
+		bcdev->bypass_saved_level = bcdev->curr_thermal_level;
+		bcdev->bypass_level = thermal_level;
+
+		rc = battery_psy_apply_level(bcdev, thermal_level);
+		if (rc < 0) {
+			pr_err("bypass: set thermal level %d failed rc=%d\n",
+				thermal_level, rc);
+			bcdev->bypass_saved_level = -1;
+			return rc;
+		}
+		pr_info("bypass charging enabled (thermal level %d/%d, %d%%, fcc %u uA)\n",
+			thermal_level, bcdev->num_thermal_levels,
+			bypass_thermal_level_percent, bcdev->thermal_fcc_ua);
+	} else {
+		int saved = bcdev->bypass_saved_level;
+
+		/* Deactivate first so the apply below isn't floored */
+		bcdev->bypass_saved_level = -1;
+		if (saved < 0)
+			saved = 0;
+
+		rc = battery_psy_apply_level(bcdev, saved);
+		if (rc < 0) {
+			pr_err("bypass: restore level %d failed rc=%d\n",
+				saved, rc);
+			/* still bypassed: keep the state consistent */
+			bcdev->bypass_saved_level = saved;
+			return rc;
+		}
+		pr_info("bypass charging disabled (restored thermal level %d)\n",
+			saved);
+	}
+
+	bypass_charging_enabled = val;
+
+	return count;
+}
+static CLASS_ATTR_RW(bypass_charging_enable);
+
+static ssize_t bypass_charging_level_show(struct class *c,
+					  struct class_attribute *attr,
+					  char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", bypass_thermal_level_percent);
+}
+
+static ssize_t bypass_charging_level_store(struct class *c,
+					   struct class_attribute *attr,
+					   const char *buf, size_t count)
+{
+	int val;
+
+	if (kstrtoint(buf, 10, &val))
+		return -EINVAL;
+
+	/* 50-100% of the thermal ladder; applied on next bypass enable */
+	if (val < 50 || val > 100)
+		return -EINVAL;
+
+	bypass_thermal_level_percent = val;
+	pr_info("bypass charging level set to %d%% (applies on next enable)\n",
+		val);
+
+	return count;
+}
+static CLASS_ATTR_RW(bypass_charging_level);
+
+static ssize_t smart_charging_enable_show(struct class *c,
+					  struct class_attribute *attr,
+					  char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", smart_charging_enabled);
+}
+
+static ssize_t smart_charging_enable_store(struct class *c,
+					   struct class_attribute *attr,
+					   const char *buf, size_t count)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+	int val;
+
+	if (kstrtoint(buf, 10, &val))
+		return -EINVAL;
+
+	val = !!val;
+
+	smart_charging_enabled = val;
+
+	/* Turning it off must lift an active pause immediately */
+	if (!val && bcdev->smart_chg_paused) {
+		bcdev->smart_chg_paused = false;
+		nt_smart_chg_apply(bcdev);
+	}
+
+	pr_info("smart charging %s (limit: %d%%)\n",
+		val ? "enabled" : "disabled", smart_charging_limit);
+
+	return count;
+}
+static CLASS_ATTR_RW(smart_charging_enable);
+
+static ssize_t smart_charging_limit_show(struct class *c,
+					 struct class_attribute *attr,
+					 char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "%d\n", smart_charging_limit);
+}
+
+static ssize_t smart_charging_limit_store(struct class *c,
+					  struct class_attribute *attr,
+					  const char *buf, size_t count)
+{
+	int val;
+
+	if (kstrtoint(buf, 10, &val))
+		return -EINVAL;
+
+	/* 60-100% battery level */
+	if (val < 60 || val > 100)
+		return -EINVAL;
+
+	smart_charging_limit = val;
+	pr_info("smart charging limit set to %d%%\n", val);
+
+	return count;
+}
+static CLASS_ATTR_RW(smart_charging_limit);
+
 #endif /* CONFIG_NOTHING */
 
 static struct attribute *nothing_battery_class_attrs[] = {
@@ -2568,6 +2805,10 @@ static struct attribute *nothing_battery_class_attrs[] = {
 #ifdef CONFIG_NOTHING
 	&class_attr_charging_enabled.attr,
 	&class_attr_bypass_charging.attr,
+	&class_attr_bypass_charging_enable.attr,
+	&class_attr_bypass_charging_level.attr,
+	&class_attr_smart_charging_enable.attr,
+	&class_attr_smart_charging_limit.attr,
 #endif
 	NULL,
 };
@@ -2951,6 +3192,8 @@ static int battery_chg_probe(struct platform_device *pdev)
 	bcdev->restrict_fcc_ua = DEFAULT_RESTRICT_FCC_UA;
 	platform_set_drvdata(pdev, bcdev);
 	bcdev->fake_soc = -EINVAL;
+	bcdev->bypass_saved_level = -1;
+	bcdev->smart_chg_paused = false;
 	rc = battery_chg_init_psy(bcdev);
 	if (rc < 0)
 		goto error;
