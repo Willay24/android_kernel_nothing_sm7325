@@ -16,6 +16,7 @@
 #include <linux/reboot.h>
 #include <linux/rpmsg.h>
 #include <linux/mutex.h>
+#include <linux/math64.h>
 #include <linux/pm_wakeup.h>
 #include <linux/power_supply.h>
 #include <linux/soc/qcom/pmic_glink.h>
@@ -71,7 +72,7 @@ enum{
        T1Ibat_HEAD = 6,
        Ibat_HEAD = 0,
 };
-int nt_fcc_flag = -1;
+static int nt_fcc_flag = -1;
 #define CYCLE_COUNT		20
 
 /*
@@ -272,6 +273,29 @@ struct psy_state {
 	u32			opcode_set;
 };
 
+/* AP-side JEITA x charger-type FCC cap; can only lower what firmware allows */
+#define NT_JEITA_MAX_BANDS		12
+#define NT_JEITA_DEF_HYST_DC		20		/* 2.0 degC */
+#define NT_JEITA_DEF_POLL_MS		5000
+#define NT_JEITA_IDLE_POLL_MS		30000
+#define NT_JEITA_NO_CAP			U32_MAX
+#define NT_DEF_DESIGN_CAP_UAH		4500000		/* fallback only */
+#define NT_SDP_ICL_BOOST_MAX_UA		1500000
+#define NT_DEF_BANDS			8
+
+enum nt_chg_col {
+	NT_COL_STD,	/* SDP/CDP/DCP/float/wireless/unknown */
+	NT_COL_QC,	/* QTI HVDCP / HVDCP3 / HVDCP3.5 */
+	NT_COL_PD,	/* PD / PD_DRP / PD_PPS */
+	NT_COL_MAX,
+};
+
+struct nt_jeita_tbl {
+	int	nr_bounds;				/* bands = nr_bounds + 1 */
+	int	bound_dc[NT_JEITA_MAX_BANDS - 1];	/* ascending, 0.1 degC */
+	u32	fcc_ua[NT_COL_MAX][NT_JEITA_MAX_BANDS];
+};
+
 struct battery_chg_dev {
 	struct device			*dev;
 	struct class			battery_class;
@@ -321,6 +345,24 @@ struct battery_chg_dev {
 	/* To track the driver initialization status */
 	bool				initialized;
 	struct delayed_work 	nt_update_status_work;
+	/* JEITA x charger-type FCC policy worker */
+	struct delayed_work	jeita_work;
+	struct nt_jeita_tbl	jeita;
+	enum nt_chg_col		jeita_col;
+	bool			jeita_en;
+	bool			jeita_started;
+	bool			jeita_tbl_ready;
+	int			jeita_band;
+	int			jeita_hyst_dc;
+	u32			jeita_poll_ms;
+	u32			jeita_cap_ua;		/* NT_JEITA_NO_CAP = none */
+	int			batt_temp_dc;
+	bool			batt_temp_valid;
+	/* 0 = off. Else the userspace thermal ladder is ignored below this temp */
+	int			ladder_min_temp_dc;
+	bool			ladder_ignored;
+	u32			fcc_max_ua;		/* firmware FCC ceiling */
+	u32			sdp_icl_boost_ua;	/* 0 = off */
 	struct wakeup_source *chg_wake;
 	bool				notify_en;
 };
@@ -801,6 +843,8 @@ static void battery_chg_update_uusb_type(struct battery_chg_dev *bcdev,
 
 static struct power_supply_desc usb_psy_desc;
 
+static int usb_psy_set_icl(struct battery_chg_dev *bcdev, u32 prop_id, int val);
+
 static void battery_chg_update_usb_type_work(struct work_struct *work)
 {
 	struct battery_chg_dev *bcdev = container_of(work,
@@ -852,15 +896,30 @@ static void battery_chg_update_usb_type_work(struct work_struct *work)
 	}
 
 	battery_chg_update_uusb_type(bcdev, pst->prop[USB_ADAP_TYPE]);
+
+	if (pst->prop[USB_ADAP_TYPE] == POWER_SUPPLY_USB_TYPE_SDP &&
+	    bcdev->sdp_icl_boost_ua)
+		usb_psy_set_icl(bcdev, USB_INPUT_CURR_LIMIT,
+				bcdev->sdp_icl_boost_ua);
 }
 
 static int __battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
 					u32 fcc_ua);
 
+/* Normal FCC: thermal ladder level, else firmware ceiling, else 1 A default */
+static u32 nt_base_fcc_ua(struct battery_chg_dev *bcdev)
+{
+	if (bcdev->thermal_fcc_ua)
+		return bcdev->thermal_fcc_ua;
+	if (bcdev->fcc_max_ua)
+		return bcdev->fcc_max_ua;
+	return DEFAULT_RESTRICT_FCC_UA;
+}
+
+/* Re-apply FCC so the smart-charging pause state takes effect */
 static void nt_smart_chg_apply(struct battery_chg_dev *bcdev)
 {
-	u32 fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-					DEFAULT_RESTRICT_FCC_UA;
+	u32 fcc_ua = nt_base_fcc_ua(bcdev);
 
 	__battery_psy_set_charge_current(bcdev, fcc_ua);
 }
@@ -911,11 +970,13 @@ static void nt_update_status_function_work(struct work_struct *work)
 	pst = &bcdev->psy_list[PSY_TYPE_BATTERY];
 	if (pst && pst->psy) {
 		rc = read_property_id(bcdev, pst, BATT_VOLT_NOW);
+		if (rc < 0)
+			goto out;
 		vbat = pst->prop[BATT_VOLT_NOW];
 		rc = read_property_id(bcdev, pst, BATT_CAPACITY);
-		capacity = DIV_ROUND_CLOSEST(pst->prop[BATT_CAPACITY], 100);
 		if (rc < 0)
-			pr_info("rc:%d\n", rc);
+			goto out;
+		capacity = DIV_ROUND_CLOSEST(pst->prop[BATT_CAPACITY], 100);
 		if ((pre_capacity != capacity) || (vbat < LOW_BAT_THR)) {
 			pr_info("capacity:%d,Vbat:%d\n", capacity, vbat);
 			power_supply_changed(pst->psy);
@@ -956,6 +1017,346 @@ out:
 								round_jiffies(10 * HZ));
 }
 
+/*
+ * JEITA temperature bands x charger type (std/qc/pd) FCC table, evaluated
+ * periodically by a worker. Tightening applies immediately, relaxing waits
+ * for hysteresis so a jittery reading does not flap the FCC.
+ * Temp is in 0.1 degC, FCC in uA, design capacity in uAh.
+ */
+
+static const int nt_def_bound_dc[NT_DEF_BANDS - 1] = {
+	0, 100, 150, 350, 420, 480, 550,
+};
+
+/* Default C-rate x1000 per band and column, scaled by design capacity at runtime */
+static const u32 nt_def_mc[NT_COL_MAX][NT_DEF_BANDS] = {
+	[NT_COL_STD] = {    0, 200, 500, 1000, 1000, 800, 400, 0 },
+	[NT_COL_QC]  = {    0, 200, 500, 1300, 1200, 800, 400, 0 },
+	[NT_COL_PD]  = {    0, 200, 500, 2000, 1500, 800, 400, 0 },
+};
+
+static void nt_jeita_load_defaults(struct nt_jeita_tbl *t, u32 design_uah)
+{
+	int col, i;
+
+	t->nr_bounds = NT_DEF_BANDS - 1;
+	for (i = 0; i < t->nr_bounds; i++)
+		t->bound_dc[i] = nt_def_bound_dc[i];
+
+	for (col = 0; col < NT_COL_MAX; col++)
+		for (i = 0; i < NT_DEF_BANDS; i++)
+			t->fcc_ua[col][i] = div_u64((u64)design_uah *
+						    nt_def_mc[col][i], 1000);
+}
+
+static bool nt_jeita_tbl_valid(const struct nt_jeita_tbl *t)
+{
+	int i;
+
+	if (t->nr_bounds < 1 || t->nr_bounds > NT_JEITA_MAX_BANDS - 1)
+		return false;
+
+	for (i = 1; i < t->nr_bounds; i++)
+		if (t->bound_dc[i] <= t->bound_dc[i - 1])
+			return false;
+
+	return true;
+}
+
+/* Band without hysteresis: band i covers [bound[i-1], bound[i]) */
+static int nt_jeita_raw_band(const struct nt_jeita_tbl *t, int temp_dc)
+{
+	int i;
+
+	for (i = 0; i < t->nr_bounds; i++)
+		if (temp_dc < t->bound_dc[i])
+			return i;
+
+	return t->nr_bounds;
+}
+
+/* Tighten immediately; relax only after clearing the boundary by hyst_dc */
+static int nt_jeita_pick_band(const struct nt_jeita_tbl *t,
+			      enum nt_chg_col col, int cur, int temp_dc,
+			      int hyst_dc)
+{
+	int raw = nt_jeita_raw_band(t, temp_dc);
+
+	if (cur < 0 || cur > t->nr_bounds || raw == cur)
+		return raw;
+
+	if (t->fcc_ua[col][raw] < t->fcc_ua[col][cur])
+		return raw;
+
+	if (raw > cur) {
+		if (temp_dc < t->bound_dc[cur] + hyst_dc)
+			return cur;
+	} else {
+		if (temp_dc >= t->bound_dc[cur - 1] - hyst_dc)
+			return cur;
+	}
+
+	return raw;
+}
+
+static enum nt_chg_col nt_classify_adapter(u32 adap_type)
+{
+	switch (adap_type) {
+	case POWER_SUPPLY_USB_TYPE_PD:
+	case POWER_SUPPLY_USB_TYPE_PD_DRP:
+	case POWER_SUPPLY_USB_TYPE_PD_PPS:
+		return NT_COL_PD;
+	case QTI_POWER_SUPPLY_USB_TYPE_HVDCP:
+	case QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3:
+	case QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3P5:
+		return NT_COL_QC;
+	default:
+		return NT_COL_STD;
+	}
+}
+
+static const char * const nt_col_name[NT_COL_MAX] = {
+	[NT_COL_STD] = "std",
+	[NT_COL_QC]  = "qc",
+	[NT_COL_PD]  = "pd",
+};
+
+/* Learn the firmware FCC ceiling if it was not available at probe time */
+static void nt_refresh_fcc_max(struct battery_chg_dev *bcdev)
+{
+	struct psy_state *bat = &bcdev->psy_list[PSY_TYPE_BATTERY];
+
+	if (bcdev->fcc_max_ua)
+		return;
+
+	if (read_property_id(bcdev, bat, BATT_CHG_CTRL_LIM_MAX) < 0)
+		return;
+
+	bcdev->fcc_max_ua = bat->prop[BATT_CHG_CTRL_LIM_MAX];
+	if (!bcdev->num_thermal_levels && !bcdev->thermal_fcc_ua)
+		bcdev->thermal_fcc_ua = bcdev->fcc_max_ua;
+}
+
+static int nt_jeita_eval(struct battery_chg_dev *bcdev, u32 *cap_ua,
+			 bool *ladder_ign, unsigned int *next_ms)
+{
+	struct psy_state *bat = &bcdev->psy_list[PSY_TYPE_BATTERY];
+	struct psy_state *usb = &bcdev->psy_list[PSY_TYPE_USB];
+	struct psy_state *wls = &bcdev->psy_list[PSY_TYPE_WLS];
+	struct nt_jeita_tbl *t = &bcdev->jeita;
+	enum nt_chg_col col = NT_COL_STD;
+	bool usb_on, wls_on = false;
+	int rc, temp_dc, band;
+	u32 cap;
+
+	*cap_ua = NT_JEITA_NO_CAP;
+	*ladder_ign = false;
+	*next_ms = NT_JEITA_IDLE_POLL_MS;
+
+	rc = read_property_id(bcdev, usb, USB_ONLINE);
+	if (rc < 0)
+		return rc;
+	usb_on = !!usb->prop[USB_ONLINE];
+
+	if (!usb_on && !bcdev->wls_not_supported) {
+		rc = read_property_id(bcdev, wls, WLS_ONLINE);
+		if (rc < 0)
+			return rc;
+		wls_on = !!wls->prop[WLS_ONLINE];
+	}
+
+	if (!usb_on && !wls_on) {
+		bcdev->jeita_band = -1;
+		bcdev->batt_temp_valid = false;
+		return 0;
+	}
+
+	if (!bcdev->jeita_tbl_ready) {
+		u32 design = 0;
+
+		if (read_property_id(bcdev, bat, BATT_CHG_FULL_DESIGN) >= 0)
+			design = bat->prop[BATT_CHG_FULL_DESIGN];
+		if (design < 1000000 || design > 20000000) {
+			pr_warn("jeita: design capacity %u uAh implausible, using %u\n",
+				design, NT_DEF_DESIGN_CAP_UAH);
+			design = NT_DEF_DESIGN_CAP_UAH;
+		}
+		nt_jeita_load_defaults(t, design);
+		bcdev->jeita_tbl_ready = true;
+		pr_info("jeita: default table for %u uAh\n", design);
+	}
+
+	rc = read_property_id(bcdev, bat, BATT_TEMP);
+	if (rc < 0)
+		return rc;
+	temp_dc = DIV_ROUND_CLOSEST((int)bat->prop[BATT_TEMP], 10);
+	bcdev->batt_temp_dc = temp_dc;
+	bcdev->batt_temp_valid = true;
+
+	if (usb_on) {
+		rc = read_property_id(bcdev, usb, USB_ADAP_TYPE);
+		if (rc < 0)
+			return rc;
+		col = nt_classify_adapter(usb->prop[USB_ADAP_TYPE]);
+	}
+
+	band = nt_jeita_pick_band(t, col, bcdev->jeita_band, temp_dc,
+				  bcdev->jeita_hyst_dc);
+	cap = t->fcc_ua[col][band];
+	if (bcdev->fcc_max_ua && cap >= bcdev->fcc_max_ua)
+		cap = NT_JEITA_NO_CAP;
+
+	if (band != bcdev->jeita_band || col != bcdev->jeita_col)
+		pr_info("jeita: temp=%d.%d C col=%s band=%d/%d cap=%s%u uA\n",
+			temp_dc / 10, abs(temp_dc % 10), nt_col_name[col],
+			band, t->nr_bounds,
+			cap == NT_JEITA_NO_CAP ? "none/" : "", cap);
+
+	bcdev->jeita_band = band;
+	bcdev->jeita_col = col;
+	*cap_ua = cap;
+	*ladder_ign = bcdev->ladder_min_temp_dc &&
+		      temp_dc < bcdev->ladder_min_temp_dc;
+	*next_ms = bcdev->jeita_poll_ms;
+
+	return 0;
+}
+
+static void nt_jeita_work(struct work_struct *work)
+{
+	struct battery_chg_dev *bcdev = container_of(work,
+					struct battery_chg_dev, jeita_work.work);
+	unsigned int next_ms = NT_JEITA_IDLE_POLL_MS;
+	u32 new_cap = NT_JEITA_NO_CAP;
+	bool ladder_ign = false;
+	int rc;
+
+	if (!bcdev->jeita_started)
+		return;
+
+	if (atomic_read(&bcdev->state) != PMIC_GLINK_STATE_UP)
+		goto resched;
+
+	nt_refresh_fcc_max(bcdev);
+
+	if (bcdev->jeita_en) {
+		rc = nt_jeita_eval(bcdev, &new_cap, &ladder_ign, &next_ms);
+		if (rc < 0) {
+			/* keep the last decision, try again soon */
+			next_ms = NT_JEITA_DEF_POLL_MS;
+			goto resched;
+		}
+	} else {
+		bcdev->jeita_band = -1;
+	}
+
+	if (new_cap != bcdev->jeita_cap_ua ||
+	    ladder_ign != bcdev->ladder_ignored) {
+		WRITE_ONCE(bcdev->jeita_cap_ua, new_cap);
+		bcdev->ladder_ignored = ladder_ign;
+		nt_smart_chg_apply(bcdev);
+	}
+
+resched:
+	queue_delayed_work(system_wq, &bcdev->jeita_work,
+			   msecs_to_jiffies(next_ms));
+}
+
+static void nt_jeita_kick(struct battery_chg_dev *bcdev)
+{
+	if (bcdev->jeita_started)
+		mod_delayed_work(system_wq, &bcdev->jeita_work,
+				 msecs_to_jiffies(300));
+}
+
+/*
+ * DT properties (all optional; defaults are scaled by design capacity):
+ *   nt,jeita-enable                  bool, force JEITA on at boot
+ *                                    (default off; enable via jeita_en sysfs)
+ *   nt,jeita-poll-ms                 u32, 1000..60000, default 5000
+ *   nt,jeita-hyst-decidegc           u32, 0..100, default 20 (0.1 degC)
+ *   nt,jeita-temp-decidegc           N ascending band boundaries, 0.1 degC
+ *   nt,jeita-fcc-std-ua              N+1 uA values per band, required with
+ *                                    the temp table
+ *   nt,jeita-fcc-qc-ua / -pd-ua      N+1 uA values, fall back to std
+ *   nt,thermal-ladder-min-temp-decidegc
+ *                                    below this battery temp the userspace
+ *                                    thermal ladder is not enforced, 0 = off
+ */
+static void nt_parse_jeita_dt(struct battery_chg_dev *bcdev)
+{
+	static const char * const col_prop[NT_COL_MAX] = {
+		[NT_COL_STD] = "nt,jeita-fcc-std-ua",
+		[NT_COL_QC]  = "nt,jeita-fcc-qc-ua",
+		[NT_COL_PD]  = "nt,jeita-fcc-pd-ua",
+	};
+	struct device_node *node = bcdev->dev->of_node;
+	struct nt_jeita_tbl *t = &bcdev->jeita;
+	u32 tmp[NT_JEITA_MAX_BANDS], val;
+	int n, i, col;
+
+	bcdev->jeita_en = of_property_read_bool(node, "nt,jeita-enable");
+
+	if (!of_property_read_u32(node, "nt,jeita-poll-ms", &val))
+		bcdev->jeita_poll_ms = clamp_t(u32, val, 1000, 60000);
+
+	if (!of_property_read_u32(node, "nt,jeita-hyst-decidegc", &val))
+		bcdev->jeita_hyst_dc = clamp_t(u32, val, 0, 100);
+
+	if (!of_property_read_u32(node, "nt,thermal-ladder-min-temp-decidegc",
+				  &val))
+		bcdev->ladder_min_temp_dc = (int)val;
+
+	n = of_property_count_elems_of_size(node, "nt,jeita-temp-decidegc",
+					    sizeof(u32));
+	if (n <= 0)
+		return;
+
+	if (n > NT_JEITA_MAX_BANDS - 1 ||
+	    of_property_read_u32_array(node, "nt,jeita-temp-decidegc", tmp, n)) {
+		pr_warn("jeita: bad nt,jeita-temp-decidegc, using defaults\n");
+		return;
+	}
+
+	t->nr_bounds = n;
+	for (i = 0; i < n; i++)
+		t->bound_dc[i] = (s32)tmp[i];
+
+	for (col = 0; col < NT_COL_MAX; col++) {
+		int cnt = of_property_count_elems_of_size(node, col_prop[col],
+							  sizeof(u32));
+
+		if (cnt == n + 1 &&
+		    !of_property_read_u32_array(node, col_prop[col], tmp, cnt)) {
+			for (i = 0; i < cnt; i++)
+				t->fcc_ua[col][i] = tmp[i];
+			continue;
+		}
+
+		if (col == NT_COL_STD) {
+			pr_warn("jeita: %s missing or wrong length (need %d), using defaults\n",
+				col_prop[col], n + 1);
+			t->nr_bounds = 0;
+			return;
+		}
+
+		if (cnt > 0)
+			pr_warn("jeita: %s wrong length, falling back to std\n",
+				col_prop[col]);
+		for (i = 0; i <= n; i++)
+			t->fcc_ua[col][i] = t->fcc_ua[NT_COL_STD][i];
+	}
+
+	if (!nt_jeita_tbl_valid(t)) {
+		pr_warn("jeita: temp boundaries must ascend, using defaults\n");
+		t->nr_bounds = 0;
+		return;
+	}
+
+	bcdev->jeita_tbl_ready = true;
+	pr_info("jeita: DT table with %d bands\n", n + 1);
+}
+
 static void handle_notification(struct battery_chg_dev *bcdev, void *data,
 				size_t len)
 {
@@ -977,9 +1378,11 @@ static void handle_notification(struct battery_chg_dev *bcdev, void *data,
 	case BC_USB_STATUS_GET:
 		pst = &bcdev->psy_list[PSY_TYPE_USB];
 		schedule_work(&bcdev->usb_type_work);
+		nt_jeita_kick(bcdev);
 		break;
 	case BC_WLS_STATUS_GET:
 		pst = &bcdev->psy_list[PSY_TYPE_WLS];
+		nt_jeita_kick(bcdev);
 		break;
 	default:
 		break;
@@ -1125,6 +1528,12 @@ static int usb_psy_set_icl(struct battery_chg_dev *bcdev, u32 prop_id, int val)
 	 * suspend or unsuspend the input for its use case.
 	 */
 
+	/* Keep the boosted SDP value; suspend (0) / EUD (<0) requests pass through */
+	if (pst->prop[USB_ADAP_TYPE] == POWER_SUPPLY_USB_TYPE_SDP &&
+	    bcdev->sdp_icl_boost_ua && val > 0 &&
+	    (u32)val < bcdev->sdp_icl_boost_ua)
+		val = bcdev->sdp_icl_boost_ua;
+
 	temp = val;
 	if (val < 0)
 		temp = UINT_MAX;
@@ -1243,6 +1652,12 @@ static int __battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
 {
 	int rc;
 
+	/* Below the configured battery temp the userspace ladder value is
+	 * replaced by the firmware ceiling; only ladder values, never during bypass */
+	if (bcdev->ladder_ignored && bcdev->bypass_saved_level < 0 &&
+	    bcdev->fcc_max_ua && fcc_ua && fcc_ua == bcdev->thermal_fcc_ua)
+		fcc_ua = bcdev->fcc_max_ua;
+
 	if (smart_charging_enabled && bcdev->smart_chg_paused)
 		fcc_ua = 0;
 
@@ -1250,6 +1665,10 @@ static int __battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
 		fcc_ua = min_t(u32, fcc_ua, bcdev->restrict_fcc_ua);
 		fcc_ua = min_t(u32, fcc_ua, bcdev->thermal_fcc_ua);
 	}
+
+	/* JEITA cap can only lower the FCC */
+	if (READ_ONCE(bcdev->jeita_cap_ua) != NT_JEITA_NO_CAP)
+		fcc_ua = min_t(u32, fcc_ua, READ_ONCE(bcdev->jeita_cap_ua));
 
 	rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_BATTERY],
 				BATT_CHG_CTRL_LIM, fcc_ua);
@@ -1292,6 +1711,9 @@ static int battery_psy_apply_level(struct battery_chg_dev *bcdev, int val)
 	return rc;
 }
 
+/* Thermal framework entry point. While bypass is active its level acts as a
+ * floor: thermal may tighten further but a lower request must not end the
+ * bypass; the requested level is saved and restored when bypass turns off. */
 static int battery_psy_set_charge_current(struct battery_chg_dev *bcdev,
 					int val)
 {
@@ -1569,10 +1991,8 @@ static int wireless_fw_check_for_update(struct battery_chg_dev *bcdev,
 #ifdef CONFIG_STWLC38_FW
 static int wireless_fw_update(struct battery_chg_dev *bcdev, bool force)
 {
-	//const struct firmware *fw;
 	struct psy_state *pst;
 	u32 version = 0;
-	//u16 maj_ver, min_ver;
 	int rc;
 
 	pm_stay_awake(bcdev->dev);
@@ -1615,7 +2035,6 @@ static int wireless_fw_update(struct battery_chg_dev *bcdev, bool force)
 
 release_fw:
 	bcdev->wls_fw_crc = 0;
-	//release_firmware(fw);
 out:
 	pm_relax(bcdev->dev);
 
@@ -1736,7 +2155,7 @@ static ssize_t wireless_fw_crc_store(struct class *c,
 	if (kstrtou16(buf, 0, &val) || !val)
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	bcdev->wls_fw_crc = val;
 
@@ -1779,7 +2198,7 @@ static ssize_t wireless_fw_force_update_store(struct class *c,
 	if (kstrtobool(buf, &val) || !val)
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	rc = wireless_fw_update(bcdev, true);
 	if (rc < 0)
@@ -1801,7 +2220,7 @@ static ssize_t wireless_fw_update_store(struct class *c,
 	if (kstrtobool(buf, &val) || !val)
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	rc = wireless_fw_update(bcdev, false);
 	if (rc < 0)
@@ -1853,7 +2272,7 @@ static ssize_t restrict_cur_store(struct class *c, struct class_attribute *attr,
 	int rc;
 	u32 fcc_ua, prev_fcc_ua;
 
-	if (kstrtou32(buf, 0, &fcc_ua) || fcc_ua > bcdev->thermal_fcc_ua)
+	if (kstrtou32(buf, 0, &fcc_ua) || fcc_ua > nt_base_fcc_ua(bcdev))
 		return -EINVAL;
 
 	prev_fcc_ua = bcdev->restrict_fcc_ua;
@@ -1920,7 +2339,7 @@ static ssize_t fake_soc_store(struct class *c, struct class_attribute *attr,
 	if (kstrtoint(buf, 0, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	bcdev->fake_soc = val;
 	pr_debug("Set fake soc to %d\n", val);
@@ -1953,7 +2372,7 @@ static ssize_t wireless_boost_en_store(struct class *c,
 	if (kstrtobool(buf, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS],
 				WLS_BOOST_EN, val);
@@ -1991,7 +2410,7 @@ static ssize_t moisture_detection_en_store(struct class *c,
 	if (kstrtobool(buf, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_USB],
 				USB_MOISTURE_DET_EN, val);
@@ -2113,7 +2532,7 @@ static ssize_t usb_charger_en_store(struct class *c, struct class_attribute *att
 	if (kstrtobool(buf, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_USB],
 				USB_CHARGE_ENABLE, val);
@@ -2161,7 +2580,7 @@ static ssize_t slowcharge_en_store(struct class *c, struct class_attribute *attr
 	if (kstrtou32(buf, 16, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
     if (val == NT_HEALTH_DISABLE_CHG || val == NT_HEALTH_ENABLE_CHG)
         nt_fcc_flag = val;
@@ -2201,7 +2620,7 @@ static ssize_t ship_mode_en_store(struct class *c, struct class_attribute *attr,
 	if (kstrtobool(buf, &bcdev->ship_mode_en))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, bcdev->ship_mode_en);
+	pr_info("%s,val:%d\n", __func__, bcdev->ship_mode_en);
 
 	return count;
 }
@@ -2276,7 +2695,7 @@ static ssize_t wls_st38_reg_store(struct class *c,
 	if (kstrtou32(buf, 16, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS],
 				WLS_ST38_REG, val);
@@ -2314,7 +2733,7 @@ static ssize_t wls_st38_data_store(struct class *c,
 	if (kstrtou32(buf, 0, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS],
 				WLS_ST38_DATA, val);
@@ -2385,7 +2804,7 @@ static ssize_t wls_en_store(struct class *c,
 	if (kstrtou32(buf, 0, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS],
 				WLS_ST38_EN, val);
@@ -2404,11 +2823,11 @@ static ssize_t wls_chg_param_show(struct class *c, struct class_attribute *attr,
 	struct psy_state *pst = &bcdev->psy_list[PSY_TYPE_WLS];
 	int rc;
 
-	rc = read_property_id(bcdev, pst, WLS_ST38_EN);
+	rc = read_property_id(bcdev, pst, WLS_CHG_PARAM);
 	if (rc < 0)
 		return rc;
 
-	return scnprintf(buf, PAGE_SIZE, "0x%x\n",  pst->prop[WLS_ST38_EN]);
+	return scnprintf(buf, PAGE_SIZE, "0x%x\n",  pst->prop[WLS_CHG_PARAM]);
 }
 
 static ssize_t wls_chg_param_store(struct class *c,
@@ -2420,7 +2839,7 @@ static ssize_t wls_chg_param_store(struct class *c,
 	int rc;
 	int T0,T1,T0_R,T1_R,T0_ibat,T1_ibat,defalut_ibat;
 
-	pr_info("%s,buf:%s", __func__, buf);
+	pr_info("%s,buf:%s\n", __func__, buf);
 
     rc = sscanf(buf, "%d %d %d %d %d %d %d", &T0,&T1,&T0_R,&T1_R,&T0_ibat,&T1_ibat,&defalut_ibat);
     T0 = T0 + 10000 * BoundT0_HEAD;
@@ -2514,7 +2933,7 @@ static ssize_t charging_en_store(struct class *c,
 	if (kstrtou32(buf, 0, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
         write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_USB], USB_CHARGE_ENABLE, val);
         write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS], WLS_ST38_EN, val);
@@ -2537,16 +2956,14 @@ static ssize_t charging_enabled_store(struct class *c,
 	if (kstrtobool(buf, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	if (val) {
 		rc = __battery_psy_set_charge_current(bcdev,
-				bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA);
+				nt_base_fcc_ua(bcdev));
 		if (rc < 0)
 			return rc;
-		bcdev->restrict_fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA;
+		bcdev->restrict_fcc_ua = nt_base_fcc_ua(bcdev);
 		bcdev->restrict_chg_en = 0;
 	} else {
 		rc = __battery_psy_set_charge_current(bcdev, 0);
@@ -2582,7 +2999,7 @@ static ssize_t bypass_charging_store(struct class *c,
 	if (kstrtobool(buf, &val))
 		return -EINVAL;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	if (val) {
 		rc = __battery_psy_set_charge_current(bcdev, 0);
@@ -2592,12 +3009,10 @@ static ssize_t bypass_charging_store(struct class *c,
 		bcdev->restrict_chg_en = 1;
 	} else {
 		rc = __battery_psy_set_charge_current(bcdev,
-				bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA);
+				nt_base_fcc_ua(bcdev));
 		if (rc < 0)
 			return rc;
-		bcdev->restrict_fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA;
+		bcdev->restrict_fcc_ua = nt_base_fcc_ua(bcdev);
 		bcdev->restrict_chg_en = 0;
 	}
 
@@ -2614,7 +3029,9 @@ static ssize_t bypass_charging_show(struct class *c,
 			bcdev->restrict_chg_en && !bcdev->restrict_fcc_ua);
 }
 static CLASS_ATTR_RW(bypass_charging);
-
+/* Bypass & smart charging nodes.
+ * Bypass holds charging at a fixed thermal ladder level while active;
+ * smart charging pauses charging once capacity reaches the set limit. */
 static ssize_t bypass_charging_enable_show(struct class *c,
 					   struct class_attribute *attr,
 					   char *buf)
@@ -2635,7 +3052,7 @@ static ssize_t bypass_charging_enable_store(struct class *c,
 
 	val = !!val;
 
-	pr_info("%s,val:%d", __func__, val);
+	pr_info("%s,val:%d\n", __func__, val);
 
 	/* Already in the requested state: don't clobber the saved level */
 	if (val == bypass_charging_enabled)
@@ -2792,6 +3209,99 @@ static CLASS_ATTR_RW(smart_charging_limit);
 
 #endif /* CONFIG_NOTHING */
 
+/* JEITA policy and SDP ICL boost nodes */
+static ssize_t jeita_en_show(struct class *c, struct class_attribute *attr,
+				char *buf)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+
+	return scnprintf(buf, PAGE_SIZE, "%d\n", bcdev->jeita_en);
+}
+
+static ssize_t jeita_en_store(struct class *c, struct class_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+	bool val;
+
+	if (kstrtobool(buf, &val))
+		return -EINVAL;
+
+	bcdev->jeita_en = val;
+	nt_jeita_kick(bcdev);	/* worker drops the cap itself when disabled */
+
+	return count;
+}
+static CLASS_ATTR_RW(jeita_en);
+
+static ssize_t jeita_status_show(struct class *c, struct class_attribute *attr,
+				char *buf)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+	u32 cap = READ_ONCE(bcdev->jeita_cap_ua);
+
+	return scnprintf(buf, PAGE_SIZE,
+		"en=%d band=%d/%d col=%s temp_dc=%d cap_ua=%d fcc_max_ua=%u thermal_fcc_ua=%u last_fcc_ua=%u ladder_ignored=%d\n",
+		bcdev->jeita_en, bcdev->jeita_band, bcdev->jeita.nr_bounds,
+		nt_col_name[bcdev->jeita_col],
+		bcdev->batt_temp_valid ? bcdev->batt_temp_dc : -9999,
+		cap == NT_JEITA_NO_CAP ? -1 : (int)cap, bcdev->fcc_max_ua,
+		bcdev->thermal_fcc_ua, bcdev->last_fcc_ua,
+		bcdev->ladder_ignored);
+}
+static CLASS_ATTR_RO(jeita_status);
+
+static bool nt_usb_is_sdp(struct battery_chg_dev *bcdev)
+{
+	struct psy_state *pst = &bcdev->psy_list[PSY_TYPE_USB];
+
+	if (read_property_id(bcdev, pst, USB_ADAP_TYPE) < 0)
+		return false;
+
+	return pst->prop[USB_ADAP_TYPE] == POWER_SUPPLY_USB_TYPE_SDP;
+}
+
+static ssize_t usb_sdp_icl_boost_ua_show(struct class *c,
+				struct class_attribute *attr, char *buf)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+
+	return scnprintf(buf, PAGE_SIZE, "%u\n", bcdev->sdp_icl_boost_ua);
+}
+
+/* 0 = off (default). Otherwise input current limit for SDP adapters,
+ * 500000..NT_SDP_ICL_BOOST_MAX_UA. Above the USB 2.0 SDP limit; the
+ * firmware may still clamp it. Applies immediately if an SDP is attached. */
+static ssize_t usb_sdp_icl_boost_ua_store(struct class *c,
+				struct class_attribute *attr,
+				const char *buf, size_t count)
+{
+	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
+						battery_class);
+	u32 val;
+
+	if (kstrtou32(buf, 0, &val))
+		return -EINVAL;
+	if (val && (val < 500000 || val > NT_SDP_ICL_BOOST_MAX_UA))
+		return -EINVAL;
+
+	bcdev->sdp_icl_boost_ua = val;
+
+	/* act now only if an SDP is attached; otherwise it applies on plug-in */
+	if (nt_usb_is_sdp(bcdev))
+		usb_psy_set_icl(bcdev, USB_INPUT_CURR_LIMIT,
+				val ? val : 500000);
+
+	pr_info("SDP ICL boost %s (%u uA)\n", val ? "enabled" : "disabled", val);
+
+	return count;
+}
+static CLASS_ATTR_RW(usb_sdp_icl_boost_ua);
+
 static struct attribute *nothing_battery_class_attrs[] = {
 #ifdef CONFIG_NT_CHG
 	&class_attr_usb_charger_en.attr,
@@ -2800,8 +3310,16 @@ static struct attribute *nothing_battery_class_attrs[] = {
 	&class_attr_charge_pump_enable.attr,
 	&class_attr_typec_cc_orientation.attr,
 #endif
+#if defined(CONFIG_NT_CHG) && defined(CONFIG_STWLC38_FW)
+	&class_attr_charging_en.attr,
+#endif
+#ifdef CONFIG_STWLC38_FW
 	&class_attr_syssoc.attr,
 	&class_attr_batsoc.attr,
+#endif
+	&class_attr_jeita_en.attr,
+	&class_attr_jeita_status.attr,
+	&class_attr_usb_sdp_icl_boost_ua.attr,
 #ifdef CONFIG_NOTHING
 	&class_attr_charging_enabled.attr,
 	&class_attr_bypass_charging.attr,
@@ -2914,10 +3432,19 @@ static int battery_chg_parse_dt(struct battery_chg_dev *bcdev)
 	of_property_read_string(node, "qcom,wireless-fw-name",
 				&bcdev->wls_fw_name);
 
+	nt_parse_jeita_dt(bcdev);
+
 	rc = of_property_count_elems_of_size(node, "qcom,thermal-mitigation",
 						sizeof(u32));
-	if (rc <= 0)
+	if (rc <= 0) {
+		/* No ladder in DT; still learn the firmware ceiling for the
+		 * restrict/fallback paths. Not fatal, the jeita worker retries. */
+		if (read_property_id(bcdev, pst, BATT_CHG_CTRL_LIM_MAX) >= 0) {
+			bcdev->fcc_max_ua = pst->prop[BATT_CHG_CTRL_LIM_MAX];
+			bcdev->thermal_fcc_ua = bcdev->fcc_max_ua;
+		}
 		return 0;
+	}
 
 	len = rc;
 
@@ -2929,22 +3456,8 @@ static int battery_chg_parse_dt(struct battery_chg_dev *bcdev)
 	}
 
 	prev = pst->prop[BATT_CHG_CTRL_LIM_MAX];
-	pr_err("nt-debug: FCC max from PMIC fw = %u uA (dts first val = 10000000)\n", prev);
-
-	for (i = 0; i < len; i++) {
-		rc = of_property_read_u32_index(node, "qcom,thermal-mitigation",
-						i, &val);
-		if (rc < 0)
-			return rc;
-
-		if (val > prev) {
-			pr_err("Thermal levels should be in descending order\n");
-			bcdev->num_thermal_levels = -EINVAL;
-			return 0;
-		}
-
-		prev = val;
-	}
+	pr_info("FCC max from PMIC fw = %u uA, %d thermal levels in DT\n",
+		prev, len);
 
 	bcdev->thermal_levels = devm_kcalloc(bcdev->dev, len + 1,
 					sizeof(*bcdev->thermal_levels),
@@ -2955,19 +3468,35 @@ static int battery_chg_parse_dt(struct battery_chg_dev *bcdev)
 	/*
 	 * Element 0 is for normal charging current. Elements from index 1
 	 * onwards is for thermal mitigation charging currents.
+	 *
+	 * A DT value above the previous level (or the firmware ceiling for the
+	 * first one) is clamped instead of rejecting the whole table, otherwise
+	 * the cooling device ends up with an empty state range.
 	 */
+	bcdev->thermal_levels[0] = prev;
 
-	bcdev->thermal_levels[0] = pst->prop[BATT_CHG_CTRL_LIM_MAX];
+	for (i = 0; i < len; i++) {
+		rc = of_property_read_u32_index(node, "qcom,thermal-mitigation",
+						i, &val);
+		if (rc < 0) {
+			pr_err("Error in reading qcom,thermal-mitigation, rc=%d\n",
+				rc);
+			return rc;
+		}
 
-	rc = of_property_read_u32_array(node, "qcom,thermal-mitigation",
-					&bcdev->thermal_levels[1], len);
-	if (rc < 0) {
-		pr_err("Error in reading qcom,thermal-mitigation, rc=%d\n", rc);
-		return rc;
+		if (val > prev) {
+			pr_warn("thermal level %d (%u uA) above previous (%u uA), clamping\n",
+				i + 1, val, prev);
+			val = prev;
+		}
+
+		bcdev->thermal_levels[i + 1] = val;
+		prev = val;
 	}
 
 	bcdev->num_thermal_levels = len;
-	bcdev->thermal_fcc_ua = pst->prop[BATT_CHG_CTRL_LIM_MAX];
+	bcdev->fcc_max_ua = bcdev->thermal_levels[0];
+	bcdev->thermal_fcc_ua = bcdev->thermal_levels[0];
 
 	return 0;
 }
@@ -3142,6 +3671,12 @@ static int battery_chg_probe(struct platform_device *pdev)
 	INIT_WORK(&bcdev->subsys_up_work, battery_chg_subsys_up_work);
 	INIT_WORK(&bcdev->usb_type_work, battery_chg_update_usb_type_work);
 	bcdev->dev = dev;
+	INIT_DELAYED_WORK(&bcdev->jeita_work, nt_jeita_work);
+	bcdev->jeita_en = false;
+	bcdev->jeita_band = -1;
+	bcdev->jeita_hyst_dc = NT_JEITA_DEF_HYST_DC;
+	bcdev->jeita_poll_ms = NT_JEITA_DEF_POLL_MS;
+	bcdev->jeita_cap_ua = NT_JEITA_NO_CAP;
 
 #ifdef CONFIG_DRM_PANEL
 	rc = drm_check_dt(bcdev->dev->of_node);
@@ -3235,8 +3770,13 @@ static int battery_chg_probe(struct platform_device *pdev)
 
 	schedule_work(&bcdev->usb_type_work);
 
+	bcdev->jeita_started = true;
+	queue_delayed_work(system_wq, &bcdev->jeita_work,
+			   msecs_to_jiffies(2000));
+
 	return 0;
 error:
+	cancel_delayed_work_sync(&bcdev->jeita_work);
 	cancel_work_sync(&bcdev->subsys_up_work);
 	bcdev->initialized = false;
 	complete(&bcdev->ack);
@@ -3254,9 +3794,14 @@ static int battery_chg_remove(struct platform_device *pdev)
 		drm_panel_notifier_unregister(active_panel, &bcdev->drm_notifier);
 #endif
 
+	bcdev->jeita_started = false;
+	cancel_delayed_work_sync(&bcdev->jeita_work);
+	cancel_delayed_work_sync(&bcdev->nt_update_status_work);
+	cancel_work_sync(&bcdev->usb_type_work);
 	device_init_wakeup(bcdev->dev, false);
 	debugfs_remove_recursive(bcdev->debugfs_dir);
 	cancel_work_sync(&bcdev->subsys_up_work);
+	wakeup_source_unregister(bcdev->chg_wake);
 	class_unregister(&bcdev->battery_class);
 	unregister_reboot_notifier(&bcdev->reboot_notifier);
 	qti_typec_class_deinit(bcdev->typec_class);
