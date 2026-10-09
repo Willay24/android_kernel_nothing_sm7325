@@ -1609,7 +1609,10 @@ static struct class_attribute class_att_re_range =
 
 static struct class aw_cali_class = {
 	.name = "smartpa",
+#ifdef AW_KERNEL_VER_OVER_6_4_0
+#else
 	.owner = THIS_MODULE,
+#endif
 };
 
 static void aw_cali_class_attr_init(struct aw_device *aw_dev)
@@ -1951,7 +1954,13 @@ static int aw_cali_misc_ops_msg(struct aw_device *aw_dev, unsigned long arg)
 	case AW_IOCTL_MSG_WR_DSP:
 		return aw_cali_misc_write_dsp(aw_dev, &ioctl_msg);
 	case AW_IOCTL_MSG_IOCTL:
+	{
+		if ((uint32_t)(ioctl_msg.opcode_id) == AW_IOCTL_MSG) {
+			aw_dev_err(aw_dev->dev, "Invalid opcode id (AW_IOCTL_MSG) under AW_IOCTL_MSG_IOCTL");
+			return -EINVAL;
+		}
 		return aw_cali_misc_ops(aw_dev, ioctl_msg.opcode_id, (unsigned long)ioctl_msg.data_buf);
+	}
 	default:
 		aw_dev_err(aw_dev->dev, "unsupported msg type %d", ioctl_msg.type);
 		return -EINVAL;
@@ -2215,7 +2224,7 @@ static int aw_cali_misc_switch_dev(struct file *filp, struct aw_device *aw_dev, 
 	struct aw_device *local_dev = NULL;
 
 	/* get sel dev str */
-	ret = sscanf(cmd_buf, "dev_sel:%s", dev_select);
+	ret = sscanf(cmd_buf, "dev_sel:%49s", dev_select);
 	if (ret <= 0)
 		return -EINVAL;
 
