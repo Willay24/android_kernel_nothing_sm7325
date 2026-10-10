@@ -57,10 +57,32 @@ config ZRAM_BACKEND_LZO
 	select LZO_COMPRESS
 	select LZO_DECOMPRESS
 
+config ZRAM_BACKEND_QPACE
+	bool "QPaCE compression support"
+	depends on ZRAM
+	depends on QCOM_PAGE_COMPRESSION_ENGINE = y || \
+		(ZRAM = m && QCOM_PAGE_COMPRESSION_ENGINE = m)
+	select CRYPTO_LZ4
+	help
+	  Enable the Qualcomm Page Compression Engine (QPaCE) as a zram
+	  backend. When the qcom,hawi-qpace device is present in the device
+	  tree (e.g. SM8750/Hawi platforms), zram offloads synchronous
+	  compress/decompress operations to the QPaCE urgent command path,
+	  reducing CPU overhead.
+
+	  On Qualcomm SoCs without the QPaCE IP block (e.g. SM7475 /
+	  Snapdragon 7+ Gen 2 and legacy SoCs), the backend transparently
+	  uses a software LZ4 pipeline so "qpace-lz4" remains available.
+
 choice
 	prompt "Default zram compressor"
+	default ZRAM_DEF_COMP_QPACE if ZRAM_BACKEND_QPACE
 	default ZRAM_DEF_COMP_LZORLE
 	depends on ZRAM
+
+config ZRAM_DEF_COMP_QPACE
+	bool "qpace-lz4"
+	depends on ZRAM_BACKEND_QPACE
 
 config ZRAM_DEF_COMP_LZORLE
 	bool "lzo-rle"
@@ -95,6 +117,7 @@ endchoice
 config ZRAM_DEF_COMP
 	string
 	depends on ZRAM
+	default "qpace-lz4" if ZRAM_DEF_COMP_QPACE
 	default "lzo-rle" if ZRAM_DEF_COMP_LZORLE
 	default "lzo" if ZRAM_DEF_COMP_LZO
 	default "lz4" if ZRAM_DEF_COMP_LZ4

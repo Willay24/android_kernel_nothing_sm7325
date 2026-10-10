@@ -1250,6 +1250,20 @@ config SDX_EXT_IPC
 
       If unsure, say N.
 
+config QCOM_PAGE_COMPRESSION_ENGINE
+	tristate "Qualcomm Page Compression Engine (QPaCE)"
+	depends on ARM64
+	depends on ARCH_QCOM || COMPILE_TEST
+	depends on OF
+	depends on INTERCONNECT
+	help
+	  Enable support for the Qualcomm Page Compression Engine (QPaCE),
+	  a hardware accelerator that provides high-throughput page compression,
+	  decompression, and DMA copy operations.
+
+	  The engine is used as a hardware backend for compressed-memory
+	  subsystems such as zram. If unsure, say N.
+
 source "drivers/soc/qcom/icnss2/Kconfig"
 
 source "drivers/soc/qcom/gnsssirf/Kconfig"
