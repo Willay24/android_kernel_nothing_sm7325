@@ -38,6 +38,19 @@ export BUILDER="Willay24"
 export KBUILD_BUILD_USER="${KBUILD_BUILD_USER:-Willay24}"
 export KBUILD_BUILD_HOST="${KBUILD_BUILD_HOST:-Kali_GNU/Linux-2026.2}"
 
+# AUTO_BUILD_IDENTITY=1 -> user = short commit hash, host = branch name.
+if [ "${AUTO_BUILD_IDENTITY:-0}" == 1 ]; then
+	KBUILD_BUILD_USER=$(git rev-parse --short=7 HEAD)
+	KBUILD_BUILD_HOST=$(git symbolic-ref --short -q HEAD || git rev-parse --abbrev-ref HEAD)
+	export KBUILD_BUILD_USER KBUILD_BUILD_HOST
+fi
+
+# Optional build tag shown in the zip name (e.g. Test / Perf / Normal).
+BUILD_TAG="${BUILD_TAG:-}"
+BUILD_TAG="${BUILD_TAG// /-}"
+BUILD_TAG="${BUILD_TAG//\//-}"
+export BUILD_TAG
+
 # Time zone used for build dates / zip names.
 export TZ=Europe/Kiev
 
@@ -139,7 +152,7 @@ abort() {
 PROCS=$(nproc --all)
 export PROCS
 
-# Compiler to use for builds: clang (Neutron Clang) or gcc (cyberknight777 GCC).
+# Compiler to use for builds: clang (Neutron Clang), slim (Slim LLVM) or gcc (cyberknight777 GCC).
 export COMPILER="${COMPILER:-clang}"
 
 # Common directories setup.
@@ -157,6 +170,20 @@ AK3_BRANCH="${AK3_BRANCH:-master}"
 # so an existing ../Nothing-Built is reused instead of downloaded again.
 TC_DIR="${TC_DIR:-$(cd "${KDIR}/.." && pwd)/Nothing-Built}"
 
+# Slim LLVM (kernel.org). SLIM_LLVM_VERSION = x.y.z or "latest".
+SLIM_BASE_URL="https://mirrors.edge.kernel.org/pub/tools/llvm/files"
+SLIM_LLVM_VERSION="${SLIM_LLVM_VERSION:-latest}"
+
+# USE_CCACHE=1 wraps the compiler with ccache (when installed).
+CCACHE_PREFIX=""
+if [ "${USE_CCACHE:-0}" == 1 ]; then
+	if hash ccache 2>/dev/null; then
+		CCACHE_PREFIX="ccache "
+	else
+		echo -e "\e[1;93m[!] USE_CCACHE=1 but ccache is not installed, continuing without it.\e[0m"
+	fi
+fi
+
 # Pinned toolchain releases (from build.sh).
 NEUTRON_RELEASE="06092026"
 NEUTRON_SHA256="531083928c8e37f6b31e324dbfd0b5a8323f989b1c57ff2c1368b889b5b1bd30"
@@ -164,6 +191,9 @@ NEUTRON_SHA256="531083928c8e37f6b31e324dbfd0b5a8323f989b1c57ff2c1368b889b5b1bd30
 # Kernel build outputs.
 IMAGE="${OUT_DIR}/arch/arm64/boot/Image"
 BOOT_DIR="${OUT_DIR}/arch/arm64/boot"
+
+# Kernel-tree vendor_dlkm packaging files (etc/build.prop, etc/fs_config_*, mke2fs.conf).
+DLKM_SRC="${KDIR}/scripts/dlkm"
 
 # Modules that must live in vendor_ramdisk (everything else goes to vendor_dlkm).
 VENDOR_RAMDISK_MODULES=(
@@ -180,8 +210,8 @@ BLOCKLIST_MODULES=(hlcan slcan can327 8188eu 88XXau 8814au)
 
 # Requirements
 if [ "${CI:-0}" != 1 ]; then
-	if ! hash make curl git zip find tar zstd 2>/dev/null; then
-		abort "Failed to find make, curl, git, zip, find, tar and zstd!"
+	if ! hash make curl git zip find tar zstd xz 2>/dev/null; then
+		abort "Failed to find make, curl, git, zip, find, tar, zstd and xz!"
 	fi
 fi
 
@@ -240,7 +270,84 @@ fetch_toolchain() {
 	echo -e "\n\e[1;32m[✓] ${name} ${release} is ready! \e[0m"
 }
 
-# Arguments common to both compilers.
+# A function to resolve the Slim LLVM version (sets SLIM_VER).
+resolve_slim_version() {
+	local req="${SLIM_LLVM_VERSION}" available
+	req=$(echo "${req}" | xargs)
+	req="${req#llvm-}"
+	req="${req#v}"
+
+	# An explicit x.y.z needs no lookup.
+	if [[ ${req} =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+		SLIM_VER="${req}"
+		return 0
+	fi
+	if [ -n "${req}" ] && [ "${req,,}" != "latest" ]; then
+		echo -e "\e[1;31m[✗] Invalid Slim LLVM version '${req}' (use x.y.z or latest)!\e[0m"
+		return 1
+	fi
+
+	available=$(curl -fsSL --retry 3 "${SLIM_BASE_URL}/" |
+		grep -oE 'llvm-[0-9]+\.[0-9]+\.[0-9]+-x86_64\.tar\.xz' |
+		sed -E 's/^llvm-(.*)-x86_64\.tar\.xz$/\1/' | sort -uV)
+	[ -n "${available}" ] || {
+		echo -e "\e[1;31m[✗] Could not list Slim LLVM versions from ${SLIM_BASE_URL}/\e[0m"
+		return 1
+	}
+	SLIM_VER=$(printf '%s\n' "${available}" | tail -n 1)
+}
+
+# A function to download (cached tarball), verify and extract Slim LLVM.
+fetch_slim_llvm() {
+	resolve_slim_version || return 1
+	local name="llvm-${SLIM_VER}-x86_64"
+	local dl="${TC_DIR}/downloads"
+	local tarball="${dl}/${name}.tar.xz"
+	local stage sums expected actual
+
+	[ -x "${TC_DIR}/${name}/bin/clang" ] && return 0
+
+	mkdir -p "${dl}" || return 1
+	if [ ! -f "${tarball}" ]; then
+		echo -e "\n\e[1;93m[*] Downloading Slim LLVM ${SLIM_VER}! \e[0m"
+		curl -fL --retry 3 "${SLIM_BASE_URL}/${name}.tar.xz" -o "${tarball}.part" || {
+			rm -f "${tarball}.part"
+			return 1
+		}
+		mv "${tarball}.part" "${tarball}" || return 1
+	else
+		echo -e "\n\e[1;93m[*] Using cached Slim LLVM ${SLIM_VER} tarball! \e[0m"
+	fi
+
+	# Integrity check against the mirror's published sums (guards against corrupt downloads).
+	sums=$(curl -fsSL --retry 3 "${SLIM_BASE_URL}/sha256sums.asc" 2>/dev/null)
+	expected=$(printf '%s\n' "${sums}" | awk -v f="${name}.tar.xz" '$2==f {print $1; exit}')
+	if [ -n "${expected}" ]; then
+		actual=$(sha256sum "${tarball}" | cut -d' ' -f1)
+		if [ "${expected}" != "${actual}" ]; then
+			echo -e "\e[1;31m[✗] Slim LLVM tarball checksum mismatch!\e[0m"
+			rm -f "${tarball}"
+			return 1
+		fi
+	else
+		echo -e "\e[1;93m[!] No published checksum found for ${name}.tar.xz, skipping verification.\e[0m"
+	fi
+
+	stage=$(mktemp -d "${TC_DIR}/.slim.XXXXXX") || return 1
+	tar -xJf "${tarball}" -C "${stage}" && [ -x "${stage}/${name}/bin/clang" ] || {
+		echo -e "\e[1;31m[✗] Failed to extract or validate Slim LLVM!\e[0m"
+		rm -rf "${stage}"
+		return 1
+	}
+	mv "${stage}/${name}" "${TC_DIR}/${name}" || {
+		rm -rf "${stage}"
+		return 1
+	}
+	rm -rf "${stage}"
+	echo -e "\n\e[1;32m[✓] Slim LLVM ${SLIM_VER} is ready! \e[0m"
+}
+
+# Arguments common to all compilers.
 MAKE=(
 	O="${OUT_DIR}"
 	ARCH=arm64
@@ -280,7 +387,7 @@ if [[ ${COMPILER} == gcc ]]; then
 		NM=aarch64-elf-nm
 		OBJDUMP=aarch64-elf-objdump
 		OBJCOPY=aarch64-elf-objcopy
-		CC=aarch64-elf-gcc
+		CC="${CCACHE_PREFIX}aarch64-elf-gcc"
 		GCC_LTO=1
 		GRAPHITE=1
 	)
@@ -300,15 +407,40 @@ elif [[ ${COMPILER} == clang ]]; then
 		KBUILD_COMPILER_STRING="${KBUILD_COMPILER_STRING}"
 		LLVM=1
 		LLVM_IAS=1
-		CC=clang
+		CC="${CCACHE_PREFIX}clang"
 		HOSTLD=ld.lld
 		CROSS_COMPILE=aarch64-linux-gnu-
 		CROSS_COMPILE_ARM32=arm-linux-gnueabi-
 		CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
 		CLANG_TRIPLE=aarch64-linux-gnu-
 	)
+elif [[ ${COMPILER} == slim ]]; then
+	# Slim LLVM (kernel.org). x86_64/arm64 only: no 32-bit target, see mkcfg().
+	fetch_slim_llvm || abort "Failed to set up Slim LLVM!"
+	SLIM_DIR="${TC_DIR}/llvm-${SLIM_VER}-x86_64"
+	export PATH="${SLIM_DIR}/bin:${PATH}"
+
+	KBUILD_COMPILER_STRING=$(clang -v 2>&1 | head -n 1 | sed 's/(https..*//' | sed 's/ version//')
+	export KBUILD_COMPILER_STRING
+	LINKER="${SLIM_DIR}/bin/ld.lld"
+	MAKE+=(
+		KBUILD_COMPILER_STRING="${KBUILD_COMPILER_STRING}"
+		LLVM=1
+		LLVM_IAS=1
+		CC="${CCACHE_PREFIX}clang"
+		AR=llvm-ar
+		NM=llvm-nm
+		LD="ld.lld -S"
+		OBJCOPY=llvm-objcopy
+		OBJDUMP=llvm-objdump
+		STRIP=llvm-strip
+		CLANG_TRIPLE=aarch64-linux-gnu-
+		CROSS_COMPILE=aarch64-linux-gnu-
+		CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+		CROSS_COMPILE_COMPAT=arm-linux-gnueabi-
+	)
 else
-	abort "Unknown COMPILER '${COMPILER}'! Use COMPILER=clang or COMPILER=gcc."
+	abort "Unknown COMPILER '${COMPILER}'! Use COMPILER=clang, COMPILER=slim or COMPILER=gcc."
 fi
 
 if [ ! -d "${AK3}" ]; then
@@ -326,7 +458,7 @@ KBUILD_BUILD_VERSION=$(grep '^num=' version | cut -d= -f2)
 export KBUILD_BUILD_VERSION
 VERSION=$(grep '^ver=' version | cut -d= -f2)
 kver="${KBUILD_BUILD_VERSION}"
-zipn="${KERNEL_NAME}-${VERSION}-${BUILD_TIME}"
+zipn="${KERNEL_NAME}${BUILD_TAG:+-${BUILD_TAG}}-${VERSION}-${BUILD_TIME}"
 
 # A function to exit on SIGINT.
 exit_on_signal_SIGINT() {
@@ -346,16 +478,28 @@ clean() {
 	echo -e "\n\e[1;32m[✓] Removed ${OUT_DIR}! \e[0m"
 }
 
-# A function to generate out/.config from the defconfig (does NOT touch the source tree).
-mkcfg() {
+# A function to generate a pristine out/.config from the defconfig (does NOT touch the source tree).
+genconfig() {
 	mkdir -p "${DIST_DIR}" || abort "Failed to create distribution output directory!"
 	echo -e "\n\e[1;93m[*] Generating .config from ${CONFIG}! \e[0m"
 	make "${MAKE[@]}" "${CONFIG}" || abort "Failed to generate .config from ${CONFIG}!"
 }
 
+# genconfig + toolchain-specific tweaks (build-time only, never saved to the defconfig).
+mkcfg() {
+	genconfig
+	if [[ ${COMPILER} == slim ]]; then
+		echo -e "\n\e[1;93m[*] Slim LLVM has no 32-bit target, disabling COMPAT_VDSO and THUMB2_COMPAT_VDSO! \e[0m"
+		"${KDIR}"/scripts/config --file "${OUT_DIR}/.config" \
+			--disable COMPAT_VDSO \
+			--disable THUMB2_COMPAT_VDSO || abort "Failed to disable the compat vDSO!"
+		make "${MAKE[@]}" olddefconfig || abort "Failed to refresh .config after tweaks!"
+	fi
+}
+
 # A function to regenerate the defconfig (minimal savedefconfig written back to the tree).
 rgn() {
-	mkcfg
+	genconfig
 	echo -e "\n\e[1;93m[*] Regenerating defconfig! \e[0m"
 	make "${MAKE[@]}" savedefconfig || abort "Failed to run 'make savedefconfig'!"
 	cp "${OUT_DIR}"/defconfig "${KDIR}"/arch/arm64/configs/"${CONFIG}" ||
@@ -365,7 +509,7 @@ rgn() {
 
 # A function to open a menu based program to update current config.
 mcfg() {
-	mkcfg
+	genconfig
 	echo -e "\n\e[1;93m[*] Making menuconfig! \e[0m"
 	make "${MAKE[@]}" menuconfig || abort "Failed to run 'make menuconfig'!"
 	make "${MAKE[@]}" savedefconfig || abort "Failed to run 'make savedefconfig'!"
@@ -431,6 +575,7 @@ img() {
 	rc=${PIPESTATUS[0]}
 	BUILD_END=$(date +"%s")
 	DIFF=$((BUILD_END - BUILD_START))
+	[ -n "${CCACHE_PREFIX}" ] && ccache -s
 	if [ "${rc}" -eq 0 ] && [ -f "${IMAGE}" ]; then
 		if [[ ${TGI} == "1" ]]; then
 			tg "*Kernel built after $((DIFF / 60)) minute(s) and $((DIFF % 60)) second(s)*!"
@@ -501,8 +646,8 @@ hdr() {
 
 # A function to modify LTO mode (Clang only).
 lto() {
-	if [[ ${COMPILER} != clang ]]; then
-		abort "LTO mode can only be modified when COMPILER=clang!"
+	if [[ ${COMPILER} == gcc ]]; then
+		abort "LTO mode can only be modified when COMPILER=clang or COMPILER=slim!"
 	fi
 	if ! grep -qs "config LTO_CLANG_THIN" "${KDIR}/arch/Kconfig" "${KDIR}/init/Kconfig"; then
 		abort "This kernel has no LTO_CLANG_THIN/LTO_CLANG_FULL options (older 5.4 trees use CONFIG_THINLTO)!"
@@ -523,6 +668,31 @@ lto() {
 	fi
 
 	echo -e "\n\e[1;32m[✓] Modified LTO mode to ${1}! \e[0m"
+}
+
+# A function to create the vendor_dlkm ext4 image from a staging directory.
+# usage: mk_dlkm_image <staging-dir> <output-img> [mke2fs.conf]
+# Files are owned by root:root inside the image (via fakeroot when not running as root).
+mk_dlkm_image() {
+	local fk=()
+	if [ "$(id -u)" -ne 0 ]; then
+		if hash fakeroot 2>/dev/null; then
+			fk=(fakeroot --)
+		else
+			echo -e "\e[1;93m[!] fakeroot not found: files in vendor_dlkm.img will keep your uid/gid (install 'fakeroot').\e[0m"
+		fi
+	fi
+
+	dd if=/dev/zero of="${2}" bs=1M count=512 status=none || return 1
+	"${fk[@]}" bash -c '
+		set -e
+		[ -n "$3" ] && export MKE2FS_CONFIG="$3"
+		chown -R 0:0 "$1" 2>/dev/null || true
+		mke2fs -F -t ext4 -b 4096 -I 256 -L vendor_dlkm -O ^has_journal \
+			-E root_owner=0:0 -d "$1" "$2"
+	' _ "${1}" "${2}" "${3:-}" || return 1
+	e2fsck -fy "${2}" || true
+	resize2fs -M "${2}" || return 1
 }
 
 # A sub-function that stages modules into vendor_ramdisk / vendor_dlkm.img inside ${ZIP_DIR}.
@@ -587,10 +757,25 @@ pack_modules() {
 		echo -e "  \e[1;35m~ wlan.ko not found, skipping rename\e[0m"
 	fi
 
-	# Extra vendor_dlkm files shipped by AnyKernel3 (etc/lib).
-	if [ -d "${ZIP_DIR}/vendor_dlkm/etc" ]; then
+	# vendor_dlkm /etc (build.prop, fs_config_dirs, fs_config_files): prefer the kernel tree's
+	# scripts/dlkm/etc, fall back to whatever AnyKernel3 ships.
+	if [ -d "${DLKM_SRC}/etc" ]; then
+		echo -e "  \e[1;32m+ etc/ from ${DLKM_SRC}/etc\e[0m"
 		mkdir -p "${TEMP_DIR}/etc"
-		cp -r "${ZIP_DIR}/vendor_dlkm/etc/"* "${TEMP_DIR}/etc/"
+		cp -r "${DLKM_SRC}/etc/." "${TEMP_DIR}/etc/"
+	elif [ -d "${ZIP_DIR}/vendor_dlkm/etc" ]; then
+		echo -e "  \e[1;35m~ scripts/dlkm/etc missing, using AnyKernel3's vendor_dlkm/etc\e[0m"
+		mkdir -p "${TEMP_DIR}/etc"
+		cp -r "${ZIP_DIR}/vendor_dlkm/etc/." "${TEMP_DIR}/etc/"
+	else
+		echo -e "  \e[1;35m~ no vendor_dlkm /etc files found, image will only contain lib/modules\e[0m"
+	fi
+	# Stamp the partition build date into build.prop.
+	if [ -f "${TEMP_DIR}/etc/build.prop" ]; then
+		sed -i \
+			-e "s|^ro.vendor_dlkm.build.date=.*|ro.vendor_dlkm.build.date=$(date -u '+%a %b %d %H:%M:%S UTC %Y')|" \
+			-e "s|^ro.vendor_dlkm.build.date.utc=.*|ro.vendor_dlkm.build.date.utc=$(date -u +%s)|" \
+			"${TEMP_DIR}/etc/build.prop"
 	fi
 	if [ -d "${ZIP_DIR}/vendor_dlkm/lib" ]; then
 		mkdir -p "${TEMP_DIR}/lib"
@@ -615,14 +800,17 @@ pack_modules() {
 	} >"${MODULE_DIR}/modules.blocklist"
 	echo -e "  \e[1;32m+ modules.blocklist\e[0m"
 
-	# Create vendor_dlkm.img (ext4), then shrink it.
-	dd if=/dev/zero of="${ZIP_DIR}/vendor_dlkm.img" bs=1M count=512 status=none ||
-		abort "Failed to allocate vendor_dlkm.img!"
-	mke2fs -F -O "extent,huge_file" -T largefile -L vendor_dlkm \
-		-d "${TEMP_DIR}" "${ZIP_DIR}/vendor_dlkm.img" ||
+	# Create vendor_dlkm.img (ext4) with the kernel's mke2fs.conf, then shrink it.
+	local mke2fs_conf=""
+	if [ -f "${DLKM_SRC}/mke2fs.conf" ]; then
+		mke2fs_conf="${DLKM_SRC}/mke2fs.conf"
+		echo -e "  \e[1;32m+ using ${mke2fs_conf}\e[0m"
+	else
+		echo -e "  \e[1;35m~ scripts/dlkm/mke2fs.conf missing, using the system default\e[0m"
+	fi
+	mk_dlkm_image "${TEMP_DIR}" "${ZIP_DIR}/vendor_dlkm.img" "${mke2fs_conf}" ||
 		abort "Failed to create vendor_dlkm.img!"
-	e2fsck -fy "${ZIP_DIR}/vendor_dlkm.img" || true
-	resize2fs -M "${ZIP_DIR}/vendor_dlkm.img" || abort "Failed to shrink vendor_dlkm.img!"
+	cp -p "${ZIP_DIR}/vendor_dlkm.img" "${DIST_DIR}"/ || abort "Failed to copy vendor_dlkm.img to ${DIST_DIR}!"
 
 	rm -rf "${TEMP_DIR}" "${ZIP_DIR}/vendor_dlkm"
 	echo -e "\n\e[1;32m[✓] Created vendor_dlkm.img! \e[0m"
@@ -709,6 +897,7 @@ example: bash $0 mcfg
 example: bash $0 img
 example: bash $0 img mkzip
 example: COMPILER=gcc bash $0 img mkzip
+example: COMPILER=slim SLIM_LLVM_VERSION=latest bash $0 img mkzip
 example: bash $0 --obj=drivers/android/binder.o
 example: bash $0 --obj=kernel/sched/
 example: bash $0 --extmod=path/to/modulesource
@@ -728,8 +917,9 @@ example: bash $0 --lto=thin
 	 --upr  Uprevs kernel version in defconfig
 	 clean  Removes the out directory
 
-env: COMPILER=clang|gcc  RELEASE=1  CI=1  TOKEN/CHATID (or TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID)
-     AK3_URL  AK3_BRANCH  TC_DIR  KBUILD_BUILD_USER  KBUILD_BUILD_HOST
+env: COMPILER=clang|slim|gcc  SLIM_LLVM_VERSION  USE_CCACHE=1  BUILD_TAG  RELEASE=1  CI=1
+     TOKEN/CHATID (or TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID)  AK3_URL  AK3_BRANCH  TC_DIR
+     KBUILD_BUILD_USER  KBUILD_BUILD_HOST  AUTO_BUILD_IDENTITY=1 (commit hash / branch)
 \e[0m"
 }
 
