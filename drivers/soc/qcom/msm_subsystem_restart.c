@@ -853,6 +853,9 @@ int subsystem_set_fwname(const char *name, const char *fw_name)
 	strlcpy(subsys->desc->fw_name, fw_name,
 		sizeof(subsys->desc->fw_name));
 
+	/* find_subsys_device() took a reference; this caller only borrows. */
+	put_device(&subsys->dev);
+
 	return 0;
 }
 EXPORT_SYMBOL(subsystem_set_fwname);
@@ -1199,9 +1202,6 @@ int subsystem_crashed(const char *name)
 	if (!dev)
 		return -ENODEV;
 
-	if (!get_device(&dev->dev))
-		return -ENODEV;
-
 	track = subsys_get_track(dev);
 
 	mutex_lock(&track->lock);
@@ -1213,6 +1213,7 @@ int subsystem_crashed(const char *name)
 	 */
 	mutex_unlock(&track->lock);
 
+	/* find_subsys_device() took a reference; this caller only borrows. */
 	put_device(&dev->dev);
 	return 0;
 }
