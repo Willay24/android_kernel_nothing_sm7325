@@ -44,8 +44,8 @@ on:
         description: 'Integrate nomount'
         type: boolean
         default: false
-      enable_eva:
-        description: 'Integrate E.V.A'
+      enable_encore_fas:
+        description: 'Integrate encore_fas'
         type: boolean
         default: false
       enable_basebandguard:
@@ -266,10 +266,19 @@ jobs:
         run: |
           curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/dev/kernel/setup.sh" | bash -s dev
 
-      - name: Setup E.V.A (if enabled)
-        if: ${{ inputs.enable_eva }}
+      - name: Setup encore_fas (if enabled)
+        if: ${{ inputs.enable_encore_fas }}
         run: |
-          curl -LSs "https://raw.githubusercontent.com/Willay24/E.V.A/main/kernel/setup.sh" | bash -s main
+          set -e
+          DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
+          # No argument = latest tag (or branch tip if no tags). Pin with: sh -s -- <tag-or-commit>
+          curl -fsSL "https://raw.githubusercontent.com/rem01project/encore_fas/refs/heads/main/kernel/tools/setup.sh" | sh -s --
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            grep -q '^CONFIG_ENCORE_FAS=' "$DEFCONFIG_PATH" || \
+              echo -e "\n# encore_fas\nCONFIG_ENCORE_FAS=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "::error::Defconfig not found at $DEFCONFIG_PATH"; exit 1
+          fi
 
       - name: Setup Baseband-guard (if enabled)
         if: ${{ inputs.enable_basebandguard }}
@@ -509,7 +518,7 @@ jobs:
           SAFE_TAG="${SAFE_TAG//\//-}"
           [ "${{ inputs.enable_basebandguard }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-BBG"
           [ "${{ inputs.enable_nomount }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-nomount"
-          [ "${{ inputs.enable_eva }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-EVA"
+          [ "${{ inputs.enable_encore_fas }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-EncoreFAS"
           [ "${{ inputs.use_rekernel }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-ReKernel"
 
           ZIP_NAME="${ZIP_PREFIX}-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
