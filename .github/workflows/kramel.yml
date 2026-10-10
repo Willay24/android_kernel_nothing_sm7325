@@ -1,0 +1,230 @@
+name: Kramel Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build from'
+        required: true
+        default: 'Staging-Kernel'
+        type: string
+      compiler:
+        description: 'Compiler to use'
+        required: true
+        default: 'neutron_clang'
+        type: choice
+        options:
+          - neutron_clang
+          - gcc
+      enable_kernelsu_next:
+        description: 'Enable KernelSU?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_basebandguard:
+        description: 'Enable Baseband-guard?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_nomount:
+        description: 'Enable NoMount?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_encore_fas:
+        description: 'Enable Encore FAS?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      release:
+        description: 'Mark as Release build? (otherwise Bleeding-Edge)'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      lto:
+        description: 'LTO mode (Clang only, needs LTO_CLANG_THIN/FULL in the kernel; "default" leaves the defconfig untouched)'
+        required: true
+        default: 'default'
+        type: choice
+        options:
+          - default
+          - thin
+          - full
+      localversion:
+        description: 'Uprev CONFIG_LOCALVERSION to -Spacewar-<value> (leave empty to keep the defconfig value)'
+        required: false
+        default: ''
+        type: string
+      build_headers:
+        description: 'Also build UAPI kernel headers tarball?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      ak3_branch:
+        description: 'AnyKernel3 branch (William24hmar/AnyKernel3)'
+        required: true
+        default: 'master'
+        type: string
+      defconfig:
+        description: 'Defconfig filename (used for KernelSU CONFIG_KSU / Baseband-guard CONFIG_BBG injection)'
+        required: true
+        default: 'phone1_defconfig'
+        type: string
+      kbuild_user:
+        description: 'KBUILD_BUILD_USER'
+        required: true
+        default: 'Willay24'
+        type: string
+      kbuild_host:
+        description: 'KBUILD_BUILD_HOST'
+        required: true
+        default: 'Kali_GNU/Linux-2026.2'
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      # String inputs go through env instead of being pasted into shell scripts.
+      DEFCONFIG: ${{ github.event.inputs.defconfig }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential zstd flex gnupg gperf ccache lz4 \
+            libxml2-utils xsltproc zlib1g-dev libncurses-dev libelf-dev \
+            bzip2 xz-utils git gcc g++ libssl-dev openssl python3 rsync \
+            cpio binutils zip unzip curl device-tree-compiler e2fsprogs \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          dtc --version
+          command -v mke2fs e2fsck resize2fs zip zstd arm-linux-gnueabi-gcc
+
+      - name: Setup KernelSU (if enabled)
+        if: ${{ github.event.inputs.enable_kernelsu_next == 'yes' }}
+        run: |
+          echo "Enabling KernelSU..."
+          curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s master-susfs
+
+          DEFCONFIG_PATH="arch/arm64/configs/${DEFCONFIG}"
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo "Adding CONFIG_KSU=y to defconfig"
+            echo -e "\n# KernelSU\nCONFIG_KSU=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "Defconfig not found at $DEFCONFIG_PATH, skipping CONFIG_KSU injection"
+          fi
+
+      - name: Setup nomount (if enabled)
+        if: ${{ github.event.inputs.enable_nomount == 'yes' }}
+        run: |
+          echo "Enabling NoMount..."
+          curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/dev/kernel/setup.sh" | bash -s dev
+          echo "nomount (dev) setup complete"
+
+      - name: Setup Encore FAS (if enabled)
+        if: ${{ github.event.inputs.enable_encore_fas == 'yes' }}
+        run: |
+          echo "Enabling Encore FAS..."
+          curl https://raw.githubusercontent.com/rem01project/encore_fas/refs/heads/main/kernel/scripts/setup.sh | bash
+
+      - name: Setup Baseband-guard (if enabled)
+        if: ${{ github.event.inputs.enable_basebandguard == 'yes' }}
+        run: |
+          set -e
+          DEFCONFIG_PATH="arch/arm64/configs/${DEFCONFIG}"
+          echo "Integrating Baseband-guard LSM..."
+          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo "Injecting CONFIG_BBG=y into defconfig ($DEFCONFIG_PATH)"
+            echo -e "\n# Baseband-guard\nCONFIG_BBG=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "Defconfig not found at $DEFCONFIG_PATH, skipping CONFIG_BBG injection"
+          fi
+          if [ -f "security/Kconfig" ]; then
+            echo "Patching security/Kconfig LSM default list..."
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+            echo "security/Kconfig patched (baseband_guard added to LSM default list)"
+          else
+            echo "security/Kconfig not found, skipping LSM default patch"
+          fi
+
+      - name: Run kramel.sh
+        env:
+          COMPILER: ${{ github.event.inputs.compiler == 'neutron_clang' && 'clang' || 'gcc' }}
+          RELEASE: ${{ github.event.inputs.release == 'yes' && '1' || '0' }}
+          KBUILD_BUILD_USER: ${{ github.event.inputs.kbuild_user }}
+          KBUILD_BUILD_HOST: ${{ github.event.inputs.kbuild_host }}
+          AK3_BRANCH: ${{ github.event.inputs.ak3_branch }}
+          LTO: ${{ github.event.inputs.lto }}
+          LOCALVERSION_VALUE: ${{ github.event.inputs.localversion }}
+          BUILD_HEADERS: ${{ github.event.inputs.build_headers }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          chmod +x kramel.sh
+          ARGS=()
+          [ "$LTO" != "default" ] && ARGS+=("--lto=$LTO")
+          [ -n "$LOCALVERSION_VALUE" ] && ARGS+=("--upr=$LOCALVERSION_VALUE")
+          ARGS+=(img)
+          [ "$BUILD_HEADERS" = "yes" ] && ARGS+=(hdr)
+          ARGS+=(mkzip)
+          echo "Running: ./kramel.sh ${ARGS[*]}"
+          ./kramel.sh "${ARGS[@]}"
+
+      - name: Verify injected configs reached the build
+        env:
+          ENABLE_KSU: ${{ github.event.inputs.enable_kernelsu_next }}
+          ENABLE_BBG: ${{ github.event.inputs.enable_basebandguard }}
+        run: |
+          [ -f out/.config ] || exit 0
+          if [ "$ENABLE_KSU" = "yes" ] && ! grep -q '^CONFIG_KSU=[ym]$' out/.config; then
+            echo "::warning::KernelSU is enabled but CONFIG_KSU is not set in the built .config. kramel.sh builds phone1_defconfig, so the 'defconfig' input must point at that file (or one it includes)."
+          fi
+          if [ "$ENABLE_BBG" = "yes" ] && ! grep -q '^CONFIG_BBG=y$' out/.config; then
+            echo "::warning::Baseband-guard is enabled but CONFIG_BBG is not set in the built .config. Check the 'defconfig' input."
+          fi
+
+      - name: Collect built artifacts
+        run: |
+          mkdir -p artifacts
+          cp out/dist/*.zip artifacts/
+          cp out/dist/kernel-uapi-headers.tar.gz artifacts/ 2>/dev/null || true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-kernel
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Upload build log (on failure)
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: log.txt
+          if-no-files-found: ignore
