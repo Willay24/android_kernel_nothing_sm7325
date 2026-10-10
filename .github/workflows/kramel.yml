@@ -1,0 +1,372 @@
+name: Kramel Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to build from'
+        required: true
+        default: 'Staging-Kernel'
+        type: string
+      compiler:
+        description: 'Compiler to use'
+        required: true
+        default: 'neutron_clang'
+        type: choice
+        options:
+          - neutron_clang
+          - slim_llvm
+          - gcc
+      slim_llvm_version:
+        description: "Slim LLVM version (e.g. 23.1.6) or 'latest' to auto-detect the newest on kernel.org. Only used when compiler = slim_llvm"
+        required: false
+        default: 'latest'
+        type: string
+      enable_kernelsu_next:
+        description: 'Enable KernelSU?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_basebandguard:
+        description: 'Enable Baseband-guard?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_nomount:
+        description: 'Enable NoMount?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      enable_encore_fas:
+        description: 'Enable Encore FAS?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      release:
+        description: 'Mark as Release build? (otherwise Bleeding-Edge)'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      lto:
+        description: 'LTO mode (Neutron / Slim LLVM only, needs LTO_CLANG_THIN/FULL in the kernel; "default" leaves the defconfig untouched)'
+        required: true
+        default: 'default'
+        type: choice
+        options:
+          - default
+          - thin
+          - full
+      localversion:
+        description: 'Uprev CONFIG_LOCALVERSION to -Spacewar-<value> (leave empty to keep the defconfig value)'
+        required: false
+        default: ''
+        type: string
+      build_headers:
+        description: 'Also build UAPI kernel headers tarball?'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      ak3_branch:
+        description: 'AnyKernel3 branch (William24hmar/AnyKernel3)'
+        required: true
+        default: 'master'
+        type: string
+      defconfig:
+        description: 'Defconfig filename (used for KernelSU CONFIG_KSU / Baseband-guard CONFIG_BBG injection)'
+        required: true
+        default: 'phone1_defconfig'
+        type: string
+      build_tag:
+        description: 'Build tag for the ZIP name (e.g. Test / Perf / Normal)'
+        required: true
+        default: 'Normal'
+        type: string
+      use_ccache:
+        description: 'Use ccache (restore / save cache)?'
+        required: true
+        default: 'yes'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      build_timestamp:
+        description: 'Custom KBUILD_BUILD_TIMESTAMP (leave empty for current time)'
+        required: false
+        default: ''
+        type: string
+      auto_build_identity:
+        description: 'Auto build identity? (KBUILD_BUILD_USER = commit hash, KBUILD_BUILD_HOST = branch name; overrides the two fields below)'
+        required: true
+        default: 'no'
+        type: choice
+        options:
+          - 'yes'
+          - 'no'
+      kbuild_user:
+        description: 'KBUILD_BUILD_USER'
+        required: true
+        default: 'Willay24'
+        type: string
+      kbuild_host:
+        description: 'KBUILD_BUILD_HOST'
+        required: true
+        default: 'Kali_GNU/Linux-2026.2'
+        type: string
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      # String inputs go through env instead of being pasted into shell scripts.
+      DEFCONFIG: ${{ github.event.inputs.defconfig }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.branch }}
+
+      - name: Install Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            bc bison build-essential zstd flex gnupg gperf ccache lz4 \
+            libxml2-utils xsltproc zlib1g-dev libncurses-dev libelf-dev \
+            bzip2 xz-utils git gcc g++ libssl-dev openssl python3 rsync \
+            cpio binutils zip unzip curl device-tree-compiler e2fsprogs fakeroot \
+            gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          dtc --version
+          command -v mke2fs e2fsck resize2fs zip zstd arm-linux-gnueabi-gcc
+
+      - name: Setup build environment
+        env:
+          USE_CCACHE_INPUT: ${{ github.event.inputs.use_ccache }}
+          BUILD_TIMESTAMP_INPUT: ${{ github.event.inputs.build_timestamp }}
+        run: |
+          # Toolchains (and the cached Slim LLVM tarball) live here; kramel.sh reads TC_DIR.
+          echo "TC_DIR=$RUNNER_TEMP/Nothing-Built" >> "$GITHUB_ENV"
+
+          if [ "$USE_CCACHE_INPUT" = "yes" ]; then
+            mkdir -p "$GITHUB_WORKSPACE/.ccache"
+            {
+              echo "CCACHE_DIR=$GITHUB_WORKSPACE/.ccache"
+              echo "CCACHE_MAXSIZE=10G"
+              echo "USE_CCACHE=1"
+              echo "CCACHE_COMPILERCHECK=content"
+              echo "CCACHE_SLOPPINESS=file_macro,include_file_mtime,time_macros"
+            } >> "$GITHUB_ENV"
+          else
+            echo "USE_CCACHE=0" >> "$GITHUB_ENV"
+          fi
+
+          echo "KBUILD_BUILD_TIMESTAMP=${BUILD_TIMESTAMP_INPUT:-$(date -u +'%a %b %d %H:%M:%S UTC %Y')}" >> "$GITHUB_ENV"
+
+      - name: Restore ccache
+        if: ${{ github.event.inputs.use_ccache == 'yes' }}
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ github.event.inputs.compiler }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ github.event.inputs.compiler }}-
+
+      - name: Zero ccache stats
+        if: ${{ github.event.inputs.use_ccache == 'yes' }}
+        run: ccache -z
+
+      - name: Resolve Slim LLVM version
+        if: ${{ github.event.inputs.compiler == 'slim_llvm' }}
+        env:
+          REQ_VER: ${{ github.event.inputs.slim_llvm_version }}
+        run: |
+          set -euo pipefail
+          BASE_URL="https://mirrors.edge.kernel.org/pub/tools/llvm/files"
+
+          # Every x86_64 version published on the mirror, oldest -> newest
+          LISTING=$(curl -fsSL --retry 3 "$BASE_URL/")
+          AVAILABLE=$(printf '%s\n' "$LISTING" \
+            | grep -oE 'llvm-[0-9]+\.[0-9]+\.[0-9]+-x86_64\.tar\.xz' \
+            | sed -E 's/^llvm-(.*)-x86_64\.tar\.xz$/\1/' \
+            | sort -uV)
+          [ -n "$AVAILABLE" ] || { echo "::error::Could not parse any versions from $BASE_URL/"; exit 1; }
+
+          # Normalise input: trim spaces, drop optional leading 'v' / 'llvm-'
+          REQ_VER="$(echo "${REQ_VER:-latest}" | xargs)"
+          REQ_VER="${REQ_VER#llvm-}"; REQ_VER="${REQ_VER#v}"
+
+          if [ -z "$REQ_VER" ] || [ "${REQ_VER,,}" = "latest" ]; then
+            VER=$(printf '%s\n' "$AVAILABLE" | tail -n1)
+            echo "Latest Slim LLVM on mirror: $VER"
+          else
+            if ! printf '%s\n' "$AVAILABLE" | grep -Fxq -- "$REQ_VER"; then
+              echo "::error::Slim LLVM '$REQ_VER' not found on mirror. Available versions:"
+              printf '%s\n' "$AVAILABLE" | tail -n 20
+              exit 1
+            fi
+            VER="$REQ_VER"
+            echo "Using requested Slim LLVM: $VER"
+          fi
+
+          # kramel.sh reads SLIM_LLVM_VERSION, so hand it the resolved number.
+          echo "SLIM_LLVM_VERSION=$VER" >> "$GITHUB_ENV"
+
+      - name: Cache Slim LLVM tarball
+        if: ${{ github.event.inputs.compiler == 'slim_llvm' }}
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TC_DIR }}/downloads
+          key: llvm-${{ env.SLIM_LLVM_VERSION }}-x86_64
+
+      - name: Setup KernelSU (if enabled)
+        if: ${{ github.event.inputs.enable_kernelsu_next == 'yes' }}
+        run: |
+          echo "Enabling KernelSU..."
+          curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s master-susfs
+
+          DEFCONFIG_PATH="arch/arm64/configs/${DEFCONFIG}"
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo "Adding CONFIG_KSU=y to defconfig"
+            echo -e "\n# KernelSU\nCONFIG_KSU=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "Defconfig not found at $DEFCONFIG_PATH, skipping CONFIG_KSU injection"
+          fi
+
+      - name: Setup nomount (if enabled)
+        if: ${{ github.event.inputs.enable_nomount == 'yes' }}
+        run: |
+          echo "Enabling NoMount..."
+          curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/dev/kernel/setup.sh" | bash -s dev
+          echo "nomount (dev) setup complete"
+
+      - name: Setup Encore FAS (if enabled)
+        if: ${{ github.event.inputs.enable_encore_fas == 'yes' }}
+        run: |
+          echo "Enabling Encore FAS..."
+          curl https://raw.githubusercontent.com/rem01project/encore_fas/refs/heads/main/kernel/scripts/setup.sh | bash
+
+      - name: Setup Baseband-guard (if enabled)
+        if: ${{ github.event.inputs.enable_basebandguard == 'yes' }}
+        run: |
+          set -e
+          DEFCONFIG_PATH="arch/arm64/configs/${DEFCONFIG}"
+          echo "Integrating Baseband-guard LSM..."
+          wget -O- https://github.com/vc-teahouse/Baseband-guard/raw/main/setup.sh | bash
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo "Injecting CONFIG_BBG=y into defconfig ($DEFCONFIG_PATH)"
+            echo -e "\n# Baseband-guard\nCONFIG_BBG=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "Defconfig not found at $DEFCONFIG_PATH, skipping CONFIG_BBG injection"
+          fi
+          if [ -f "security/Kconfig" ]; then
+            echo "Patching security/Kconfig LSM default list..."
+            sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
+            echo "security/Kconfig patched (baseband_guard added to LSM default list)"
+          else
+            echo "security/Kconfig not found, skipping LSM default patch"
+          fi
+
+      - name: Compose build tag
+        env:
+          TAG_INPUT: ${{ github.event.inputs.build_tag }}
+          ENABLE_KSU: ${{ github.event.inputs.enable_kernelsu_next }}
+          ENABLE_BBG: ${{ github.event.inputs.enable_basebandguard }}
+          ENABLE_NOMOUNT: ${{ github.event.inputs.enable_nomount }}
+          ENABLE_ENCORE: ${{ github.event.inputs.enable_encore_fas }}
+        run: |
+          TAG="${TAG_INPUT:-Normal}"
+          TAG="${TAG// /-}"
+          TAG="${TAG//\//-}"
+          [ "$ENABLE_KSU" = "yes" ] && TAG="${TAG}-KSU"
+          [ "$ENABLE_BBG" = "yes" ] && TAG="${TAG}-BBG"
+          [ "$ENABLE_NOMOUNT" = "yes" ] && TAG="${TAG}-nomount"
+          [ "$ENABLE_ENCORE" = "yes" ] && TAG="${TAG}-EncoreFAS"
+          echo "BUILD_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "Build tag: $TAG"
+
+      - name: Run kramel.sh
+        env:
+          COMPILER: ${{ github.event.inputs.compiler == 'neutron_clang' && 'clang' || (github.event.inputs.compiler == 'slim_llvm' && 'slim' || 'gcc') }}
+          AUTO_BUILD_IDENTITY: ${{ github.event.inputs.auto_build_identity == 'yes' && '1' || '0' }}
+          RELEASE: ${{ github.event.inputs.release == 'yes' && '1' || '0' }}
+          KBUILD_BUILD_USER: ${{ github.event.inputs.kbuild_user }}
+          KBUILD_BUILD_HOST: ${{ github.event.inputs.kbuild_host }}
+          AK3_BRANCH: ${{ github.event.inputs.ak3_branch }}
+          LTO: ${{ github.event.inputs.lto }}
+          LOCALVERSION_VALUE: ${{ github.event.inputs.localversion }}
+          BUILD_HEADERS: ${{ github.event.inputs.build_headers }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          chmod +x kramel.sh
+          ARGS=()
+          [ "$LTO" != "default" ] && ARGS+=("--lto=$LTO")
+          [ -n "$LOCALVERSION_VALUE" ] && ARGS+=("--upr=$LOCALVERSION_VALUE")
+          ARGS+=(img)
+          [ "$BUILD_HEADERS" = "yes" ] && ARGS+=(hdr)
+          ARGS+=(mkzip)
+          echo "Running: ./kramel.sh ${ARGS[*]}"
+          ./kramel.sh "${ARGS[@]}"
+
+      - name: Verify injected configs reached the build
+        env:
+          ENABLE_KSU: ${{ github.event.inputs.enable_kernelsu_next }}
+          ENABLE_BBG: ${{ github.event.inputs.enable_basebandguard }}
+        run: |
+          [ -f out/.config ] || exit 0
+          if [ "$ENABLE_KSU" = "yes" ] && ! grep -q '^CONFIG_KSU=[ym]$' out/.config; then
+            echo "::warning::KernelSU is enabled but CONFIG_KSU is not set in the built .config. kramel.sh builds phone1_defconfig, so the 'defconfig' input must point at that file (or one it includes)."
+          fi
+          if [ "$ENABLE_BBG" = "yes" ] && ! grep -q '^CONFIG_BBG=y$' out/.config; then
+            echo "::warning::Baseband-guard is enabled but CONFIG_BBG is not set in the built .config. Check the 'defconfig' input."
+          fi
+
+      - name: Show ccache stats
+        if: ${{ always() && github.event.inputs.use_ccache == 'yes' }}
+        run: ccache -s || true
+
+      - name: Save ccache
+        if: ${{ always() && github.event.inputs.use_ccache == 'yes' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ steps.cache-restore.outputs.cache-primary-key }}
+
+      - name: Collect built artifacts
+        run: |
+          mkdir -p artifacts
+          cp out/dist/*.zip artifacts/
+          cp out/dist/kernel-uapi-headers.tar.gz artifacts/ 2>/dev/null || true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: compiled-kernel
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Upload build log (on failure)
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: log.txt
+          if-no-files-found: ignore
