@@ -56,6 +56,8 @@
 #define LLCC_DISP_WB     53
 #define LLCC_DISP_1      54
 #define LLCC_VIDVSP      64
+#define LLCC_QPACE_COMPRESSION 95
+#define LLCC_QPACE_DECOMPRESSION 96
 
 /**
  * llcc_slice_desc - Cache slice descriptor
