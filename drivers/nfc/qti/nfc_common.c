@@ -677,8 +677,10 @@ long nfc_dev_ioctl(struct file *pfile, unsigned int cmd, unsigned long arg)
 	case NFC_GET_PLATFORM_TYPE:
 		ret = nfc_dev->interface;
 		break;
+	case NFC_SET_RX_BLOCK:
+		break;
 	default:
-		pr_err("%s bad cmd %lu\n", __func__, arg);
+		pr_err("%s bad ioctl cmd 0x%08x arg %lu\n", __func__, cmd, arg);
 		ret = -ENOIOCTLCMD;
 	}
 	return ret;
@@ -943,7 +945,8 @@ err_nfcc_reset_failed:
 		pr_debug("%s: ## NFCC == SN100x ##\n", __func__);
 		break;
 	default:
-		pr_err("%s: - NFCC HW not Supported\n", __func__);
+		pr_info("%s: unrecognized chip_type 0x%x, continuing\n", __func__,
+			nfc_dev->nqx_info.info.chip_type);
 		break;
 	}
 
