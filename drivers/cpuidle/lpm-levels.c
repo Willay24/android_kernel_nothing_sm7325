@@ -131,7 +131,17 @@ static struct notifier_block drm_notifier = {
 	.notifier_call = lpm_drm_panel_notify,
 };
 
-extern struct drm_panel *get_panel(void);
+int lpm_levels_register_panel(struct drm_panel *panel)
+{
+	int ret = drm_panel_notifier_register(panel, &drm_notifier);
+
+	if (ret)
+		pr_err("Failed to register DRM panel notifier, ret=%d\n", ret);
+	else
+		pr_info("Registered DRM panel notifier\n");
+	return ret;
+}
+
 #else
 static bool sleep_disabled;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0664);
@@ -144,6 +154,9 @@ static int lpm_cpu_qos_notify(struct notifier_block *nb,
 static struct notifier_block dev_pm_qos_nb[MAX_LPM_CPUS] = {
 	[0 ... (MAX_LPM_CPUS - 1)] = { .notifier_call = lpm_cpu_qos_notify },
 };
+#endif
+#ifndef CONFIG_DRM_PANEL
+int lpm_levels_register_panel(struct drm_panel *panel) { return 0; }
 #endif
 
 static bool check_cpu_isolated(int cpu)
@@ -1762,18 +1775,6 @@ static int lpm_probe(struct platform_device *pdev)
 	unsigned int cpu;
 	struct hrtimer *cpu_histtimer;
 	struct kobject *module_kobj = NULL;
-#ifdef CONFIG_DRM_PANEL
-	struct drm_panel *active_panel = get_panel();
-
-	if (!active_panel)
-		return -EPROBE_DEFER;
-
-	ret = drm_panel_notifier_register(active_panel, &drm_notifier);
-	if (ret)
-		pr_err("Failed to register DRM panel notifier, ret=%d\n", ret);
-	else
-		pr_info("Registered DRM panel notifier\n");
-#endif
 
 	get_online_cpus();
 	lpm_root_node = lpm_of_parse_cluster(pdev);
