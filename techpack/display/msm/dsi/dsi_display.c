@@ -22,6 +22,13 @@
 #include "sde_dbg.h"
 #include "dsi_parser.h"
 #include <video/mipi_display.h>
+#ifdef CONFIG_DRM_PANEL
+extern int lpm_levels_register_panel(struct drm_panel *panel);
+static bool lpm_panel_registered;
+#ifdef CONFIG_NOTHING_THERMAL_INTERFACE
+extern int nothing_thermal_register_panel(struct drm_panel *panel);
+#endif
+#endif
 
 #define to_dsi_display(x) container_of(x, struct dsi_display, host)
 #define INT_BASE_10 10
@@ -5817,6 +5824,15 @@ static int dsi_display_bind(struct device *dev,
 			       display->name, rc);
 		goto error_host_deinit;
 	}
+
+#ifdef CONFIG_DRM_PANEL
+	if (!lpm_panel_registered &&
+	    !lpm_levels_register_panel(&display->panel->drm_panel))
+		lpm_panel_registered = true;
+#ifdef CONFIG_NOTHING_THERMAL_INTERFACE
+	nothing_thermal_register_panel(&display->panel->drm_panel);
+#endif
+#endif
 
 	DSI_INFO("Successfully bind display panel '%s'\n", display->name);
 	display->drm_dev = drm;
