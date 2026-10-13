@@ -1,0 +1,44 @@
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/clock/mdss-5nm-pll-clk.h>
+#include <dt-bindings/clock/qcom,dispcc-yupik.h>
+#include "dsi-panel-nt-rm692e5-visionox-120hz-cmd.dtsi"
+
+&sde_dsi {
+	vddio-supply = <&L12C>;
+	vdd-supply = <&L13C>;
+
+	qcom,platform-te-gpio = <&tlmm 80 0>;
+	qcom,panel-te-source = <0>;
+
+	/* Must match msm_drm.dsi_display0 on the kernel cmdline */
+	qcom,dsi-default-panel = <&dsi_rm692e5_visionox_amoled_120hz_cmd>;
+	qcom,dsi-dummy-panel = <&dsi_r66451_amoled_144hz_video_cphy>;
+};
+
+&dsi_panel_pwr_supply_rm692e5 {
+	qcom,panel-supply-entry@0 {
+		reg = <0>;
+		qcom,supply-name = "vddio";
+		qcom,supply-min-voltage = <1800000>;
+		qcom,supply-max-voltage = <1800000>;
+		qcom,supply-enable-load = <60700>;
+		qcom,supply-disable-load = <80>;
+		qcom,supply-ulp-load = <30000>;
+		qcom,supply-post-on-sleep = <2>;
+	};
+
+	qcom,panel-supply-entry@1 {
+		reg = <1>;
+		qcom,supply-name = "vdd";
+		qcom,supply-min-voltage = <3000000>;
+		qcom,supply-max-voltage = <3000000>;
+		qcom,supply-enable-load = <30000>;
+		qcom,supply-disable-load = <0>;
+		qcom,supply-post-on-sleep = <0>;
+		qcom,supply-post-off-sleep = <2>;
+	};
+};
+
+&battery_charger {
+	qcom,display-panels = <&dsi_rm692e5_visionox_amoled_120hz_cmd>;
+};
