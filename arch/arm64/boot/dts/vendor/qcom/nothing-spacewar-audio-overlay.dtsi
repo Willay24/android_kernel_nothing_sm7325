@@ -1,9 +1,9 @@
-// nothing-spacewar-audio-overlay.dtsi
-// Nothing Phone (1) "spacewar" audio — SM7325 (Yupik)
-// Speakers: NXP tfa98xx stereo pair on i2c-1 (qupv3_se2_i2c, 0x988000)
-// Haptics:  pm8350b HV haptics + swr-haptics (audio-coupled)
+// SPDX-License-Identifier: GPL-2.0-only
+/* Nothing Phone (1) "spacewar" - audio overlay */
 
-/* ---- disable unused codecs/macros ---- */
+/*
+ * Unused codecs and macros
+ */
 &wsa883x_0221 { status = "disabled"; };
 
 &wsa883x_0222 {
@@ -17,7 +17,9 @@
 &wcd937x_rx_slave { status = "disabled"; };
 &wcd937x_tx_slave { status = "disabled"; };
 
-/* ---- enable what we actually have ---- */
+/*
+ * Codecs and haptics
+ */
 &wcd938x_codec { status = "okay"; };
 &wcd938x_rx_slave { status = "okay"; };
 &wcd938x_tx_slave { status = "okay"; };
@@ -29,13 +31,13 @@
 
 &bolero { qcom,num-macros = <3>; };
 
-/* ---- tfa98xx smart amps: speakers are on PRIMARY MI2S RX ----
- * CPU dai "msm-dai-q6-mi2s.0" (see techpack/audio/asoc/msm_dailink.h: pri_mi2s_rx)
- * Addresses/channels verified against live device (i2c-1 = 0x988000).
+/*
+ * NXP TFA9873 Smart Amp x2 (SE2 i2c, PRI_MI2S_RX)
  */
 &qupv3_se2_i2c {
 	status = "okay";
 
+	/* Primary */
 	tfa98xx_34: tfa98xx@34 {
 		compatible = "tfa,tfa98xx";
 		reg = <0x34>;
@@ -43,6 +45,7 @@
 		status = "okay";
 	};
 
+	/* Secondary */
 	tfa98xx_35: tfa98xx@35 {
 		compatible = "tfa,tfa98xx";
 		reg = <0x35>;
@@ -50,11 +53,12 @@
 	};
 };
 
-/*     sound card     */
+/*
+ * Sound card
+ */
 &yupik_snd {
 	qcom,model = "lahaina-yupikqrd-snd-card";
 
-	/* ensure the MI2S backend links exist even with a custom dtbo */
 	qcom,mi2s-audio-intf = <1>;
 
 	qcom,audio-routing =
@@ -63,7 +67,7 @@
 		"AMIC2", "Analog Mic2",
 		"Analog Mic2", "MIC BIAS2",
 		"AMIC3", "Analog Mic3",
-		"Analog Mic3", "MIC BIAS3", 
+		"Analog Mic3", "MIC BIAS3",
 		"AMIC4", "Analog Mic4",
 		"Analog Mic4", "MIC BIAS1",
 		"AMIC5", "Analog Mic5",
@@ -111,7 +115,7 @@
 	qcom,msm-mbhc-hphl-swh = <0>;
 	qcom,msm-mbhc-gnd-swh = <0>;
 
-	/* PRI_MI2S_RX binds "tfa98xx.1-0034/35" by name (msm_dailink.h). */
+	/* TFA amps are bound by the PRI_MI2S_RX DAI link, not listed here */
 	asoc-codec = <&stub_codec>, <&bolero>,
 		      <&wcd938x_codec>, <&swr_haptics>,
 		      <&ext_disp_audio_codec>;
@@ -122,7 +126,9 @@
 	qcom,swr-dmic-max-devs = <0>;
 };
 
-/* pri-TDM pinctrl kept for the aux/TDM path */
+/*
+ * Primary TDM pinctrl
+ */
 &q6core {
 	cdc_pri_tdm_gpios: pri_tdm_pinctrl {
 		compatible = "qcom,msm-cdc-pinctrl";
