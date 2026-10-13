@@ -1,43 +1,85 @@
-name: Build Kernel with Slim LLVM
+name: Build Kernel LLVM
 
 on:
   workflow_dispatch:
     inputs:
+      compiler:
+        description: 'Toolchain to build with'
+        type: choice
+        required: true
+        default: 'slim'
+        options:
+          - slim
+          - alchemist
       kernel_branch:
-        description: 'Branch to build (e.g., LosKernel-23)'
+        description: 'Branch to build (must match a branch name exactly)'
+        type: string
         required: true
         default: 'Staging-Kernel'
       defconfig:
         description: 'Defconfig name (without path)'
         required: true
         default: 'vendor/lahaina-qgki_defconfig'
-      enable_kernelsu_next:
-        description: 'Enable KernelSU Next (yes/no)'
-        default: 'no'
+      use_ccache:
+        description: 'Use ccache (restore/save cache)'
+        type: boolean
+        default: true
+      build_timestamp:
+        description: 'Custom KBUILD_BUILD_TIMESTAMP (leave empty for current time)'
+        required: false
+        default: ''
+      enable_KernelSU:
+        description: 'Enable KernelSU'
+        type: boolean
+        default: false
+      use_rekernel:
+        description: 'Integrate ReKernel + ReKernel-X (needs KernelSU)'
+        type: boolean
+        default: false
       enable_nomount:
-        description: 'Integrate nomount (yes/no)'
-        default: 'no'
+        description: 'Integrate nomount'
+        type: boolean
+        default: false
       enable_eva:
-        description: 'Integrate E.V.A (yes/no)'
-        default: 'no'
+        description: 'Integrate E.V.A'
+        type: boolean
+        default: false
       enable_basebandguard:
-        description: 'Integrate Baseband-guard LSM (yes/no)'
-        default: 'no'
+        description: 'Integrate Baseband-guard LSM'
+        type: boolean
+        default: false
       package_modules:
-        description: 'Pack .ko modules into the zip (yes/no)'
-        default: 'no'
+        description: 'Pack .ko modules into the zip'
+        type: boolean
+        default: false
       build_tag:
         description: 'Build tag for ZIP name (e.g., Test/Perf/Normal)'
         default: 'Normal'
       enable_signing:
-        description: 'Sign the ZIP with Tenzo keystore (yes/no)'
-        default: 'no'
+        description: 'Sign the ZIP with Tenzo keystore'
+        type: boolean
+        default: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
 
     steps:
+      - name: Verify branch exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ inputs.kernel_branch }}
+        run: |
+          branches=$(gh api "repos/${{ github.repository }}/branches" --paginate -q '.[].name')
+          if ! printf '%s\n' "$branches" | grep -Fxq -- "$BRANCH"; then
+            echo "::error::Branch '$BRANCH' not found. Available branches:"
+            printf '%s\n' "$branches"
+            exit 1
+          fi
+          echo "Branch '$BRANCH' found."
+
       - name: Checkout kernel source
         uses: actions/checkout@v4
         with:
@@ -49,17 +91,48 @@ jobs:
             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -d parse_mode="html" \
             -d disable_web_page_preview=true \
-            -d text="🔨 <b>Kernel Build Triggered</b>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Defconfig:</b> <code>${{ inputs.defconfig }}</code>%0A<b>KernelSU Next:</b> <code>${{ inputs.enable_kernelsu_next }}</code>%0A<b>Signing:</b> <code>${{ inputs.enable_signing }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A<b>Triggered by:</b> <code>${{ github.actor }}</code>"
+            -d text="🔨 <b>Kernel Build Triggered</b>%0A<b>Compiler:</b> <code>${{ inputs.compiler }}</code>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Defconfig:</b> <code>${{ inputs.defconfig }}</code>%0A<b>KernelSU:</b> <code>${{ inputs.enable_kernelsu_next }}</code>%0A<b>ReKernel:</b> <code>${{ inputs.use_rekernel }}</code>%0A<b>Signing:</b> <code>${{ inputs.enable_signing }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A<b>Triggered by:</b> <code>${{ github.actor }}</code>"
 
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
+          sudo apt-get install -yq \
             bc bison flex libssl-dev make libelf-dev lz4 cpio \
             gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi \
             build-essential device-tree-compiler \
-            python3 python3-pip zip git ccache wget xz-utils zstd aria2 \
+            python3 python3-pip zip unzip git ccache wget curl xz-utils zstd aria2 \
+            clang lld golang \
             default-jre openjdk-21-jdk
+
+      - name: Setup build environment and ccache
+        run: |
+          if [ "${{ inputs.use_ccache }}" = "true" ]; then
+            mkdir -p "${{ github.workspace }}/.ccache"
+            echo "CCACHE_DIR=${{ github.workspace }}/.ccache" >> $GITHUB_ENV
+            echo "CCACHE_MAXSIZE=10G" >> $GITHUB_ENV
+            echo "USE_CCACHE=1" >> $GITHUB_ENV
+            echo "CCACHE_COMPILERCHECK=content" >> $GITHUB_ENV
+            echo "CCACHE_SLOPPINESS=file_macro,include_file_mtime,time_macros" >> $GITHUB_ENV
+          else
+            echo "USE_CCACHE=0" >> $GITHUB_ENV
+          fi
+          BUILD_TIME="${{ inputs.build_timestamp }}"
+          echo "KBUILD_BUILD_TIMESTAMP=${BUILD_TIME:-$(date -u +'%a %b %d %H:%M:%S UTC %Y')}" >> $GITHUB_ENV
+          echo "GCC_VER=$(aarch64-linux-gnu-gcc --version | head -n1 | awk '{print $NF}')" >> $GITHUB_ENV
+
+      - name: Restore Ccache
+        if: ${{ inputs.use_ccache }}
+        id: cache-restore
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ccache-${{ inputs.compiler }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ inputs.compiler }}-
+
+      - name: Zero ccache stats
+        if: ${{ inputs.use_ccache }}
+        run: ccache -z
 
       - name: Install mkdtboimg
         run: |
@@ -76,7 +149,11 @@ jobs:
           python3 "$MKDTBOIMG" --help > /dev/null
           echo "MKDTBOIMG=$MKDTBOIMG" >> $GITHUB_ENV
 
+      # ---------------------------------------------------------------
+      # Toolchain selection
+      # ---------------------------------------------------------------
       - name: Setup Slim LLVM toolchain
+        if: ${{ inputs.compiler == 'slim' }}
         run: |
           set -e
           PREFIX="$HOME/build_toolchain"
@@ -93,9 +170,35 @@ jobs:
           echo "$CLANG_DIR/bin" >> $GITHUB_PATH
           echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
           echo "CLANG_LABEL=Slim LLVM 23.1.1" >> $GITHUB_ENV
+          echo "ZIP_PREFIX=SlimLLVM" >> $GITHUB_ENV
+
+      - name: Setup Alchemist-LLVM toolchain
+        if: ${{ inputs.compiler == 'alchemist' }}
+        run: |
+          set -e
+          PREFIX="$HOME/build_toolchain"
+          CLANG_DIR="$PREFIX/clang"
+          mkdir -p "$PREFIX"
+
+          git clone --depth=1 --single-branch \
+            -b clang-22-LTO \
+            https://gitlab.com/nekoshirro/Alchemist-LLVM.git "$CLANG_DIR"
+
+          # Sanity check: make sure the layout is what the kernel build expects
+          for tool in clang ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-strip; do
+            [ -x "$CLANG_DIR/bin/$tool" ] || { echo "Missing $tool in $CLANG_DIR/bin"; ls "$CLANG_DIR"; exit 1; }
+          done
+
+          "$CLANG_DIR/bin/clang" --version | head -1
+          "$CLANG_DIR/bin/ld.lld" --version | head -1
+
+          echo "$CLANG_DIR/bin" >> $GITHUB_PATH
+          echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
+          echo "CLANG_LABEL=Alchemist LLVM (clang-22-LTO)" >> $GITHUB_ENV
+          echo "ZIP_PREFIX=AlchemistLLVM" >> $GITHUB_ENV
 
       - name: Setup KernelSU (if enabled)
-        if: ${{ inputs.enable_kernelsu_next == 'yes' }}
+        if: ${{ inputs.enable_kernelsu_next }}
         run: |
           curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s master-susfs
           DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
@@ -106,17 +209,17 @@ jobs:
           fi
 
       - name: Setup nomount (if enabled)
-        if: ${{ inputs.enable_nomount == 'yes' }}
+        if: ${{ inputs.enable_nomount }}
         run: |
           curl -LSs "https://raw.githubusercontent.com/Willay24/nomount/dev/kernel/setup.sh" | bash -s dev
 
       - name: Setup E.V.A (if enabled)
-        if: ${{ inputs.enable_eva == 'yes' }}
+        if: ${{ inputs.enable_eva }}
         run: |
           curl -LSs "https://raw.githubusercontent.com/Willay24/E.V.A/main/kernel/setup.sh" | bash -s main
 
       - name: Setup Baseband-guard (if enabled)
-        if: ${{ inputs.enable_basebandguard == 'yes' }}
+        if: ${{ inputs.enable_basebandguard }}
         run: |
           set -e
           DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
@@ -130,14 +233,53 @@ jobs:
             sed -i '/^config LSM$/,/^help$/{ /^[[:space:]]*default/ { /baseband_guard/! s/selinux/selinux,baseband_guard/ } }' security/Kconfig
           fi
 
+      - name: Setup ReKernel
+        id: rekernel_setup
+        if: ${{ inputs.use_rekernel }}
+        run: |
+          echo "[+] Setting up ReKernel and ReKernel-X..."
+          REKERNEL_DIR="${{ github.workspace }}/ReKernel"
+          REKERNEL_X_DIR="${{ github.workspace }}/ReKernel_X"
+          DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
+          git clone --filter=blob:none https://github.com/Sakion-Team/Re-Kernel "$REKERNEL_DIR"
+          git clone --filter=blob:none https://github.com/myflavor/ReKernel-X "$REKERNEL_X_DIR"
+          REKERNEL_TAG=$(git -C "$REKERNEL_DIR" describe --tags $(git -C "$REKERNEL_DIR" rev-list --tags -n 1)) && git -C "$REKERNEL_DIR" checkout "tags/$REKERNEL_TAG"
+          REKERNEL_X_TAG=$(git -C "$REKERNEL_X_DIR" describe --tags $(git -C "$REKERNEL_X_DIR" rev-list --tags -n 1)) && git -C "$REKERNEL_X_DIR" checkout "tags/$REKERNEL_X_TAG"
+          cp -r "$REKERNEL_DIR"/LKM-Source drivers/rekernel
+          sed -i 's/depends on MODULES/depends on KSU/' drivers/rekernel/Kconfig
+          sed -i 's/obj-m := rekernel.o/obj-$(CONFIG_REKERNEL) += rekernel.o/' drivers/rekernel/Makefile
+          echo 'obj-$(CONFIG_REKERNEL) += rekernel/' >> drivers/Makefile
+          grep -q "drivers/rekernel/Kconfig" drivers/Kconfig || sed -i '/endmenu/i source "drivers/rekernel/Kconfig"' drivers/Kconfig
+          cp -r "$REKERNEL_X_DIR"/LKM-Source drivers/rekernel_x
+          sed -i 's/\bstart_rekernel\b/rkx_start/g; s/\bexit_rekernel\b/rkx_exit/g; s/\bsendMessage\b/rkx_sendMessage/g; s/\bnet_uid_add\b/rkx_net_uid_add/g; s/\bnet_uid_del\b/rkx_net_uid_del/g; s/\bregister_signal\b/rkx_register_signal/g; s/\bunregister_signal\b/rkx_unregister_signal/g; s/\bregister_netfilter\b/rkx_register_netfilter/g; s/\bunregister_netfilter\b/rkx_unregister_netfilter/g; s/\bregister_binder\b/rkx_register_binder/g; s/\bunregister_binder\b/rkx_unregister_binder/g' drivers/rekernel_x/*.{c,h}
+          sed -i 's/obj-m += rekernel_x.o/obj-y += rekernel_x.o/' drivers/rekernel_x/Makefile
+          echo 'obj-y += rekernel_x/' >> drivers/Makefile
+          sed -i 's/KERNEL_VERSION(5, 10, 0)/KERNEL_VERSION(5, 4, 0)/g' drivers/rekernel/rekernel_binder.c drivers/rekernel_x/rkx_binder.c 2>/dev/null || true
+          sed -i 's/#include <linux\/uidgid.h>/#include <linux\/uidgid.h>\n#include <linux\/cred.h>\n#include <linux\/seq_file.h>/' drivers/rekernel_x/rkx.h 2>/dev/null || true
+          RKX_TAG_CLEAN="v${REKERNEL_X_TAG#v}"
+          echo "ccflags-y += -DREKERNEL_VERSION=\\\"$REKERNEL_TAG\\\"" >> drivers/rekernel/Makefile
+          echo "ccflags-y += -DRKX_VERSION=\\\"$RKX_TAG_CLEAN\\\"" >> drivers/rekernel_x/Makefile
+          if [ -f "$DEFCONFIG_PATH" ]; then
+            echo -e "\n# ReKernel\nCONFIG_REKERNEL=y\nCONFIG_REKERNEL_NETWORK=y" >> "$DEFCONFIG_PATH"
+          else
+            echo "Defconfig not found at $DEFCONFIG_PATH"; exit 1
+          fi
+          echo "rekernel_tag=$REKERNEL_TAG" >> $GITHUB_OUTPUT
+          echo "rekernel_x_tag=$REKERNEL_X_TAG" >> $GITHUB_OUTPUT
+          echo "REKERNEL_VERSION=$REKERNEL_TAG" >> $GITHUB_ENV
+          echo "RKX_VERSION=$RKX_TAG_CLEAN" >> $GITHUB_ENV
+          echo "[✓] Re:Kernel (tag $REKERNEL_TAG) and Re:Kernel-X (tag $REKERNEL_X_TAG) integrated successfully!"
+
       - name: Configure and build kernel
         run: |
           set -e
+          echo "Compiler: $CLANG_LABEL"
           echo "Toolchain: $CLANG_DIR"
+          which clang
           clang --version | head -1
           ld.lld --version | head -1
 
-          if [ "${{ inputs.enable_kernelsu_next }}" = "yes" ]; then
+          if [ "${{ inputs.enable_kernelsu_next }}" = "true" ]; then
             make O=out ARCH=arm64 "${{ inputs.defconfig }}" ksu.config
           else
             make O=out ARCH=arm64 "${{ inputs.defconfig }}"
@@ -145,11 +287,17 @@ jobs:
 
           scripts/config --file out/.config --disable COMPAT_VDSO --disable THUMB2_COMPAT_VDSO
 
+          if [ "$USE_CCACHE" = "1" ]; then
+            CC_CMD="ccache clang"
+          else
+            CC_CMD="clang"
+          fi
+
           BUILD_FLAGS=(
             ARCH=arm64
             SUBARCH=arm64
             O=out
-            CC="ccache clang"
+            CC="$CC_CMD"
             AR="llvm-ar"
             NM="llvm-nm"
             LD="ld.lld -S"
@@ -171,7 +319,7 @@ jobs:
           make -j$(nproc --all) "${BUILD_FLAGS[@]}" 2>&1 | tee build.log
           [ -f out/arch/arm64/boot/Image ] || { echo "Image not found"; exit 1; }
 
-          if [ "${{ inputs.package_modules }}" = "yes" ]; then
+          if [ "${{ inputs.package_modules }}" = "true" ]; then
             make -j$(nproc --all) "${BUILD_FLAGS[@]}" modules
             if find out -name '*.ko' | grep -q .; then
               make -j$(nproc --all) "${BUILD_FLAGS[@]}" INSTALL_MOD_PATH=modules modules_install
@@ -180,7 +328,16 @@ jobs:
             fi
           fi
 
-          ccache -s
+          if [ "$USE_CCACHE" = "1" ]; then
+            ccache -s
+          fi
+
+      - name: Save Ccache
+        if: ${{ always() && inputs.use_ccache }}
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ github.workspace }}/.ccache
+          key: ${{ steps.cache-restore.outputs.cache-primary-key }}
 
       - name: Build dtb / dtb.img / dtbo.img
         run: |
@@ -215,7 +372,7 @@ jobs:
           done
 
       - name: Package kernel modules for AnyKernel3
-        if: ${{ inputs.package_modules == 'yes' }}
+        if: ${{ inputs.package_modules }}
         run: |
           set -e
           [ -d out/modules ] || { echo "out/modules not present — nothing to package"; exit 0; }
@@ -260,17 +417,18 @@ jobs:
           SAFE_TAG="${{ inputs.build_tag }}"
           SAFE_TAG="${SAFE_TAG// /-}"
           SAFE_TAG="${SAFE_TAG//\//-}"
-          [ "${{ inputs.enable_basebandguard }}" = "yes" ] && SAFE_TAG="${SAFE_TAG}-BBG"
-          [ "${{ inputs.enable_nomount }}" = "yes" ] && SAFE_TAG="${SAFE_TAG}-nomount"
-          [ "${{ inputs.enable_eva }}" = "yes" ] && SAFE_TAG="${SAFE_TAG}-EVA"
+          [ "${{ inputs.enable_basebandguard }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-BBG"
+          [ "${{ inputs.enable_nomount }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-nomount"
+          [ "${{ inputs.enable_eva }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-EVA"
+          [ "${{ inputs.use_rekernel }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-ReKernel"
 
-          ZIP_NAME="SlimLLVM-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
+          ZIP_NAME="${ZIP_PREFIX}-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
           (cd anykernel && zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md")
           echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
           echo "Zip created: $ZIP_NAME ($(du -sh "$ZIP_NAME" | cut -f1))"
 
       - name: Generate signing keystore
-        if: ${{ inputs.enable_signing == 'yes' }}
+        if: ${{ inputs.enable_signing }}
         run: |
           set -e
           SIGNER_DIR="$HOME/.gf"
@@ -333,7 +491,7 @@ jobs:
           echo "SIGNER_DIR=$SIGNER_DIR" >> $GITHUB_ENV
 
       - name: Sign flashable ZIP
-        if: ${{ inputs.enable_signing == 'yes' }}
+        if: ${{ inputs.enable_signing }}
         run: |
           set -e
           SIGNER_DIR="$HOME/.gf"
@@ -359,7 +517,7 @@ jobs:
       - name: Upload flashable ZIP
         uses: actions/upload-artifact@v4
         with:
-          name: SlimLLVM-Kernel-${{ github.run_number }}
+          name: ${{ env.ZIP_PREFIX }}-Kernel-${{ github.run_number }}
           path: ${{ env.ZIP_FILE }}
 
       - name: Push ZIP to Telegram
@@ -370,7 +528,8 @@ jobs:
           CAPTION="✅ Build Successful
           Branch: ${{ inputs.kernel_branch }}
           Tag: ${{ inputs.build_tag }}
-          KernelSU Next: ${{ inputs.enable_kernelsu_next }}
+          KernelSU: ${{ inputs.enable_kernelsu_next }}
+          ReKernel: ${{ inputs.use_rekernel }}
           Signed: ${{ inputs.enable_signing }}
           Compiler: ${{ env.CLANG_LABEL }}
           Size: $SIZE
@@ -386,7 +545,7 @@ jobs:
             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -d parse_mode="html" \
             -d disable_web_page_preview=true \
-            -d text="❌ <b>Build Failed</b>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            -d text="❌ <b>Build Failed</b>%0A<b>Compiler:</b> <code>${{ inputs.compiler }}</code>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
           if [ -f build.log ]; then
             curl -s -F document=@build.log "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendDocument" \
               -F chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
