@@ -20,6 +20,10 @@ on:
         description: 'Defconfig name (without path)'
         required: true
         default: 'vendor/lahaina-qgki_defconfig'
+      anykernel_branch:
+        description: 'AnyKernel3 branch (William24hmar/AnyKernel3) holding your flash script'
+        type: string
+        default: 'master'
       use_ccache:
         description: 'Use ccache (restore/save cache)'
         type: boolean
@@ -28,7 +32,7 @@ on:
         description: 'Custom KBUILD_BUILD_TIMESTAMP (leave empty for current time)'
         required: false
         default: ''
-      enable_KernelSU:
+      enable_kernelsu:
         description: 'Enable KernelSU'
         type: boolean
         default: false
@@ -50,6 +54,10 @@ on:
         default: false
       package_modules:
         description: 'Pack .ko modules into the zip'
+        type: boolean
+        default: false
+      pack_7z:
+        description: 'Compress Image/dtb/modules into .7z inside the zip (AnyKernel3 must extract them)'
         type: boolean
         default: false
       build_tag:
@@ -91,7 +99,7 @@ jobs:
             -d chat_id="${{ secrets.TELEGRAM_CHAT_ID }}" \
             -d parse_mode="html" \
             -d disable_web_page_preview=true \
-            -d text="🔨 <b>Kernel Build Triggered</b>%0A<b>Compiler:</b> <code>${{ inputs.compiler }}</code>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Defconfig:</b> <code>${{ inputs.defconfig }}</code>%0A<b>KernelSU:</b> <code>${{ inputs.enable_kernelsu_next }}</code>%0A<b>ReKernel:</b> <code>${{ inputs.use_rekernel }}</code>%0A<b>Signing:</b> <code>${{ inputs.enable_signing }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A<b>Triggered by:</b> <code>${{ github.actor }}</code>"
+            -d text="🔨 <b>Kernel Build Triggered</b>%0A<b>Compiler:</b> <code>${{ inputs.compiler }}</code>%0A<b>Branch:</b> <code>${{ inputs.kernel_branch }}</code>%0A<b>Defconfig:</b> <code>${{ inputs.defconfig }}</code>%0A<b>KernelSU:</b> <code>${{ inputs.enable_kernelsu }}</code>%0A<b>ReKernel:</b> <code>${{ inputs.use_rekernel }}</code>%0A<b>Signing:</b> <code>${{ inputs.enable_signing }}</code>%0A<b>Tag:</b> <code>${{ inputs.build_tag }}</code>%0A<b>Triggered by:</b> <code>${{ github.actor }}</code>"
 
       - name: Install system dependencies
         run: |
@@ -103,6 +111,34 @@ jobs:
             python3 python3-pip zip unzip git ccache wget curl xz-utils zstd aria2 \
             clang lld golang \
             default-jre openjdk-21-jdk
+
+      - name: Setup 7za and HDiffPatch
+        run: |
+          set -e
+          SEVENZ_VER="26.03"
+          HDIFF_VER="4.12.2"
+          BIN_DIR="$HOME/.local/bin"
+          WORK="$(mktemp -d)"
+          mkdir -p "$BIN_DIR"
+
+          echo "Downloading 7za..."
+          cd "$WORK"
+          wget -nv "https://github.com/ip7z/7zip/releases/download/${SEVENZ_VER}/7z${SEVENZ_VER//./}-linux-x64.tar.xz" -O 7z.tar.xz
+          mkdir 7z && tar -xJf 7z.tar.xz -C 7z
+          cp 7z/7zzs "$BIN_DIR/7za"
+          chmod +x "$BIN_DIR/7za"
+
+          echo "Downloading HDiffPatch..."
+          wget -nv "https://github.com/sisong/HDiffPatch/releases/download/v${HDIFF_VER}/hdiffpatch_v${HDIFF_VER}_bin_linux64.zip" -O hdiffpatch.zip
+          "$BIN_DIR/7za" x -y hdiffpatch.zip -ohdiffpatch > /dev/null
+          cp hdiffpatch/linux64/hdiffz hdiffpatch/linux64/hpatchz "$BIN_DIR/"
+          chmod +x "$BIN_DIR/hdiffz" "$BIN_DIR/hpatchz"
+
+          echo "$BIN_DIR" >> $GITHUB_PATH
+          cd "$GITHUB_WORKSPACE"
+          rm -rf "$WORK"
+          "$BIN_DIR/7za" | sed -n 2p
+          "$BIN_DIR/hdiffz" 2>&1 | head -1
 
       - name: Setup build environment and ccache
         run: |
@@ -156,8 +192,9 @@ jobs:
         if: ${{ inputs.compiler == 'slim' }}
         run: |
           set -e
+          LLVM_VER="23.1.3"
           PREFIX="$HOME/build_toolchain"
-          CLANG="llvm-23.1.1-x86_64"
+          CLANG="llvm-${LLVM_VER}-x86_64"
           mkdir -p "$PREFIX"
           cd "$PREFIX"
           aria2c -q "https://mirrors.edge.kernel.org/pub/tools/llvm/files/$CLANG.tar.xz"
@@ -169,7 +206,7 @@ jobs:
 
           echo "$CLANG_DIR/bin" >> $GITHUB_PATH
           echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
-          echo "CLANG_LABEL=Slim LLVM 23.1.1" >> $GITHUB_ENV
+          echo "CLANG_LABEL=Slim LLVM ${LLVM_VER}" >> $GITHUB_ENV
           echo "ZIP_PREFIX=SlimLLVM" >> $GITHUB_ENV
 
       - name: Setup Alchemist-LLVM toolchain
@@ -198,7 +235,7 @@ jobs:
           echo "ZIP_PREFIX=AlchemistLLVM" >> $GITHUB_ENV
 
       - name: Setup KernelSU (if enabled)
-        if: ${{ inputs.enable_kernelsu_next }}
+        if: ${{ inputs.enable_kernelsu }}
         run: |
           curl -LSs "https://raw.githubusercontent.com/Willay24/KernelSU/master/kernel/setup.sh" | bash -s master-susfs
           DEFCONFIG_PATH="arch/arm64/configs/${{ inputs.defconfig }}"
@@ -279,7 +316,7 @@ jobs:
           clang --version | head -1
           ld.lld --version | head -1
 
-          if [ "${{ inputs.enable_kernelsu_next }}" = "true" ]; then
+          if [ "${{ inputs.enable_kernelsu }}" = "true" ]; then
             make O=out ARCH=arm64 "${{ inputs.defconfig }}" ksu.config
           else
             make O=out ARCH=arm64 "${{ inputs.defconfig }}"
@@ -363,12 +400,30 @@ jobs:
           ls -lh "$BOOT_OUT"/{Image,dtb,dtb.img,dtbo.img} 2>/dev/null || true
 
       - name: Prepare AnyKernel3 package
+        env:
+          AK3_BRANCH: ${{ inputs.anykernel_branch }}
         run: |
-          git clone --depth=1 https://github.com/William24hmar/AnyKernel3.git -b master anykernel
+          set -e
+          git clone --depth=1 https://github.com/William24hmar/AnyKernel3.git -b "$AK3_BRANCH" anykernel
+          echo "AnyKernel3: $AK3_BRANCH @ $(git -C anykernel log -1 --format='%h %s')"
           BOOT_OUT="out/arch/arm64/boot"
-          cp "$BOOT_OUT/Image" anykernel/
-          for f in dtb dtb.img dtbo.img; do
-            [ -f "$BOOT_OUT/$f" ] && cp "$BOOT_OUT/$f" anykernel/ || echo "$f not found"
+
+          # Show the toolchain that was actually used in the flash screen
+          sed -i "s|^kernel.compiler=.*|kernel.compiler=${CLANG_LABEL}|" anykernel/anykernel.sh
+
+          # Warn if the flash script expects files this branch does not have
+          if grep -q rollback_if_abort_flag anykernel/anykernel.sh; then
+            for f in _restore_anykernel.sh _rollback_anykernel.sh tools/7za tools/keycheck tools/snapshotupdater_static tools/vbmeta-disable-verification; do
+              [ -e "anykernel/$f" ] || echo "::warning::anykernel.sh expects $f but it is missing on branch $AK3_BRANCH"
+            done
+            grep -q rollback_if_abort_flag anykernel/META-INF/com/google/android/update-binary || \
+              echo "::warning::update-binary on $AK3_BRANCH has no rollback hook, so the rollback flag in anykernel.sh will do nothing"
+          fi
+
+          # Image and dtbo.img are always packed (the dtb lives in vendor_boot and is not flashed)
+          for f in Image dtbo.img; do
+            [ -f "$BOOT_OUT/$f" ] || { echo "::error::$f not found in $BOOT_OUT"; exit 1; }
+            cp "$BOOT_OUT/$f" anykernel/
           done
 
       - name: Package kernel modules for AnyKernel3
@@ -412,6 +467,25 @@ jobs:
             sed -i 's/.*\///g' "$MOD_DEST/modules.load"
           fi
 
+      - name: Compress payload with 7za (if enabled)
+        if: ${{ inputs.pack_7z }}
+        run: |
+          set -e
+          cd anykernel
+          mkdir -p _dtb
+          for f in dtb dtb.img dtbo.img; do
+            [ -f "$f" ] && mv "$f" _dtb/
+          done
+
+          7za a -t7z -mx=9 -bd Image.7z ./Image > /dev/null && rm -f Image
+          (cd _dtb && 7za a -t7z -mx=9 -bd ../_dtb.7z './*' > /dev/null) && rm -rf _dtb
+
+          # modules are only compressed when the module option is on
+          if [ "${{ inputs.package_modules }}" = "true" ] && [ -d modules ]; then
+            (cd modules && 7za a -t7z -mx=9 -mf=off -bd ../_modules.7z './*' > /dev/null) && rm -rf modules
+          fi
+          ls -lh *.7z
+
       - name: Create flashable ZIP
         run: |
           SAFE_TAG="${{ inputs.build_tag }}"
@@ -423,7 +497,12 @@ jobs:
           [ "${{ inputs.use_rekernel }}" = "true" ] && SAFE_TAG="${SAFE_TAG}-ReKernel"
 
           ZIP_NAME="${ZIP_PREFIX}-${SAFE_TAG}-$(date +%Y%m%d-%H%M).zip"
-          (cd anykernel && zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md")
+          if [ "${{ inputs.pack_7z }}" = "true" ]; then
+            # .7z archives are already compressed, so store them as-is
+            (cd anykernel && zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md" -x "*.7z" && zip -0 "../$ZIP_NAME" ./*.7z)
+          else
+            (cd anykernel && zip -r9 "../$ZIP_NAME" . -x "*.git*" -x "README.md")
+          fi
           echo "ZIP_FILE=$ZIP_NAME" >> $GITHUB_ENV
           echo "Zip created: $ZIP_NAME ($(du -sh "$ZIP_NAME" | cut -f1))"
 
@@ -528,7 +607,7 @@ jobs:
           CAPTION="✅ Build Successful
           Branch: ${{ inputs.kernel_branch }}
           Tag: ${{ inputs.build_tag }}
-          KernelSU: ${{ inputs.enable_kernelsu_next }}
+          KernelSU: ${{ inputs.enable_kernelsu }}
           ReKernel: ${{ inputs.use_rekernel }}
           Signed: ${{ inputs.enable_signing }}
           Compiler: ${{ env.CLANG_LABEL }}
