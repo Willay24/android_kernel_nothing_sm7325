@@ -497,8 +497,8 @@ int smp_call_function_any(const struct cpumask *mask,
 	/* Any online will do: smp_call_function_single handles nr_cpu_ids. */
 	cpu = cpumask_any_and(mask, cpu_online_mask);
 call:
-	ret = smp_call_function_single(cpu, func, info, wait);
 	put_cpu();
+	ret = smp_call_function_single(cpu, func, info, wait);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(smp_call_function_any);
@@ -868,8 +868,12 @@ EXPORT_SYMBOL(on_each_cpu_mask);
  * The function might sleep if the GFP flags indicates a non
  * atomic allocation is allowed.
  *
- * Preemption is disabled to protect against CPUs going offline but not online.
- * CPUs going online during the call will not be seen or sent an IPI.
+ * Preemption is only disabled while @cond_func is evaluated, and the IPI
+ * dispatch itself is left to on_each_cpu_mask() or
+ * smp_call_function_single(). CPUs going online during the call will not be
+ * seen or sent an IPI. In the no-memory fallback path a CPU may go offline
+ * between @cond_func and the IPI; smp_call_function_single() then returns
+ * -ENXIO, which is tolerated.
  *
  * You must not call this function with disabled interrupts or
  * from a hardware interrupt handler or from a bottom half handler.
@@ -888,22 +892,29 @@ void on_each_cpu_cond_mask(bool (*cond_func)(int cpu, void *info),
 		for_each_cpu(cpu, mask)
 			if (cond_func(cpu, info))
 				__cpumask_set_cpu(cpu, cpus);
-		on_each_cpu_mask(cpus, func, info, wait);
 		preempt_enable();
+
+		on_each_cpu_mask(cpus, func, info, wait);
 		free_cpumask_var(cpus);
 	} else {
 		/*
 		 * No free cpumask, bother. No matter, we'll
 		 * just have to IPI them one by one.
 		 */
-		preempt_disable();
-		for_each_cpu(cpu, mask)
-			if (cond_func(cpu, info)) {
+		for_each_cpu(cpu, mask) {
+			bool hit;
+
+			/* cond_func() is documented to run with preemption disabled */
+			preempt_disable();
+			hit = cond_func(cpu, info);
+			preempt_enable();
+
+			if (hit) {
 				ret = smp_call_function_single(cpu, func,
 								info, wait);
-				WARN_ON_ONCE(ret);
+				WARN_ON_ONCE(ret && ret != -ENXIO);
 			}
-		preempt_enable();
+		}
 	}
 }
 EXPORT_SYMBOL(on_each_cpu_cond_mask);
