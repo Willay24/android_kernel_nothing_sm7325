@@ -1124,6 +1124,8 @@ config ARCH_HAS_NONLEAF_PMD_YOUNG
 
 source "kernel/gcov/Kconfig"
 
+source "kernel/pgo/Kconfig"
+
 source "scripts/gcc-plugins/Kconfig"
 
 endmenu
