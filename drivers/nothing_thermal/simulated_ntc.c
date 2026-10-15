@@ -117,7 +117,7 @@ static int slntc_set_trip_temp(struct thermal_zone_device *tz, int trip,
 	hst->trips[trip].temperature = temp;
 	spin_unlock_irqrestore(&hst->trips_lock, flags);
 
-	pr_info("trips[trip].temperature = %d", trip, temp);
+	pr_info("trips[%d].temperature = %d", trip, temp);
 
 	return 0;
 }
@@ -147,7 +147,7 @@ static int slntc_set_trip_hyst(struct thermal_zone_device *tz, int trip,
 	hst->trips[trip].hysteresis = hyst;
 	spin_unlock_irqrestore(&hst->trips_lock, flags);
 
-	pr_info("trips[trip].hysteresis = %d", trip, hyst);
+	pr_info("trips[%d].hysteresis = %d", trip, hyst);
 
 	return 0;
 }
@@ -210,7 +210,7 @@ static int slntc_shell_probe(struct platform_device *pdev)
 		return -ENOMEM;
 	}
 
-	result = ida_simple_get(&shell_temp_ida, 0, 0, GFP_KERNEL);
+	result = ida_simple_get(&shell_temp_ida, 0, SHELL_MAX, GFP_KERNEL);
 	if (result < 0) {
 		pr_err("genernal slntc id failed\n");
 		ret = -EINVAL;
@@ -261,6 +261,7 @@ static int slntc_shell_remove(struct platform_device *pdev)
 	struct slntc_shell_temp *hst = platform_get_drvdata(pdev);
 
 	if (hst) {
+		shell_list[hst->shell_id] = NULL;
 		platform_set_drvdata(pdev, NULL);
 		thermal_zone_device_unregister(hst->tzd);
 		if(hst->trips)
@@ -318,6 +319,11 @@ static ssize_t proc_shell_write(struct file *filp, const char __user *buf,
 	if (index >= SHELL_MAX) {
 		pr_err("write invalid para\n");
 		return count;
+	}
+
+	if (!shell_list[index]) {
+		pr_err("shell %u is not probed\n", index);
+		return -ENODEV;
 	}
 
 	if(shell_list[index]->trips != NULL){
@@ -382,22 +388,13 @@ static int proc_shell_open(struct inode *inode, struct file *file)
 	return single_open(file, proc_shell_show, NULL);
 }
 
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0))
 static const struct proc_ops proc_shell_fops = {
-	.proc_open = proc_shell_open,
-	.proc_write = proc_shell_write,
-	.proc_read = seq_read,
-	.proc_release = single_release,
+	.proc_open	= proc_shell_open,
+	.proc_write	= proc_shell_write,
+	.proc_read	= seq_read,
+	.proc_lseek	= seq_lseek,
+	.proc_release	= single_release,
 };
-#else
-static const struct file_operations proc_shell_fops = {
-	.open = proc_shell_open,
-	.write = proc_shell_write,
-	.read = seq_read,
-	.release = single_release,
-};
-#endif
 
 static int __init slntc_shell_init(void)
 {
