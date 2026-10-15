@@ -1100,6 +1100,53 @@
 
 
 /*
+ * LLVM PGO profile data sections. They must be separate output sections
+ * (outside of .data) and are only emitted when instrumentation is enabled.
+ * The bitmap shares the counters' output section, as it is normally empty.
+ * The names section must not be padded, because its exact size goes into
+ * the raw profile header.
+ */
+#ifdef CONFIG_PGO_CLANG
+#define PGO_CLANG_DATA							\
+	__llvm_prf_data : AT(ADDR(__llvm_prf_data) - LOAD_OFFSET) {	\
+		. = ALIGN(8);						\
+		__llvm_prf_data_start = .;				\
+		KEEP(*(__llvm_prf_data))				\
+		__llvm_prf_data_end = .;				\
+	}								\
+	__llvm_prf_cnts : AT(ADDR(__llvm_prf_cnts) - LOAD_OFFSET) {	\
+		. = ALIGN(8);						\
+		__llvm_prf_cnts_start = .;				\
+		KEEP(*(__llvm_prf_cnts))				\
+		__llvm_prf_cnts_end = .;				\
+		. = ALIGN(8);						\
+		__llvm_prf_bits_start = .;				\
+		KEEP(*(__llvm_prf_bits))				\
+		. = ALIGN(8);						\
+		__llvm_prf_bits_end = .;				\
+	}								\
+	__llvm_prf_names : AT(ADDR(__llvm_prf_names) - LOAD_OFFSET) {	\
+		__llvm_prf_names_start = .;				\
+		KEEP(*(__llvm_prf_names))				\
+		__llvm_prf_names_end = .;				\
+	}								\
+	__llvm_prf_vals : AT(ADDR(__llvm_prf_vals) - LOAD_OFFSET) {	\
+		. = ALIGN(8);						\
+		__llvm_prf_vals_start = .;				\
+		KEEP(*(__llvm_prf_vals))				\
+		__llvm_prf_vals_end = .;				\
+	}								\
+	__llvm_prf_vnds : AT(ADDR(__llvm_prf_vnds) - LOAD_OFFSET) {	\
+		. = ALIGN(8);						\
+		__llvm_prf_vnds_start = .;				\
+		KEEP(*(__llvm_prf_vnds))				\
+		__llvm_prf_vnds_end = .;				\
+	}
+#else
+#define PGO_CLANG_DATA
+#endif
+
+/*
  * Writeable data.
  * All sections are combined in a single .data section.
  * The sections following CONSTRUCTORS are arranged so their
@@ -1123,6 +1170,7 @@
 		CONSTRUCTORS						\
 	}								\
 	BUG_TABLE							\
+	PGO_CLANG_DATA
 
 #define INIT_TEXT_SECTION(inittext_align)				\
 	. = ALIGN(inittext_align);					\

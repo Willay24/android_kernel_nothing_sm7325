@@ -124,6 +124,19 @@ _c_flags += $(if $(patsubst n%,, \
 endif
 
 #
+# Enable clang's PGO instrumentation for a file or directory depending on
+# variables PGO_PROFILE_obj.o and PGO_PROFILE. Loadable modules are not
+# profiled: only the built-in kernel image carries the profile data.
+#
+ifeq ($(CONFIG_PGO_CLANG),y)
+CFLAGS_PGO_CLANG := -fprofile-generate
+_c_flags += $(if $(part-of-module),, \
+		$(if $(patsubst n%,, \
+		$(PGO_PROFILE_$(basetarget).o)$(PGO_PROFILE)y), \
+		$(CFLAGS_PGO_CLANG)))
+endif
+
+#
 # Enable address sanitizer flags for kernel except some files or directories
 # we don't want to check (depends on variables KASAN_SANITIZE_obj.o, KASAN_SANITIZE)
 #
