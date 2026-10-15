@@ -1,0 +1,39 @@
+# SPDX-License-Identifier: GPL-2.0-only
+menu "Profile Guided Optimization (PGO) (EXPERIMENTAL)"
+
+config ARCH_SUPPORTS_PGO_CLANG
+	bool
+
+config PGO_CLANG
+	bool "Enable clang's PGO-based kernel profiling"
+	depends on DEBUG_FS
+	depends on ARCH_SUPPORTS_PGO_CLANG
+	depends on CC_IS_CLANG && CLANG_VERSION >= 190000
+	depends on !LTO_CLANG
+	depends on !GCOV_KERNEL
+	help
+	  This option enables clang's PGO (Profile Guided Optimization) based
+	  code profiling to better optimize the kernel.
+
+	  If unsure, say N.
+
+	  Run a representative workload on a kernel compiled with this option,
+	  mount debugfs and read the raw profile from
+	  /sys/kernel/debug/pgo/profraw. Writing anything to
+	  /sys/kernel/debug/pgo/reset clears all counters. The raw profile has
+	  to be processed with llvm-profdata from the same LLVM release as the
+	  compiler that built the kernel:
+
+	    llvm-profdata merge --output=vmlinux.profdata vmlinux.profraw
+
+	  Rebuild the kernel with PGO disabled (and LTO re-enabled if wanted)
+	  and KCFLAGS=-fprofile-use=vmlinux.profdata to produce the optimized
+	  kernel.
+
+	  Note that a kernel compiled with profiling flags is significantly
+	  larger and slower. Only built-in code is profiled; loadable modules
+	  are not instrumented. The raw profile layout is private to LLVM and
+	  changes between releases, so the build verifies it against the
+	  compiler (see kernel/pgo/Makefile).
+
+endmenu
