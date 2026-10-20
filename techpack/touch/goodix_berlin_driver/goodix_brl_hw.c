@@ -330,7 +330,7 @@ static int brl_irq_enbale(struct goodix_ts_core *cd, bool enable)
 	}
 
 	if (!enable && atomic_cmpxchg(&cd->irq_enabled, 1, 0)) {
-		disable_irq_nosync(cd->irq);
+		disable_irq(cd->irq);
 		ts_info(dev, "Irq disabled");
 		return 0;
 	}
