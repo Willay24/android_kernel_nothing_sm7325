@@ -1553,7 +1553,6 @@ static irqreturn_t goodix_ts_threadirq_func(int irq, void *data)
 	struct goodix_ts_esd *ts_esd = &core_data->ts_esd;
 	int ret;
 
-	disable_irq_nosync(core_data->irq);
 	ts_esd->irq_status = true;
 	core_data->irq_trig_cnt++;
 
@@ -1599,7 +1598,6 @@ static irqreturn_t goodix_ts_threadirq_func(int irq, void *data)
 	goodix_get_dump_frame(core_data);
 #endif
 	pm_relax(core_data->bus->dev);
-	enable_irq(core_data->irq);
 
 	return IRQ_HANDLED;
 }
