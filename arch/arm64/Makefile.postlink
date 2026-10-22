@@ -1,0 +1,57 @@
+# KernelSU-Next branch-link two-stage coordinator postlink hook.
+# Installed as arch/arm64/Makefile.postlink by kernel/setup.sh ONLY when
+# CONFIG_KSU_BL_GENERATED=y (the ARCH_POSTLINK wildcard at the top-level
+# Makefile picks this file up automatically when present).
+#
+# Guard contract (Phase 20, corrected after adversarial review):
+#  - vmlinux: FORCE so the postlink make actually runs the recipe even
+#    though vmlinux already exists when this make is invoked (mips/powerpc
+#    pattern: arch/mips/Makefile.postlink);
+#  - ALL guard conditions in ONE recipe line so `exit 0` genuinely
+#    short-circuits the whole recipe (per-line @if + exit 0 does NOT skip
+#    the next line -- each line is a separate shell);
+#  - module postlink calls ($@ = *.ko / clean) are a no-op;
+#  - the stage-2 relink re-entry sets KSU_BL_STAGE=final in the inner
+#    make environment; this makefile then returns without launching
+#    another coordinator.
+#  - clean removes coordinator state (invoked by the top-level clean).
+
+.DELETE_ON_ERROR:
+
+# The build config gates the coordinator: outside generated mode the hook must
+# stay a no-op, but its stub rules still have to exist so that the
+# ARCH_POSTLINK invocation resolves.
+-include $(objtree)/include/config/auto.conf
+
+ifeq ($(KSU_BL_GENERATED_HOOK),)
+
+.PHONY: FORCE clean
+FORCE:
+
+%.ko: FORCE
+	@true
+%.o: FORCE
+	@true
+clean: FORCE
+	@true
+
+vmlinux: FORCE
+	@if { [ "$(notdir $@)" = "vmlinux" ] && [ "$$KSU_BL_STAGE" != "final" ] && \
+	      [ "$$(cat $(objtree)/.ksu-bl/stage-guard 2>/dev/null)" != "final" ] && \
+	      [ "$(CONFIG_KSU_BL_GENERATED)" = "y" ]; }; then \
+	  KSU_SRCTREE="$(abs_srctree)" \
+	  KSU_OBJTREE="$(CURDIR)" \
+	  KSU_KSU_DIR="$(abs_srctree)/drivers/kernelsu" \
+	  KSU_NONCE="$$( { cat $(objtree)/.ksu-bl/nonce 2>/dev/null || cat $(objtree)/.ksu-bl/nonce.seed 2>/dev/null || sed -n 's/^#define KSU_BL_MANIFEST_NONCE \(0x[0-9a-fA-F]*\)U.*/\1/p' $(objtree)/drivers/kernelsu/hook/arm64/bl_manifest_ids.h; } )" \
+	  KSU_GEN_SRC="$(objtree)/drivers/kernelsu/hook/arm64/bl_manifest_gen.c" \
+	  KSU_GEN_IDS="$(objtree)/drivers/kernelsu/hook/arm64/bl_manifest_ids.h" \
+	  KSU_ANALYZER="$(PYTHON3) $(abs_srctree)/drivers/kernelsu/../tools/bl-analyzer/bl_analyzer_v2.py" \
+	  KSU_MAKE="$(MAKE)" \
+	  KSU_READELF="$(READELF)" \
+	  KSU_NM="$(NM)" \
+	  $(CONFIG_SHELL) $(abs_srctree)/drivers/kernelsu/build/bl-coordinator.sh; \
+	else \
+	  echo "  KSU-BL  postlink: stage=final no-op"; \
+	fi
+
+endif
