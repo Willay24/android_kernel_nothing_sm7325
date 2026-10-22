@@ -668,11 +668,6 @@ static void goodix_ts_sysfs_exit(struct goodix_ts_core *cd)
 	sysfs_remove_group(&cd->pdev->dev.kobj, &sysfs_group);
 }
 
-static void goodix_ts_wq_exit(struct goodix_ts_core *core_data)
-{
-	destroy_workqueue(core_data->event_wq);
-}
-
 #if 0
 static char *output_buf;
 static uint32_t output_offset;
@@ -2709,12 +2704,8 @@ static int goodix_ts_remove(struct platform_device *pdev)
 #endif
 
 		goodix_fw_update_uninit(core_data);
-		goodix_ts_wq_exit(core_data);
 	}
 
-#ifdef GOODIX_NOTHING_TOUCH
-	destroy_workqueue(core_data->event_wq);
-#endif
 	goodix_tools_exit(core_data);
 	goodix_ts_power_off(core_data);
 
