@@ -2143,7 +2143,8 @@ static int goodix_ts_resume(struct goodix_ts_core *core_data)
 	}
 
 	/* enable irq */
-	hw_ops->irq_enable(core_data, true);
+	if (!core_data->gesture_type)
+		hw_ops->irq_enable(core_data, true);
 	/* open esd */
 	goodix_ts_esd_on(core_data);
 	ts_info(dev, "Resume end");
