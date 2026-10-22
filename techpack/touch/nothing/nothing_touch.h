@@ -158,6 +158,8 @@ struct nothing_touch *nothing_touch_dev_get(int minor);
 
 extern struct class *get_nothing_touch_class(void);
 
+extern bool nothing_touch_ready(void);
+
 extern int update_palm_sensor_value(int value);
 
 extern int update_prox_sensor_value(int value);
