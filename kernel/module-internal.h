@@ -238,7 +238,7 @@ static int copy_module_from_user(const void __user *umod, unsigned long len,
 	if (info->len < sizeof(*(info->hdr)))
 		return -ENOEXEC;
 
-	err = security_kernel_load_data(LOADING_MODULE, true);
+	err = security_kernel_load_data(LOADING_MODULE);
 	if (err)
 		return err;
 
@@ -248,17 +248,11 @@ static int copy_module_from_user(const void __user *umod, unsigned long len,
 		return -ENOMEM;
 
 	if (copy_chunked_from_user(info->hdr, umod, info->len) != 0) {
-		err = -EFAULT;
-		goto out;
+		vfree(info->hdr);
+		return -EFAULT;
 	}
 
-	err = security_kernel_post_load_data((char *)info->hdr, info->len,
-					     LOADING_MODULE, "init_module");
-out:
-	if (err)
-		vfree(info->hdr);
-
-	return err;
+	return 0;
 }
 
 static void free_copy(struct load_info *info)
