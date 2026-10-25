@@ -40,71 +40,11 @@ static bool completed;
  * You can also use this as an ignorelist.
  */
 static const __initconst char * const blacklist[] = {
-        // Custom load order
+	// Custom load order
 	"hdcp",
-
-	// Disabled
-	"f_fs_ipc_log",
-	"mem_offline",
-	"msm_show_resume_irq",
-	"phy_qcom_ufs_qmp_v4_anarok",
-	"phy_qcom_ufs_qmp_v4_diwali",
-	"phy_qcom_ufs_qmp_v4_lahaina",
-	"phy_qcom_ufs_qmp_v4_parrot",
-	"phy_qcom_ufs_qmp_v4_waipio",
-	"qca6490",
-	"qca_cld3_qca6490",
-	"qca6750",
-	"qca_cld3_qca6750",
-	"qcom_ipc_logging",
-	"qcom_logbuf_vendor_hooks",
-	"rimps_log",
-	"wcd937x_dlkm",
-	"wcd937x_slave_dlkm",
 
 	// Renamed
 	"hdcp_qseecom",
-        
-        // Removed
-        "fsa4480_i2c",
-        "qti_amoled_ecm",
-        "nothing_disk_usage",
-        "nothing_readahead_trace",
-        "nothing_writeback_kmsg",
-        "memory_dump_v2",
-        "minidump",
-        "qcom_edac",
-        "kryo_arm64_edac",
-        "qnoc_parrot",
-        "qcom_cpufreq_hw_debug",
-        "qcom_cpuss_sleep_stats",
-        "qti_battery_debug",
-        "charger_ulog_glink",
-        "debug_regulator",
-        "qcom_iommu_debug",
-        "spmi_pmic_arb_debug",
-        "spmi_glink_debug",
-        "tz_log",
-        "icc_test",
-        "icc_debug",
-        "coresight",
-        "coresight_tmc",
-        "coresight_funnel",
-        "coresight_replicator",
-        "coresight_stm",
-        "coresight_cti",
-        "coresight_tpda",
-        "coresight_tpdm",
-        "coresight_csr",
-        "coresight_dummy",
-        "coresight_remote_etm",
-        "coresight_tgu",
-        "coresight_hwevent",
-        "stm_core",
-        "stm_p_basic",
-        "stm_p_ost",
-        "stm_console",
-        "stm_ftrace",
 
 	NULL
 };
@@ -462,18 +402,18 @@ SYSCALL_DEFINE3(finit_module, int, fd, const char __user *, uargs, int, flags)
 {
 	struct load_info info = { };
 	void *hdr = NULL;
+	loff_t size;
 	int err;
 
 	err = may_init_module();
 	if (err)
 		return err;
 
-	err = kernel_read_file_from_fd(fd, 0, &hdr, INT_MAX, NULL,
-				       READING_MODULE);
-	if (err < 0)
+	err = kernel_read_file_from_fd(fd, &hdr, &size, INT_MAX, READING_MODULE);
+	if (err)
 		return err;
 	info.hdr = hdr;
-	info.len = err;
+	info.len = size;
 
 	return load_module(&info, uargs, flags);
 }
