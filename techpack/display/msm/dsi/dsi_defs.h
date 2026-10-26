@@ -263,8 +263,6 @@ enum dsi_dyn_clk_feature_type {
  * @DSI_CMD_SET_POST_TIMING_SWITCH:        Post timing switch
  * @DSI_CMD_SET_QSYNC_ON                   Enable qsync mode
  * @DSI_CMD_SET_QSYNC_OFF                  Disable qsync mode
- * @DSI_CMD_SET_DISP_HBM_ON:               Enable high brightness mode
- * @DSI_CMD_SET_DISP_HBM_OFF:              Disable high brightness mode
  * @DSI_CMD_SET_MAX
  */
 enum dsi_cmd_set_type {
@@ -293,8 +291,6 @@ enum dsi_cmd_set_type {
 	DSI_CMD_SET_QSYNC_OFF,
 	DSI_CMD_SET_DISP_DOZE_HBM,
 	DSI_CMD_SET_DISP_DOZE_LBM,
-	DSI_CMD_SET_DISP_HBM_ON,
-	DSI_CMD_SET_DISP_HBM_OFF,
 	DSI_CMD_SET_MAX
 };
 
