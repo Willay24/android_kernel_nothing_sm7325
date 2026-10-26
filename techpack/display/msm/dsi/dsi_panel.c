@@ -546,14 +546,6 @@ static int dsi_panel_update_backlight(struct dsi_panel *panel,
 		dsi->mode_flags |= MIPI_DSI_MODE_LPM;
 	}
 
-	if (panel->bl_config.hbm_status) {
-		/* keep the panel at HBM brightness while HBM is enabled */
-		bl_lvl = panel->bl_config.bl_hbm_level;
-	} else {
-		/* remember last normal brightness level for HBM restore */
-		panel->bl_config.bl_last_level = bl_lvl;
-	}
-
 	if (panel->bl_config.bl_inverted_dbv)
 		bl_lvl = (((bl_lvl & 0xff) << 8) | (bl_lvl >> 8));
 
@@ -1849,8 +1841,6 @@ const char *cmd_set_prop_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-qsync-off-commands",
 	"qcom,mdss-dsi-doze-hbm-command",
 	"qcom,mdss-dsi-doze-lbm-command",
-	"qcom,mdss-dsi-dispparam-hbm-on-command",
-	"qcom,mdss-dsi-dispparam-hbm-off-command",
 };
 
 const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
@@ -1879,8 +1869,6 @@ const char *cmd_set_state_map[DSI_CMD_SET_MAX] = {
 	"qcom,mdss-dsi-qsync-off-commands-state",
 	"qcom,mdss-dsi-doze-hbm-command-state",
 	"qcom,mdss-dsi-doze-lbm-command-state",
-	"qcom,mdss-dsi-dispparam-hbm-on-command-state",
-	"qcom,mdss-dsi-dispparam-hbm-off-command-state",
 };
 
 int dsi_panel_get_cmd_pkt_count(const char *data, u32 length, u32 *cnt)
@@ -5001,39 +4989,6 @@ int dsi_panel_post_switch(struct dsi_panel *panel)
 	return rc;
 }
 
-static int dsi_panel_apply_hbm(struct dsi_panel *panel, bool on)
-{
-	int rc = 0;
-
-	mutex_lock(&panel->panel_lock);
-	if (!panel->panel_initialized) {
-		rc = -EINVAL;
-		goto exit;
-	}
-
-	if (on) {
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_HBM_ON);
-		if (rc)
-			DSI_ERR("[%s] failed to send DSI_CMD_SET_DISP_HBM_ON cmd, rc=%d\n",
-			       panel->name, rc);
-
-		/* drive the panel to its HBM brightness level */
-		dsi_panel_set_backlight(panel, panel->bl_config.bl_hbm_level);
-	} else {
-		rc = dsi_panel_tx_cmd_set(panel, DSI_CMD_SET_DISP_HBM_OFF);
-		if (rc)
-			DSI_ERR("[%s] failed to send DSI_CMD_SET_DISP_HBM_OFF cmd, rc=%d\n",
-			       panel->name, rc);
-
-		/* restore the brightness level used before HBM */
-		dsi_panel_set_backlight(panel, panel->bl_config.bl_last_level);
-	}
-
-exit:
-	mutex_unlock(&panel->panel_lock);
-	return rc;
-}
-
 int dsi_panel_enable(struct dsi_panel *panel)
 {
 	int rc = 0;
@@ -5052,10 +5007,6 @@ int dsi_panel_enable(struct dsi_panel *panel)
 	else
 		panel->panel_initialized = true;
 	mutex_unlock(&panel->panel_lock);
-
-	/* on-command resets the brightness, re-apply HBM if needed */
-	if (panel->bl_config.hbm_status)
-		dsi_panel_apply_hbm(panel, true);
 
 	return rc;
 }
@@ -5201,33 +5152,5 @@ int dsi_panel_post_unprepare(struct dsi_panel *panel)
 	}
 error:
 	mutex_unlock(&panel->panel_lock);
-	return rc;
-}
-
-int dsi_panel_set_hbm(struct dsi_panel *panel, int hbm_status)
-{
-	int rc = 0;
-
-	if (!panel) {
-		pr_err("Invalid params\n");
-		return -EINVAL;
-	}
-
-	/* normalize and cache the requested state */
-	panel->bl_config.hbm_status = hbm_status ? DSI_PANEL_HBM_ON :
-			DSI_PANEL_HBM_OFF;
-
-	if (!dsi_panel_initialized(panel)) {
-		pr_info("%s: panel not yet initialized, caching hbm = %d\n",
-				__func__, panel->bl_config.hbm_status);
-		return 0;
-	}
-
-	rc = dsi_panel_apply_hbm(panel,
-			panel->bl_config.hbm_status == DSI_PANEL_HBM_ON);
-	if (!rc)
-		pr_info("%s: panel set hbm = %d\n",
-				__func__, panel->bl_config.hbm_status);
-
 	return rc;
 }
