@@ -317,7 +317,6 @@ struct dsi_panel {
 	u8 fod_dim_alpha;
 	bool fod_hbm_enabled;
 	bool fod_ui;
-	bool force_fod_ui;
 #ifdef CONFIG_DRM_SDE_EXPO
 	bool dimlayer_exposure;
 #endif
@@ -464,7 +463,6 @@ void dsi_panel_destroy_cmd_packets(struct dsi_panel_cmd_set *set);
 void dsi_panel_dealloc_cmd_packets(struct dsi_panel_cmd_set *set);
 bool dsi_panel_get_fod_ui(struct dsi_panel *panel);
 void dsi_panel_set_fod_ui(struct dsi_panel *panel, bool status);
-bool dsi_panel_get_force_fod_ui(struct dsi_panel *panel);
 u8 dsi_panel_get_fod_dim_alpha(struct dsi_panel *panel);
 
 int nt_is_panel_detected(void);
