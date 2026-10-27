@@ -33,8 +33,7 @@ static unsigned int nothing_touch_dev_poll(struct file *file, poll_table *wait)
 	return 0;
 }
 
-static void nothing_touch_notify_cmd(struct nothing_touch *dev,
-				     struct nothing_touch_interface *touch_data,
+static void nothing_touch_notify_cmd(struct nothing_touch_interface *touch_data,
 				     int user_cmd, int *buf)
 {
 	switch (user_cmd) {
@@ -64,7 +63,7 @@ static void nothing_touch_notify_cmd(struct nothing_touch *dev,
 		return;
 	}
 
-	sysfs_notify(&dev->dev->kobj, NULL, "touch_thp_cmd");
+	sysfs_notify(&nothing_touch_dev.dev->kobj, NULL, "touch_thp_cmd");
 }
 
 static long nothing_touch_dev_ioctl(struct file *file, unsigned int cmd,
@@ -141,8 +140,7 @@ static long nothing_touch_dev_ioctl(struct file *file, unsigned int cmd,
 	}
 
 	if (ret >= 0)
-		nothing_touch_notify_cmd(&nothing_touch_dev, touch_data,
-					 user_cmd, buf);
+		nothing_touch_notify_cmd(touch_data, user_cmd, buf);
 	else
 		pr_err("%s can't get data from touch driver\n", __func__);
 
@@ -159,7 +157,6 @@ static int nothing_touch_dev_mmap(struct file *file, struct vm_area_struct *vma)
 	struct nothing_touch_pdata *pdata = READ_ONCE(touch_pdata);
 	unsigned long size = vma->vm_end - vma->vm_start;
 	unsigned long offset = vma->vm_pgoff << PAGE_SHIFT;
-	unsigned long page;
 
 	if (!pdata) {
 		pr_err("%s invalid memory\n", __func__);
@@ -171,9 +168,9 @@ static int nothing_touch_dev_mmap(struct file *file, struct vm_area_struct *vma)
 		return -EINVAL;
 	}
 
-	page = (pdata->phy_base + offset) >> PAGE_SHIFT;
-
-	if (remap_pfn_range(vma, vma->vm_start, page, size, vma->vm_page_prot))
+	if (remap_pfn_range(vma, vma->vm_start,
+			    (pdata->phy_base + offset) >> PAGE_SHIFT, size,
+			    vma->vm_page_prot))
 		return -EAGAIN;
 
 	return 0;
@@ -205,9 +202,6 @@ static struct nothing_touch nothing_touch_dev = {
 		.parent = NULL,
 	},
 	.mutex = __MUTEX_INITIALIZER(nothing_touch_dev.mutex),
-	.palm_mutex = __MUTEX_INITIALIZER(nothing_touch_dev.palm_mutex),
-	.prox_mutex = __MUTEX_INITIALIZER(nothing_touch_dev.prox_mutex),
-	.wait_queue = __WAIT_QUEUE_HEAD_INITIALIZER(nothing_touch_dev.wait_queue),
 };
 
 struct nothing_touch *nothing_touch_dev_get(int minor)
@@ -224,16 +218,28 @@ struct class *get_nothing_touch_class(void)
 }
 EXPORT_SYMBOL_GPL(get_nothing_touch_class);
 
+struct device *get_nothing_touch_dev(void)
+{
+	return nothing_touch_dev.dev;
+}
+EXPORT_SYMBOL_GPL(get_nothing_touch_dev);
+
 bool nothing_touch_ready(void)
 {
 	return READ_ONCE(touch_pdata) != NULL;
 }
 EXPORT_SYMBOL_GPL(nothing_touch_ready);
 
+#define NOTHING_TOUCH_REG(_f)						\
+	do {								\
+		if (data->_f)						\
+			touch_data->_f = data->_f;			\
+	} while (0)
+
 int nothingtouch_register_modedata(int touchId,
 				   struct nothing_touch_interface *data)
 {
-	struct nothing_touch_interface *touch_data = NULL;
+	struct nothing_touch_interface *touch_data;
 
 	if (!data || touchId < 0 || touchId > 1)
 		return -EINVAL;
@@ -246,50 +252,27 @@ int nothingtouch_register_modedata(int touchId,
 	}
 
 	touch_data = touch_pdata->touch_data[touchId];
-	pr_info("%s\n", __func__);
 
-	if (data->setModeValue)
-		touch_data->setModeValue = data->setModeValue;
-	if (data->getModeValue)
-		touch_data->getModeValue = data->getModeValue;
-	if (data->resetMode)
-		touch_data->resetMode = data->resetMode;
-	if (data->getModeAll)
-		touch_data->getModeAll = data->getModeAll;
-	if (data->setModeLongValue)
-		touch_data->setModeLongValue = data->setModeLongValue;
-	if (data->palm_sensor_read)
-		touch_data->palm_sensor_read = data->palm_sensor_read;
-	if (data->enable_touch_raw)
-		touch_data->enable_touch_raw = data->enable_touch_raw;
-	if (data->enable_clicktouch_raw)
-		touch_data->enable_clicktouch_raw = data->enable_clicktouch_raw;
-	if (data->enable_touch_delta)
-		touch_data->enable_touch_delta = data->enable_touch_delta;
-	if (data->get_touch_rx_num)
-		touch_data->get_touch_rx_num = data->get_touch_rx_num;
-	if (data->get_touch_tx_num)
-		touch_data->get_touch_tx_num = data->get_touch_tx_num;
-	if (data->get_touch_x_resolution)
-		touch_data->get_touch_x_resolution =
-			data->get_touch_x_resolution;
-	if (data->get_touch_y_resolution)
-		touch_data->get_touch_y_resolution =
-			data->get_touch_y_resolution;
-	if (data->palm_sensor_write)
-		touch_data->palm_sensor_write = data->palm_sensor_write;
-	if (data->prox_sensor_read)
-		touch_data->prox_sensor_read = data->prox_sensor_read;
-	if (data->prox_sensor_write)
-		touch_data->prox_sensor_write = data->prox_sensor_write;
-	if (data->panel_vendor_read)
-		touch_data->panel_vendor_read = data->panel_vendor_read;
-	if (data->panel_color_read)
-		touch_data->panel_color_read = data->panel_color_read;
-	if (data->panel_display_read)
-		touch_data->panel_display_read = data->panel_display_read;
-	if (data->touch_vendor_read)
-		touch_data->touch_vendor_read = data->touch_vendor_read;
+	NOTHING_TOUCH_REG(setModeValue);
+	NOTHING_TOUCH_REG(getModeValue);
+	NOTHING_TOUCH_REG(resetMode);
+	NOTHING_TOUCH_REG(getModeAll);
+	NOTHING_TOUCH_REG(setModeLongValue);
+	NOTHING_TOUCH_REG(palm_sensor_read);
+	NOTHING_TOUCH_REG(palm_sensor_write);
+	NOTHING_TOUCH_REG(prox_sensor_read);
+	NOTHING_TOUCH_REG(prox_sensor_write);
+	NOTHING_TOUCH_REG(enable_touch_raw);
+	NOTHING_TOUCH_REG(enable_clicktouch_raw);
+	NOTHING_TOUCH_REG(enable_touch_delta);
+	NOTHING_TOUCH_REG(get_touch_rx_num);
+	NOTHING_TOUCH_REG(get_touch_tx_num);
+	NOTHING_TOUCH_REG(get_touch_x_resolution);
+	NOTHING_TOUCH_REG(get_touch_y_resolution);
+	NOTHING_TOUCH_REG(panel_vendor_read);
+	NOTHING_TOUCH_REG(panel_color_read);
+	NOTHING_TOUCH_REG(panel_display_read);
+	NOTHING_TOUCH_REG(touch_vendor_read);
 
 	mutex_unlock(&nothing_touch_dev.mutex);
 
@@ -299,21 +282,15 @@ EXPORT_SYMBOL_GPL(nothingtouch_register_modedata);
 
 int update_palm_sensor_value(int value)
 {
-	mutex_lock(&nothing_touch_dev.palm_mutex);
+	struct nothing_touch_pdata *pdata = READ_ONCE(touch_pdata);
 
-	if (!touch_pdata || !nothing_touch_dev.dev) {
-		mutex_unlock(&nothing_touch_dev.palm_mutex);
+	if (!pdata || !nothing_touch_dev.dev)
 		return -ENODEV;
-	}
 
-	if (value != touch_pdata->palm_value) {
-		pr_info("%s value: %d\n", __func__, value);
-		touch_pdata->palm_value = value;
-		touch_pdata->palm_changed = true;
+	if (xchg(&pdata->palm_value, value) != value) {
+		pdata->palm_changed = true;
 		sysfs_notify(&nothing_touch_dev.dev->kobj, NULL, "palm_sensor");
 	}
-
-	mutex_unlock(&nothing_touch_dev.palm_mutex);
 
 	return 0;
 }
@@ -321,46 +298,95 @@ EXPORT_SYMBOL_GPL(update_palm_sensor_value);
 
 int update_prox_sensor_value(int value)
 {
-	mutex_lock(&nothing_touch_dev.prox_mutex);
+	struct nothing_touch_pdata *pdata = READ_ONCE(touch_pdata);
 
-	if (!touch_pdata || !nothing_touch_dev.dev) {
-		mutex_unlock(&nothing_touch_dev.prox_mutex);
+	if (!pdata || !nothing_touch_dev.dev)
 		return -ENODEV;
-	}
 
-	if (value != touch_pdata->prox_value) {
-		pr_info("%s value: %d\n", __func__, value);
-		touch_pdata->prox_value = value;
-		touch_pdata->prox_changed = true;
+	if (xchg(&pdata->prox_value, value) != value) {
+		pdata->prox_changed = true;
 		sysfs_notify(&nothing_touch_dev.dev->kobj, NULL, "prox_sensor");
 	}
-
-	mutex_unlock(&nothing_touch_dev.prox_mutex);
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(update_prox_sensor_value);
+
+int update_fod_press_status(int value)
+{
+	struct nothing_touch_pdata *pdata = READ_ONCE(touch_pdata);
+
+	if (!pdata || !nothing_touch_dev.dev)
+		return -ENODEV;
+
+	if (xchg(&pdata->fod_press_status_value, value) != value)
+		sysfs_notify(&nothing_touch_dev.dev->kobj, NULL,
+			     "fod_press_status");
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(update_fod_press_status);
+
+int nothing_touch_set_suspend_state(int state)
+{
+	struct nothing_touch_pdata *pdata = READ_ONCE(touch_pdata);
+
+	if (!pdata || !nothing_touch_dev.dev)
+		return -ENODEV;
+
+	WRITE_ONCE(pdata->suspend_state, state);
+	sysfs_notify(&nothing_touch_dev.dev->kobj, NULL, "suspend_state");
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(nothing_touch_set_suspend_state);
+
+int notify_gesture_single_tap(void)
+{
+	if (!READ_ONCE(touch_pdata) || !nothing_touch_dev.dev)
+		return -ENODEV;
+
+	sysfs_notify(&nothing_touch_dev.dev->kobj, NULL,
+		     "gesture_single_tap_state");
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(notify_gesture_single_tap);
+
+int notify_gesture_double_tap(void)
+{
+	if (!READ_ONCE(touch_pdata) || !nothing_touch_dev.dev)
+		return -ENODEV;
+
+	sysfs_notify(&nothing_touch_dev.dev->kobj, NULL,
+		     "gesture_double_tap_state");
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(notify_gesture_double_tap);
 
 void nothing_touch_record_event(u32 slot, bool down)
 {
 	struct nothing_touch_pdata *pdata = READ_ONCE(touch_pdata);
 	struct last_touch_event *events;
 	struct touch_event *event;
-	unsigned long flags;
+	u32 head;
 
-	if (!pdata)
+	if (!pdata || slot >= MAX_TOUCH_ID)
 		return;
 
-	spin_lock_irqsave(&pdata->event_lock, flags);
+	if (down ? test_and_set_bit(slot, &pdata->slot_state) :
+		   !test_and_clear_bit(slot, &pdata->slot_state))
+		return;
+
 	events = pdata->last_touch_events;
-	if (events) {
-		event = &events->touch_event_buf[events->head];
-		event->slot = slot;
-		event->state = down ? EVENT_DOWN : EVENT_UP;
-		ktime_get_real_ts64(&event->touch_time);
-		events->head = (events->head + 1) & (LAST_TOUCH_EVENTS_MAX - 1);
-	}
-	spin_unlock_irqrestore(&pdata->event_lock, flags);
+	head = (u32)atomic_fetch_inc(&events->head) &
+	       (LAST_TOUCH_EVENTS_MAX - 1);
+
+	event = &events->touch_event_buf[head];
+	event->slot = slot;
+	event->touch_ns = ktime_get_real_ns();
+	WRITE_ONCE(event->state, down ? EVENT_DOWN : EVENT_UP);
 }
 EXPORT_SYMBOL_GPL(nothing_touch_record_event);
 
@@ -383,9 +409,7 @@ static int nothing_touch_set_bump(bool on)
 	touch_data->setModeValue(Touch_Game_Mode, 1);
 	touch_data->setModeValue(Touch_Active_MODE, 1);
 
-	for (i = 0; i < ARRAY_SIZE(bump_modes); i++) {
-		if (!touch_data->getModeValue)
-			break;
+	for (i = 0; i < ARRAY_SIZE(bump_modes) && touch_data->getModeValue; i++) {
 		value = touch_data->getModeValue(bump_modes[i], GET_MAX_VALUE);
 		if (value > 0)
 			touch_data->setModeValue(bump_modes[i], value);
@@ -402,7 +426,7 @@ static ssize_t bump_sample_rate_show(struct device *dev,
 	if (!touch_pdata)
 		return -ENODEV;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", touch_pdata->bump_sample_rate);
+	return sysfs_emit(buf, "%d\n", touch_pdata->bump_sample_rate);
 }
 
 static ssize_t bump_sample_rate_store(struct device *dev,
@@ -428,8 +452,6 @@ static ssize_t bump_sample_rate_store(struct device *dev,
 
 	mutex_unlock(&nothing_touch_dev.mutex);
 
-	pr_info("%s value:%d\n", __func__, !!input);
-
 	return ret ? ret : count;
 }
 
@@ -439,32 +461,29 @@ static ssize_t enable_touchraw_show(struct device *dev,
 	if (!touch_pdata)
 		return -ENODEV;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n",
-			touch_pdata->touch_data[0]->is_enable_touchraw);
+	return sysfs_emit(buf, "%d\n",
+			  touch_pdata->touch_data[0]->is_enable_touchraw);
 }
 
 static ssize_t enable_touchraw_store(struct device *dev,
 				     struct device_attribute *attr,
 				     const char *buf, size_t count)
 {
-	struct nothing_touch_interface *touch_data = NULL;
+	struct nothing_touch_interface *touch_data;
 	int input;
 
 	if (!touch_pdata)
 		return -ENODEV;
 
-	touch_data = touch_pdata->touch_data[0];
-
 	if (kstrtoint(buf, 0, &input))
 		return -EINVAL;
 
-	pr_info("%s,%d\n", __func__, input);
+	touch_data = touch_pdata->touch_data[0];
+
 	if (touch_data->enable_touch_raw)
 		touch_data->enable_touch_raw(!!input);
 
 	touch_data->is_enable_touchraw = !!input;
-	touch_pdata->raw_tail = 0;
-	touch_pdata->raw_head = 0;
 
 	return count;
 }
@@ -475,26 +494,25 @@ static ssize_t enable_touchdelta_show(struct device *dev,
 	if (!touch_pdata)
 		return -ENODEV;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n",
-			touch_pdata->touch_data[0]->is_enable_touchdelta);
+	return sysfs_emit(buf, "%d\n",
+			  touch_pdata->touch_data[0]->is_enable_touchdelta);
 }
 
 static ssize_t enable_touchdelta_store(struct device *dev,
 				       struct device_attribute *attr,
 				       const char *buf, size_t count)
 {
-	struct nothing_touch_interface *touch_data = NULL;
+	struct nothing_touch_interface *touch_data;
 	int input;
 
 	if (!touch_pdata)
 		return -ENODEV;
 
-	touch_data = touch_pdata->touch_data[0];
-
 	if (kstrtoint(buf, 0, &input))
 		return -EINVAL;
 
-	pr_info("%s,%d\n", __func__, input);
+	touch_data = touch_pdata->touch_data[0];
+
 	if (touch_data->enable_touch_delta)
 		touch_data->enable_touch_delta(!!input);
 
@@ -506,7 +524,7 @@ static ssize_t enable_touchdelta_store(struct device *dev,
 static ssize_t thp_cmd_status_show(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
-	struct nothing_touch_interface *touch_data = NULL;
+	struct nothing_touch_interface *touch_data;
 	int size;
 
 	mutex_lock(&nothing_touch_dev.mutex);
@@ -517,7 +535,7 @@ static ssize_t thp_cmd_status_show(struct device *dev,
 	}
 
 	touch_data = touch_pdata->touch_data[0];
-	size = min(touch_data->thp_cmd_size, MAX_BUF_SIZE) * sizeof(int);
+	size = clamp(touch_data->thp_cmd_size, 0, MAX_BUF_SIZE) * sizeof(int);
 	memcpy(buf, touch_data->thp_cmd_buf, size);
 
 	mutex_unlock(&nothing_touch_dev.mutex);
@@ -529,14 +547,12 @@ static ssize_t thp_cmd_status_store(struct device *dev,
 				    struct device_attribute *attr,
 				    const char *buf, size_t count)
 {
-	struct nothing_touch_interface *touch_data = NULL;
-	unsigned int input[MAX_BUF_SIZE];
-	const char *p = buf;
+	struct nothing_touch_interface *touch_data;
+	unsigned int input[MAX_BUF_SIZE] = { 0, };
 	bool new_data = false;
 	int para_cnt = 0;
 	int i = 0;
-
-	memset(input, 0x00, sizeof(input));
+	const char *p;
 
 	for (p = buf; *p != '\0'; p++) {
 		if (*p >= '0' && *p <= '9') {
@@ -565,9 +581,6 @@ static ssize_t thp_cmd_status_store(struct device *dev,
 	}
 
 	touch_data = touch_pdata->touch_data[0];
-
-	pr_info("%s size:%d, cmd:%d, %d, %d, %d\n", __func__, para_cnt,
-		input[0], input[1], input[2], input[3]);
 	memcpy(touch_data->thp_cmd_buf, input, sizeof(int) * para_cnt);
 	touch_data->thp_cmd_size = para_cnt;
 	sysfs_notify(&dev->kobj, NULL, "touch_thp_cmd");
@@ -589,8 +602,7 @@ static ssize_t _node##_show(struct device *dev,				\
 	if (!pdata->touch_data[0]->_cb)					\
 		return 0;						\
 									\
-	return snprintf(buf, PAGE_SIZE, _fmt,				\
-			pdata->touch_data[0]->_cb());			\
+	return sysfs_emit(buf, _fmt, pdata->touch_data[0]->_cb());	\
 }									\
 static DEVICE_ATTR(_node, 0444, _node##_show, NULL)
 
@@ -610,8 +622,8 @@ static ssize_t _node##_show(struct device *dev,				\
 	if (!touch_pdata)						\
 		return -ENODEV;						\
 									\
-	return snprintf(buf, PAGE_SIZE, "%d\n",				\
-			touch_pdata->touch_data[0]->_field);		\
+	return sysfs_emit(buf, "%d\n",					\
+			  touch_pdata->touch_data[0]->_field);		\
 }									\
 									\
 static ssize_t _node##_store(struct device *dev,			\
@@ -626,7 +638,6 @@ static ssize_t _node##_store(struct device *dev,			\
 	if (kstrtoint(buf, 0, &input))					\
 		return -EINVAL;						\
 									\
-	pr_info("%s,%d\n", __func__, input);				\
 	touch_pdata->touch_data[0]->_field = input;			\
 	sysfs_notify(&dev->kobj, NULL, #_node);				\
 									\
@@ -645,11 +656,12 @@ THP_ATTR(touch_thp_noisefilter, thp_noisefilter);
 static ssize_t palm_sensor_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
-	struct nothing_touch_pdata *pdata = dev_get_drvdata(dev);
+	if (!touch_pdata)
+		return -ENODEV;
 
-	pdata->palm_changed = false;
+	touch_pdata->palm_changed = false;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", pdata->palm_value);
+	return sysfs_emit(buf, "%d\n", touch_pdata->palm_value);
 }
 
 static ssize_t palm_sensor_store(struct device *dev,
@@ -657,17 +669,17 @@ static ssize_t palm_sensor_store(struct device *dev,
 				 size_t count)
 {
 	int input;
-	struct nothing_touch_pdata *pdata = dev_get_drvdata(dev);
+
+	if (!touch_pdata)
+		return -ENODEV;
 
 	if (kstrtoint(buf, 0, &input))
 		return -EINVAL;
 
-	if (pdata->touch_data[0]->palm_sensor_write)
-		pdata->touch_data[0]->palm_sensor_write(!!input);
+	if (touch_pdata->touch_data[0]->palm_sensor_write)
+		touch_pdata->touch_data[0]->palm_sensor_write(!!input);
 	else
 		pr_err("%s has not implement\n", __func__);
-
-	pr_info("%s value:%d\n", __func__, !!input);
 
 	return count;
 }
@@ -675,11 +687,12 @@ static ssize_t palm_sensor_store(struct device *dev,
 static ssize_t prox_sensor_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
-	struct nothing_touch_pdata *pdata = dev_get_drvdata(dev);
+	if (!touch_pdata)
+		return -ENODEV;
 
-	pdata->prox_changed = false;
+	touch_pdata->prox_changed = false;
 
-	return snprintf(buf, PAGE_SIZE, "%d\n", pdata->prox_value);
+	return sysfs_emit(buf, "%d\n", touch_pdata->prox_value);
 }
 
 static ssize_t prox_sensor_store(struct device *dev,
@@ -687,25 +700,57 @@ static ssize_t prox_sensor_store(struct device *dev,
 				 size_t count)
 {
 	int input;
-	struct nothing_touch_pdata *pdata = dev_get_drvdata(dev);
+
+	if (!touch_pdata)
+		return -ENODEV;
 
 	if (kstrtoint(buf, 0, &input))
 		return -EINVAL;
 
-	if (pdata->touch_data[0]->prox_sensor_write)
-		pdata->touch_data[0]->prox_sensor_write(!!input);
+	if (touch_pdata->touch_data[0]->prox_sensor_write)
+		touch_pdata->touch_data[0]->prox_sensor_write(!!input);
 	else
 		pr_err("%s has not implement\n", __func__);
 
-	pr_info("%s value:%d\n", __func__, !!input);
-
 	return count;
+}
+
+static ssize_t suspend_state_show(struct device *dev,
+				  struct device_attribute *attr, char *buf)
+{
+	if (!touch_pdata)
+		return -ENODEV;
+
+	return sysfs_emit(buf, "%d\n", READ_ONCE(touch_pdata->suspend_state));
+}
+
+static ssize_t fod_press_status_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	if (!touch_pdata)
+		return -ENODEV;
+
+	return sysfs_emit(buf, "%d\n", touch_pdata->fod_press_status_value);
+}
+
+static ssize_t gesture_single_tap_state_show(struct device *dev,
+					     struct device_attribute *attr,
+					     char *buf)
+{
+	return sysfs_emit(buf, "%d\n", 1);
+}
+
+static ssize_t gesture_double_tap_state_show(struct device *dev,
+					     struct device_attribute *attr,
+					     char *buf)
+{
+	return sysfs_emit(buf, "%d\n", 1);
 }
 
 static ssize_t update_rawdata_show(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
-	return snprintf(buf, PAGE_SIZE, "%s\n", "1");
+	return sysfs_emit(buf, "%s\n", "1");
 }
 
 static DEVICE_ATTR(enable_touch_raw, 0664, enable_touchraw_show, enable_touchraw_store);
@@ -714,6 +759,10 @@ static DEVICE_ATTR(touch_thp_cmd, 0664, thp_cmd_status_show, thp_cmd_status_stor
 static DEVICE_ATTR(palm_sensor, 0664, palm_sensor_show, palm_sensor_store);
 static DEVICE_ATTR(prox_sensor, 0664, prox_sensor_show, prox_sensor_store);
 static DEVICE_ATTR(bump_sample_rate, 0664, bump_sample_rate_show, bump_sample_rate_store);
+static DEVICE_ATTR(suspend_state, 0444, suspend_state_show, NULL);
+static DEVICE_ATTR(fod_press_status, 0444, fod_press_status_show, NULL);
+static DEVICE_ATTR(gesture_single_tap_state, 0444, gesture_single_tap_state_show, NULL);
+static DEVICE_ATTR(gesture_double_tap_state, 0444, gesture_double_tap_state_show, NULL);
 static DEVICE_ATTR(update_rawdata, 0444, update_rawdata_show, NULL);
 
 static struct attribute *touch_attr_group[] = {
@@ -739,13 +788,17 @@ static struct attribute *touch_attr_group[] = {
 	&dev_attr_panel_display.attr,
 	&dev_attr_touch_vendor.attr,
 	&dev_attr_update_rawdata.attr,
+	&dev_attr_suspend_state.attr,
+	&dev_attr_fod_press_status.attr,
+	&dev_attr_gesture_single_tap_state.attr,
+	&dev_attr_gesture_double_tap_state.attr,
 	NULL,
 };
 
 static void *event_start(struct seq_file *m, loff_t *p)
 {
-	int pos = 0;
 	struct last_touch_event *event;
+	u32 pos;
 
 	if (!touch_pdata || !touch_pdata->last_touch_events)
 		return NULL;
@@ -754,15 +807,16 @@ static void *event_start(struct seq_file *m, loff_t *p)
 	if (*p >= LAST_TOUCH_EVENTS_MAX)
 		return NULL;
 
-	pos = (event->head + *p) & (LAST_TOUCH_EVENTS_MAX - 1);
+	pos = ((u32)atomic_read(&event->head) + *p) &
+	      (LAST_TOUCH_EVENTS_MAX - 1);
 
 	return event->touch_event_buf + pos;
 }
 
 static void *event_next(struct seq_file *m, void *v, loff_t *p)
 {
-	int pos = 0;
 	struct last_touch_event *event;
+	u32 pos;
 
 	if (!touch_pdata || !touch_pdata->last_touch_events)
 		return NULL;
@@ -771,27 +825,28 @@ static void *event_next(struct seq_file *m, void *v, loff_t *p)
 	if (++*p >= LAST_TOUCH_EVENTS_MAX)
 		return NULL;
 
-	pos = (event->head + *p) & (LAST_TOUCH_EVENTS_MAX - 1);
+	pos = ((u32)atomic_read(&event->head) + *p) &
+	      (LAST_TOUCH_EVENTS_MAX - 1);
 
 	return event->touch_event_buf + pos;
 }
 
-static int32_t event_show(struct seq_file *m, void *v)
+static int event_show(struct seq_file *m, void *v)
 {
-	struct touch_event *event_info;
+	struct touch_event *event_info = v;
+	struct timespec64 ts;
 	struct rtc_time tm;
+	enum touch_state state = READ_ONCE(event_info->state);
 
-	event_info = (struct touch_event *)v;
-
-	if (event_info->state == EVENT_INIT)
+	if (state == EVENT_INIT)
 		return 0;
 
-	rtc_time64_to_tm(event_info->touch_time.tv_sec, &tm);
+	ts = ns_to_timespec64(event_info->touch_ns);
+	rtc_time64_to_tm(ts.tv_sec, &tm);
 	seq_printf(m, "%d-%02d-%02d %02d:%02d:%02d.%09ld UTC Finger (%2u) %s\n",
 		   tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,
-		   tm.tm_min, tm.tm_sec, event_info->touch_time.tv_nsec,
-		   event_info->slot,
-		   event_info->state == EVENT_DOWN ? "P" : "R");
+		   tm.tm_min, tm.tm_sec, ts.tv_nsec, event_info->slot,
+		   state == EVENT_DOWN ? "P" : "R");
 
 	return 0;
 }
@@ -807,7 +862,7 @@ static const struct seq_operations last_touch_events_seq_ops = {
 	.show = event_show,
 };
 
-static int32_t last_touch_events_open(struct inode *inode, struct file *file)
+static int last_touch_events_open(struct inode *inode, struct file *file)
 {
 	return seq_open(file, &last_touch_events_seq_ops);
 }
@@ -821,42 +876,39 @@ static const struct proc_ops last_touch_events_ops = {
 
 static int nothing_touch_probe(struct platform_device *pdev)
 {
-	int ret = 0;
+	int ret;
 	struct device *dev = &pdev->dev;
 	struct nothing_touch_pdata *pdata;
+	unsigned long raw_page;
 
-	pr_info("%s enter\n", __func__);
-
-	pdata = devm_kzalloc(dev, sizeof(struct nothing_touch_pdata),
-			     GFP_KERNEL);
+	pdata = devm_kzalloc(dev, sizeof(*pdata), GFP_KERNEL);
 	if (!pdata)
 		return -ENOMEM;
 
-	pdata->raw_data = kzalloc(RAW_SIZE, GFP_KERNEL);
-	if (!pdata->raw_data) {
-		pr_err("%s alloc mem for raw data\n", __func__);
+	pdata->touch_data[0] = devm_kzalloc(dev, sizeof(*pdata->touch_data[0]),
+					    GFP_KERNEL);
+	pdata->touch_data[1] = devm_kzalloc(dev, sizeof(*pdata->touch_data[1]),
+					    GFP_KERNEL);
+	pdata->last_touch_events = devm_kzalloc(dev,
+						sizeof(*pdata->last_touch_events),
+						GFP_KERNEL);
+	raw_page = devm_get_free_pages(dev, GFP_KERNEL | __GFP_ZERO,
+				       get_order(RAW_SIZE));
+	if (!pdata->touch_data[0] || !pdata->touch_data[1] ||
+	    !pdata->last_touch_events || !raw_page) {
+		pr_err("%s alloc mem for touch_data\n", __func__);
 		return -ENOMEM;
 	}
 
+	pdata->raw_data = (unsigned int *)raw_page;
 	pdata->phy_base = virt_to_phys(pdata->raw_data);
 
-	spin_lock_init(&pdata->raw_lock);
-	spin_lock_init(&pdata->event_lock);
-
-	ret = misc_register(&nothing_touch_dev.misc_dev);
-	if (ret) {
-		pr_err("%s create misc device err:%d\n", __func__, ret);
-		goto raw_mem_err;
-	}
-
-	if (!nothing_touch_dev.class) {
-		nothing_touch_dev.class = class_create(THIS_MODULE, "touch");
-		if (IS_ERR(nothing_touch_dev.class)) {
-			ret = PTR_ERR(nothing_touch_dev.class);
-			nothing_touch_dev.class = NULL;
-			pr_err("%s create device class err:%d\n", __func__, ret);
-			goto class_create_err;
-		}
+	nothing_touch_dev.class = class_create(THIS_MODULE, "touch");
+	if (IS_ERR(nothing_touch_dev.class)) {
+		ret = PTR_ERR(nothing_touch_dev.class);
+		nothing_touch_dev.class = NULL;
+		pr_err("%s create device class err:%d\n", __func__, ret);
+		return ret;
 	}
 
 	nothing_touch_dev.dev = device_create(nothing_touch_dev.class, NULL, 'T',
@@ -868,19 +920,6 @@ static int nothing_touch_probe(struct platform_device *pdev)
 		goto device_create_err;
 	}
 
-	pdata->touch_data[0] = kzalloc(sizeof(struct nothing_touch_interface),
-				       GFP_KERNEL);
-	pdata->touch_data[1] = kzalloc(sizeof(struct nothing_touch_interface),
-				       GFP_KERNEL);
-	pdata->last_touch_events = kzalloc(sizeof(struct last_touch_event),
-					   GFP_KERNEL);
-	if (!pdata->touch_data[0] || !pdata->touch_data[1] ||
-	    !pdata->last_touch_events) {
-		ret = -ENOMEM;
-		pr_err("%s alloc mem for touch_data\n", __func__);
-		goto data_mem_err;
-	}
-
 	pdata->device = &nothing_touch_dev;
 	dev_set_drvdata(nothing_touch_dev.dev, pdata);
 
@@ -890,12 +929,17 @@ static int nothing_touch_probe(struct platform_device *pdev)
 	if (ret) {
 		pr_err("%s ERROR: Cannot create sysfs structure!:%d\n",
 		       __func__, ret);
-		ret = -ENODEV;
-		goto data_mem_err;
+		goto sys_group_err;
 	}
 
-	pdata->last_touch_events_proc = proc_create(
-		"last_touch_events", 0444, NULL, &last_touch_events_ops);
+	ret = misc_register(&nothing_touch_dev.misc_dev);
+	if (ret) {
+		pr_err("%s create misc device err:%d\n", __func__, ret);
+		goto misc_err;
+	}
+
+	pdata->last_touch_events_proc = proc_create("last_touch_events", 0444,
+						    NULL, &last_touch_events_ops);
 
 	WRITE_ONCE(touch_pdata, pdata);
 
@@ -903,21 +947,14 @@ static int nothing_touch_probe(struct platform_device *pdev)
 
 	return 0;
 
-data_mem_err:
-	kfree(pdata->touch_data[0]);
-	kfree(pdata->touch_data[1]);
-	kfree(pdata->last_touch_events);
+misc_err:
+	sysfs_remove_group(&nothing_touch_dev.dev->kobj, &nothing_touch_dev.attrs);
+sys_group_err:
 	device_destroy(nothing_touch_dev.class, 'T');
 	nothing_touch_dev.dev = NULL;
 device_create_err:
 	class_destroy(nothing_touch_dev.class);
 	nothing_touch_dev.class = NULL;
-class_create_err:
-	misc_deregister(&nothing_touch_dev.misc_dev);
-raw_mem_err:
-	kfree(pdata->raw_data);
-
-	pr_err("%s fail!\n", __func__);
 
 	return ret;
 }
@@ -935,20 +972,14 @@ static int nothing_touch_remove(struct platform_device *pdev)
 		return 0;
 
 	if (pdata->last_touch_events_proc)
-		remove_proc_entry("last_touch_events", NULL);
+		proc_remove(pdata->last_touch_events_proc);
 
-	sysfs_remove_group(&nothing_touch_dev.dev->kobj,
-			   &nothing_touch_dev.attrs);
+	misc_deregister(&nothing_touch_dev.misc_dev);
+	sysfs_remove_group(&nothing_touch_dev.dev->kobj, &nothing_touch_dev.attrs);
 	device_destroy(nothing_touch_dev.class, 'T');
 	nothing_touch_dev.dev = NULL;
 	class_destroy(nothing_touch_dev.class);
 	nothing_touch_dev.class = NULL;
-	misc_deregister(&nothing_touch_dev.misc_dev);
-
-	kfree(pdata->raw_data);
-	kfree(pdata->last_touch_events);
-	kfree(pdata->touch_data[0]);
-	kfree(pdata->touch_data[1]);
 
 	return 0;
 }
@@ -959,7 +990,7 @@ static const struct of_device_id nothing_touch_of_match[] = {
 };
 
 static struct platform_driver nothing_touch_device_driver = {
-	.probe  = nothing_touch_probe,
+	.probe = nothing_touch_probe,
 	.remove = nothing_touch_remove,
 	.driver = {
 		.name = "nothing-touch",
