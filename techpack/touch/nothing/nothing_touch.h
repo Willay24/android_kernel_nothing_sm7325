@@ -28,6 +28,8 @@
 #include <linux/seq_file.h>
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
+#include <linux/atomic.h>
+#include <linux/bitops.h>
 
 /* CUR, DEFAULT, MIN, MAX */
 #define VALUE_TYPE_SIZE 6
@@ -35,6 +37,13 @@
 #define MAX_BUF_SIZE 256
 #define BTN_INFO 0x152
 #define MAX_TOUCH_ID 10
+
+enum suspend_state {
+	NOTHING_TOUCH_RESUME = 0,
+	NOTHING_TOUCH_SUSPEND,
+	NOTHING_TOUCH_LP1,
+	NOTHING_TOUCH_LP2,
+};
 
 enum MODE_CMD {
 	SET_CUR_VALUE = 0,
@@ -110,9 +119,6 @@ struct nothing_touch {
 	struct class *class;
 	struct attribute_group attrs;
 	struct mutex mutex;
-	struct mutex palm_mutex;
-	struct mutex prox_mutex;
-	wait_queue_head_t wait_queue;
 };
 
 #define LAST_TOUCH_EVENTS_MAX 512
@@ -126,11 +132,11 @@ enum touch_state {
 struct touch_event {
 	u32 slot;
 	enum touch_state state;
-	struct timespec64 touch_time;
+	u64 touch_ns;
 };
 
 struct last_touch_event {
-	int head;
+	atomic_t head;
 	struct touch_event touch_event_buf[LAST_TOUCH_EVENTS_MAX];
 };
 
@@ -139,17 +145,14 @@ struct nothing_touch_pdata {
 	struct nothing_touch_interface *touch_data[2];
 	int suspend_state;
 	dma_addr_t phy_base;
-	int raw_head;
-	int raw_tail;
-	int raw_len;
 	unsigned int *raw_data;
-	spinlock_t raw_lock;
 	int palm_value;
 	bool palm_changed;
 	int prox_value;
 	bool prox_changed;
+	int fod_press_status_value;
 	bool bump_sample_rate;
-	spinlock_t event_lock;
+	unsigned long slot_state;
 	struct proc_dir_entry *last_touch_events_proc;
 	struct last_touch_event *last_touch_events;
 };
@@ -158,11 +161,21 @@ struct nothing_touch *nothing_touch_dev_get(int minor);
 
 extern struct class *get_nothing_touch_class(void);
 
+extern struct device *get_nothing_touch_dev(void);
+
 extern bool nothing_touch_ready(void);
 
 extern int update_palm_sensor_value(int value);
 
 extern int update_prox_sensor_value(int value);
+
+extern int update_fod_press_status(int value);
+
+extern int nothing_touch_set_suspend_state(int state);
+
+extern int notify_gesture_single_tap(void);
+
+extern int notify_gesture_double_tap(void);
 
 extern void nothing_touch_record_event(u32 slot, bool down);
 
