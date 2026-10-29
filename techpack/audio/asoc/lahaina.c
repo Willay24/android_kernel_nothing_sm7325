@@ -736,7 +736,11 @@ static const char *const usb_ch_text[] = {"One", "Two", "Three", "Four",
 					   "Eight"};
 static char const *tdm_sample_rate_text[] = {"KHZ_8", "KHZ_16", "KHZ_32",
 					     "KHZ_48", "KHZ_176P4",
-					     "KHZ_352P8"};
+					     "KHZ_352P8",
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+					     "KHZ_96"
+#endif
+					     };
 static char const *tdm_bit_format_text[] = {"S16_LE", "S24_LE", "S32_LE"};
 static char const *tdm_ch_text[] = {"One", "Two", "Three", "Four",
 				    "Five", "Six", "Seven", "Eight"};
@@ -1949,6 +1953,11 @@ static int tdm_get_sample_rate(int value)
 	case 5:
 		sample_rate = SAMPLING_RATE_352P8KHZ;
 		break;
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+	case 6:
+		sample_rate = SAMPLING_RATE_96KHZ;
+		break;
+#endif
 	default:
 		sample_rate = SAMPLING_RATE_48KHZ;
 		break;
@@ -1979,6 +1988,11 @@ static int tdm_get_sample_rate_val(int sample_rate)
 	case SAMPLING_RATE_352P8KHZ:
 		sample_rate_val = 5;
 		break;
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+	case SAMPLING_RATE_96KHZ:
+		sample_rate_val = 6;
+		break;
+#endif
 	default:
 		sample_rate_val = 3;
 		break;
@@ -3882,6 +3896,16 @@ static int msm_bt_sample_rate_tx_put(struct snd_kcontrol *kcontrol,
 	return 0;
 }
 
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+static int usbhs_direction_get(struct snd_kcontrol *kcontrol,
+			       struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = wcd_mbhc_cfg.flip_switch;
+
+	return 0;
+}
+#endif
+
 static const struct snd_kcontrol_new msm_int_snd_controls[] = {
 	SOC_ENUM_EXT("WSA_CDC_DMA_RX_0 Channels", wsa_cdc_dma_rx_0_chs,
 			cdc_dma_rx_ch_get, cdc_dma_rx_ch_put),
@@ -4423,6 +4447,10 @@ static const struct snd_kcontrol_new msm_common_snd_controls[] = {
 			afe_loopback_tx_ch_get, afe_loopback_tx_ch_put),
 	SOC_ENUM_EXT("VI_FEED_TX Channels", vi_feed_tx_chs,
 			msm_vi_feed_tx_ch_get, msm_vi_feed_tx_ch_put),
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+	SOC_SINGLE_EXT("USB Headset Direction", 0, 0, 1, 0,
+			usbhs_direction_get, NULL),
+#endif
 	SOC_SINGLE_MULTI_EXT("TDM Slot Map", SND_SOC_NOPM, 0, 255, 0,
 			TDM_MAX_SLOTS + MAX_PATH, NULL, tdm_slot_map_put),
 };
@@ -4970,6 +4998,10 @@ static bool msm_usbc_swap_gnd_mic(struct snd_soc_component *component, bool acti
 
 	if (!pdata->fsa_handle)
 		return false;
+
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+	wcd_mbhc_cfg.flip_switch = true;
+#endif
 
 	return fsa4480_switch_event(pdata->fsa_handle, FSA_MIC_GND_SWAP);
 }
