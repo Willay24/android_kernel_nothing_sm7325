@@ -868,7 +868,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_MI2S_UL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 2,
 			.rate_min = 8000,
@@ -884,7 +888,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_MI2S_DL_HL",
 			.rates = SNDRV_PCM_RATE_8000_384000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 2,
 			.rate_min =     8000,
@@ -1049,7 +1057,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_TX_0_UL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1065,7 +1077,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_RX_0_DL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1081,7 +1097,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_TX_1_UL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1097,7 +1117,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_RX_1_DL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1113,7 +1137,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_TX_2_UL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1129,7 +1157,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_RX_2_DL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1145,7 +1177,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_TX_3_UL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1161,7 +1197,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_RX_3_DL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1177,7 +1217,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_TX_4_UL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1193,7 +1237,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_RX_4_DL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1209,7 +1257,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_TX_5_UL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1225,7 +1277,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_RX_5_DL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1241,7 +1297,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_TX_6_UL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1257,7 +1317,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_RX_6_DL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1273,7 +1337,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_TX_7_UL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1289,7 +1357,11 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 			.aif_name = "PRI_TDM_RX_7_DL_HL",
 			.rates = SNDRV_PCM_RATE_8000_48000,
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
-				    SNDRV_PCM_FMTBIT_S24_LE),
+				    SNDRV_PCM_FMTBIT_S24_LE |
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+				    SNDRV_PCM_FMTBIT_S24_3LE |
+#endif
+				    0),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
@@ -1607,13 +1679,21 @@ static struct snd_soc_dai_driver msm_fe_dais[] = {
 		.playback = {
 			.stream_name = "Tertiary TDM1 Hostless Playback",
 			.aif_name = "TERT_TDM_RX_1_DL_HL",
+#if !(defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR))
 			.rates = SNDRV_PCM_RATE_8000_48000,
+#else
+			.rates = SNDRV_PCM_RATE_8000_96000,
+#endif
 			.formats = (SNDRV_PCM_FMTBIT_S16_LE |
 				    SNDRV_PCM_FMTBIT_S24_LE),
 			.channels_min = 1,
 			.channels_max = 8,
 			.rate_min = 8000,
+#if !(defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR))
 			.rate_max = 48000,
+#else
+			.rate_max = 96000,
+#endif
 		},
 		.ops = &msm_fe_dai_ops,
 		.name = "TERT_TDM_RX_1_HOSTLESS",
