@@ -290,10 +290,17 @@ static int adm_get_copp_id(int port_idx, int copp_idx)
 	return atomic_read(&this_adm.copp.id[port_idx][copp_idx]);
 }
 
+#if !(defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR))
 static int adm_get_idx_if_single_copp_exists(int port_idx,
 			int topology,
 			int rate, int bit_width,
 			uint32_t copp_token)
+#else
+static int adm_get_idx_if_single_copp_exists(int port_idx,
+			int topology,
+			int rate, int bit_width,
+			uint32_t copp_token, int channel_mode)
+#endif
 {
 	int idx;
 
@@ -307,14 +314,25 @@ static int adm_get_idx_if_single_copp_exists(int port_idx,
 			(bit_width ==
 			atomic_read(&this_adm.copp.bit_width[port_idx][idx])) &&
 			(copp_token ==
-			atomic_read(&this_adm.copp.token[port_idx][idx])))
+			atomic_read(&this_adm.copp.token[port_idx][idx]))
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+			&& (channel_mode ==
+			atomic_read(&this_adm.copp.channels[port_idx][idx]))
+#endif
+			)
 			return idx;
 	return -EINVAL;
 }
 
+#if !(defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR))
 static int adm_get_idx_if_copp_exists(int port_idx, int topology, int mode,
 				 int rate, int bit_width, int app_type,
 				 int session_type, uint32_t copp_token)
+#else
+static int adm_get_idx_if_copp_exists(int port_idx, int topology, int mode,
+				 int rate, int bit_width, int app_type,
+				 int session_type, uint32_t copp_token, int channel_mode)
+#endif
 {
 	int idx;
 
@@ -322,10 +340,18 @@ static int adm_get_idx_if_copp_exists(int port_idx, int topology, int mode,
 		 __func__, port_idx, topology, mode, rate, bit_width);
 
 	if (copp_token)
+#if !(defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR))
 		return adm_get_idx_if_single_copp_exists(port_idx,
 				topology,
 				rate, bit_width,
 				copp_token);
+#else
+		return adm_get_idx_if_single_copp_exists(port_idx,
+				topology,
+				rate, bit_width,
+				copp_token,
+				channel_mode);
+#endif
 
 	for (idx = 0; idx < MAX_COPPS_PER_PORT; idx++)
 		if ((topology ==
@@ -338,7 +364,12 @@ static int adm_get_idx_if_copp_exists(int port_idx, int topology, int mode,
 			atomic_read(
 				&this_adm.copp.session_type[port_idx][idx])) &&
 		    (app_type ==
-			atomic_read(&this_adm.copp.app_type[port_idx][idx])))
+			atomic_read(&this_adm.copp.app_type[port_idx][idx]))
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+			&& (channel_mode ==
+			atomic_read(&this_adm.copp.channels[port_idx][idx]))
+#endif
+			)
 			return idx;
 	return -EINVAL;
 }
@@ -2554,6 +2585,61 @@ fail_cmd:
 }
 EXPORT_SYMBOL(adm_connect_afe_port);
 
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+/**
+ * adm_set_device_model -
+ *        command to send device model to adsp
+ *
+ * @device_model: device model value to send to the DSP
+ *
+ * Returns 0 on success or error on failure
+ */
+int adm_set_device_model(int device_model)
+{
+	struct adm_cmd_set_device_model	cmd = { 0 };
+	int ret;
+
+	if (device_model < 0 || device_model > U8_MAX)
+		return -EINVAL;
+
+	pr_debug("%s: device model: %d\n", __func__, device_model);
+
+	if (this_adm.apr == NULL) {
+		this_adm.apr = apr_register("ADSP", "ADM", adm_callback,
+						0xFFFFFFFF, &this_adm);
+		if (this_adm.apr == NULL) {
+			pr_err("%s: Unable to register ADM\n", __func__);
+			return -ENODEV;
+		}
+		rtac_set_adm_handle(this_adm.apr);
+	}
+
+	cmd.hdr.hdr_field =
+		APR_HDR_FIELD(APR_MSG_TYPE_SEQ_CMD,
+		APR_HDR_LEN(APR_HDR_SIZE), APR_PKT_VER);
+	cmd.hdr.pkt_size = sizeof(cmd);
+	cmd.hdr.src_svc = APR_SVC_ADM;
+	cmd.hdr.src_domain = APR_DOMAIN_APPS;
+	cmd.hdr.src_port = 0;
+	cmd.hdr.dest_svc = APR_SVC_ADM;
+	cmd.hdr.dest_domain = APR_DOMAIN_ADSP;
+	cmd.hdr.dest_port = 0; /* Ignored */
+	cmd.hdr.token = 0;
+	cmd.hdr.opcode = ADM_CMD_SET_DEVICE_MODEL;
+	cmd.model = device_model;
+
+	ret = apr_send_pkt(this_adm.apr, (uint32_t *)&cmd);
+	if (ret < 0) {
+		pr_err("%s: send device model: 0x%x failed ret %d\n",
+		       __func__, device_model, ret);
+		return ret;
+	}
+
+	return 0;
+}
+EXPORT_SYMBOL(adm_set_device_model);
+#endif
+
 int adm_arrange_mch_map(struct adm_cmd_device_open_v5 *open, int path,
 			 int channel_mode, int port_idx)
 {
@@ -3248,6 +3334,7 @@ int adm_open_v2(int port_id, int path, int rate, int channel_mode, int topology,
 
 	port_id = q6audio_convert_virtual_to_portid(port_id);
 	port_idx = adm_validate_and_get_port_index(port_id);
+
 	if (port_idx < 0) {
 		pr_err("%s: Invalid port_id 0x%x\n", __func__, port_id);
 		return -EINVAL;
@@ -3330,11 +3417,20 @@ int adm_open_v2(int port_id, int path, int rate, int channel_mode, int topology,
 	 * This isn't allowed for ULL streams as per the DSP interface
 	 */
 	if (perf_mode != ULTRA_LOW_LATENCY_PCM_MODE)
+#if !(defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR))
 		copp_idx = adm_get_idx_if_copp_exists(port_idx, topology,
 						      perf_mode,
 						      rate, bit_width,
 						      app_type, session_type,
 						      copp_token);
+#else
+		copp_idx = adm_get_idx_if_copp_exists(port_idx, topology,
+						      perf_mode,
+						      rate, bit_width,
+						      app_type, session_type,
+						      copp_token,
+						      channel_mode);
+#endif
 
 	if (copp_idx < 0) {
 		copp_idx = adm_get_next_available_copp(port_idx);
