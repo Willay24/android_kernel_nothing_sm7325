@@ -152,6 +152,9 @@ ifdef CONFIG_SND_SOC_MSM_QDSP6V2_INTF
 	Q6_OBJS += adsp_err.o
 	Q6_OBJS += msm_audio_ion.o
 	Q6_OBJS += q6_init.o
+ifeq ($(CONFIG_NOTHING_SPACEWAR), y)
+	Q6_OBJS += model_loader.o
+endif
 endif
 
 ifdef CONFIG_SND_SOC_MSM_QDSP6V2_VM
