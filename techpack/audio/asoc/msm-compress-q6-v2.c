@@ -420,6 +420,9 @@ static int msm_compr_set_volume(struct snd_compr_stream *cstream,
 		avg_vol = (volume_l + volume_r) / 2;
 		rc = q6asm_set_volume(prtd->audio_client, avg_vol);
 	} else {
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+		use_default = true;
+#endif
 		gain_list[0] = volume_l;
 		gain_list[1] = volume_r;
 		gain_list[2] = volume_l;

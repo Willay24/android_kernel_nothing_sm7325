@@ -115,6 +115,9 @@ int bolero_tx_mclk_enable(struct snd_soc_component *c, bool enable);
 int bolero_get_version(struct device *dev);
 int bolero_dmic_clk_enable(struct snd_soc_component *component,
 			   u32 dmic, u32 tx_mode, bool enable);
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+void bolero_tx_macro_mute_hs(void);
+#endif
 #else
 static inline int bolero_register_res_clk(struct device *dev, rsc_clk_cb_t cb)
 {
@@ -215,5 +218,11 @@ static int bolero_tx_mclk_enable(struct snd_soc_component *c, bool enable)
 {
 	return 0;
 }
+
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+static inline void bolero_tx_macro_mute_hs(void)
+{
+}
+#endif
 #endif /* CONFIG_SND_SOC_BOLERO */
 #endif /* BOLERO_CDC_H */

@@ -437,6 +437,9 @@ struct wcd_mbhc_config {
 	bool enable_anc_mic_detect;
 	u32 enable_usbc_analog;
 	bool moisture_duty_cycle_en;
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+	bool flip_switch;
+#endif
 };
 
 struct wcd_mbhc_intr {
