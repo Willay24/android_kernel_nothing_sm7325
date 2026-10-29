@@ -68,6 +68,9 @@
 #include <dsp/q6core.h>
 #include <dsp/q6common.h>
 #include <dsp/audio_cal_utils.h>
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+#include <dsp/model_loader.h>
+#endif
 
 #include "msm-pcm-routing-v2.h"
 #include "msm-pcm-routing-devdep.h"
@@ -1908,6 +1911,9 @@ static int msm_routing_get_adm_topology(int fedai_id, int session_type,
 {
 	int topology = NULL_COPP_TOPOLOGY;
 	int app_type = 0, acdb_dev_id = 0;
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+	bool is_afe_proxy = (be_id == MSM_BACKEND_DAI_RX_CDC_DMA_RX_6);
+#endif
 
 	pr_debug("%s: fedai_id %d, session_type %d, be_id %d\n",
 	       __func__, fedai_id, session_type, be_id);
@@ -1930,7 +1936,11 @@ static int msm_routing_get_adm_topology(int fedai_id, int session_type,
 						      app_type,
 						      acdb_dev_id,
 						      ADM_TOPOLOGY_CAL_TYPE_IDX,
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+						      is_afe_proxy /*exact*/);
+#else
 						      false /*exact*/);
+#endif
 		if (topology < 0)
 			topology = NULL_COPP_TOPOLOGY;
 	}
@@ -26898,6 +26908,12 @@ static const struct snd_kcontrol_new mmul10_mixer_controls[] = {
 	msm_routing_put_audio_mixer),
 };
 static const struct snd_kcontrol_new mmul17_mixer_controls[] = {
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+	SOC_DOUBLE_EXT("USB_AUDIO_TX", SND_SOC_NOPM,
+		MSM_BACKEND_DAI_USB_TX,
+		MSM_FRONTEND_DAI_MULTIMEDIA17, 1, 0, msm_routing_get_audio_mixer,
+		msm_routing_put_audio_mixer),
+#endif
 	SOC_DOUBLE_EXT("SLIM_0_TX", SND_SOC_NOPM,
 	MSM_BACKEND_DAI_SLIMBUS_0_TX,
 	MSM_FRONTEND_DAI_MULTIMEDIA17, 1, 0, msm_routing_get_audio_mixer,
@@ -42921,6 +42937,42 @@ static const struct snd_kcontrol_new stereo_channel_reverse_control[] = {
 	msm_routing_stereo_channel_reverse_control_put),
 };
 
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+static int msm_routing_device_model;
+
+static int msm_routing_device_model_control_get(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	ucontrol->value.integer.value[0] = msm_routing_device_model;
+
+	return 0;
+}
+
+static int msm_routing_device_model_control_put(struct snd_kcontrol *kcontrol,
+					struct snd_ctl_elem_value *ucontrol)
+{
+	int device_model = ucontrol->value.integer.value[0];
+	int ret;
+
+	pr_debug("%s: Device Model value: %d\n", __func__, device_model);
+
+	ret = adm_set_device_model(device_model);
+	if (ret) {
+		pr_err("%s: Device model setting failed, err=%d\n", __func__, ret);
+		return ret;
+	}
+
+	msm_routing_device_model = device_model;
+	return 0;
+}
+
+static const struct snd_kcontrol_new device_model_control[] = {
+	SOC_SINGLE_EXT("Device model", SND_SOC_NOPM, 0, 255, 0,
+		msm_routing_device_model_control_get,
+		msm_routing_device_model_control_put),
+};
+#endif
+
 static int msm_routing_instance_id_support_info(struct snd_kcontrol *kcontrol,
 						struct snd_ctl_elem_info *uinfo)
 {
@@ -43791,6 +43843,11 @@ static int msm_routing_probe(struct snd_soc_component *component)
 	snd_soc_add_component_controls(component, aanc_noise_level,
 				      ARRAY_SIZE(aanc_noise_level));
 
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+	snd_soc_add_component_controls(component, device_model_control,
+				      ARRAY_SIZE(device_model_control));
+#endif
+
 	snd_soc_add_component_controls(component, msm_voc_session_controls,
 				      ARRAY_SIZE(msm_voc_session_controls));
 
@@ -43867,6 +43924,9 @@ static int msm_routing_probe(struct snd_soc_component *component)
 				      ARRAY_SIZE(mclk_src_controls));
 	snd_soc_add_component_controls(component, asrc_config_controls,
 				      ARRAY_SIZE(asrc_config_controls));
+#if defined(CONFIG_NOTHING) && defined(CONFIG_TARGET_PRODUCT_SPACEWAR)
+	send_data_add_component_controls(component);
+#endif
 #ifdef CONFIG_MSM_INTERNAL_MCLK
 	snd_soc_add_component_controls(component, internal_mclk_control,
 				      ARRAY_SIZE(internal_mclk_control));
