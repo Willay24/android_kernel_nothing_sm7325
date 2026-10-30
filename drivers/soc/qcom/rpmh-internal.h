@@ -124,6 +124,7 @@ struct rpmh_ctrlr {
  */
 struct rsc_drv {
 	const char *name;
+	void __iomem *base;
 	void __iomem *tcs_base;
 	int id;
 	int num_tcs;
@@ -142,6 +143,9 @@ struct rsc_drv {
 };
 
 extern bool rpmh_standalone;
+
+bool rpmh_rsc_ctrlr_is_idle(struct rsc_drv *drv);
+int rpmh_rsc_write_pdc_data(struct rsc_drv *drv, const struct tcs_request *msg);
 
 int rpmh_rsc_send_data(struct rsc_drv *drv, const struct tcs_request *msg);
 int rpmh_rsc_write_ctrl_data(struct rsc_drv *drv,
