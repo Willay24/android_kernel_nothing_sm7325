@@ -617,3 +617,34 @@ int rpmh_mode_solver_set(const struct device *dev, bool enable)
 	return ret;
 }
 EXPORT_SYMBOL(rpmh_mode_solver_set);
+
+int rpmh_ctrlr_idle(const struct device *dev)
+{
+	struct rpmh_ctrlr *ctrlr = get_rpmh_ctrlr(dev);
+
+	if (rpmh_standalone)
+		return 0;
+
+	return rpmh_rsc_ctrlr_is_idle(ctrlr_to_drv(ctrlr));
+}
+EXPORT_SYMBOL(rpmh_ctrlr_idle);
+
+int rpmh_write_pdc_data(const struct device *dev,
+			const struct tcs_cmd *cmd, u32 n)
+{
+	DEFINE_RPMH_MSG_ONSTACK(dev, 0, NULL, rpm_msg);
+	struct rpmh_ctrlr *ctrlr = get_rpmh_ctrlr(dev);
+
+	if (!n || n > MAX_RPMH_PAYLOAD)
+		return -EINVAL;
+
+	if (rpmh_standalone)
+		return 0;
+
+	memcpy(rpm_msg.cmd, cmd, n * sizeof(*cmd));
+	rpm_msg.msg.num_cmds = n;
+	rpm_msg.msg.wait_for_compl = false;
+
+	return rpmh_rsc_write_pdc_data(ctrlr_to_drv(ctrlr), &rpm_msg.msg);
+}
+EXPORT_SYMBOL(rpmh_write_pdc_data);
