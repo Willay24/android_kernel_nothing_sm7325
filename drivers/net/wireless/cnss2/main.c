@@ -11,6 +11,7 @@
 #include <linux/rwsem.h>
 #include <linux/suspend.h>
 #include <linux/timer.h>
+#include <linux/regulator/consumer.h>
 #if IS_ENABLED(CONFIG_QCOM_MINIDUMP)
 #include <soc/qcom/minidump.h>
 #endif
@@ -45,6 +46,7 @@
 #define CNSS_QMI_TIMEOUT_DEFAULT	20000
 #endif
 #define CNSS_BDF_TYPE_DEFAULT		CNSS_BDF_ELF
+#define CNSS_NV_NO_REDDY_ERROR_CODE 16
 #define CNSS_TIME_SYNC_PERIOD_DEFAULT	900000
 
 static struct cnss_plat_data *plat_env;
@@ -281,8 +283,7 @@ void cnss_request_pm_qos(struct device *dev, u32 qos_val)
 	if (!plat_priv)
 		return;
 
-	pm_qos_add_request(&plat_priv->qos_request, PM_QOS_CPU_DMA_LATENCY,
-			   qos_val);
+	cpu_latency_qos_add_request(&plat_priv->qos_request, qos_val);
 }
 EXPORT_SYMBOL(cnss_request_pm_qos);
 
@@ -293,7 +294,7 @@ void cnss_remove_pm_qos(struct device *dev)
 	if (!plat_priv)
 		return;
 
-	pm_qos_remove_request(&plat_priv->qos_request);
+	cpu_latency_qos_remove_request(&plat_priv->qos_request);
 }
 EXPORT_SYMBOL(cnss_remove_pm_qos);
 
@@ -549,14 +550,17 @@ static int cnss_setup_dms_mac(struct cnss_plat_data *plat_priv)
 				break;
 
 			ret = cnss_qmi_get_dms_mac(plat_priv);
-			if (ret != -EAGAIN)
+			if (ret != -EAGAIN || ret == CNSS_NV_NO_REDDY_ERROR_CODE)
 				break;
+
 			msleep(CNSS_DMS_QMI_CONNECTION_WAIT_MS);
 		}
 		if (!plat_priv->dms.nv_mac_not_prov && !plat_priv->dms.mac_valid) {
 			cnss_pr_err("Unable to get MAC from DMS after retries\n");
-			CNSS_ASSERT(0);
-			return -EINVAL;
+
+			//CNSS_ASSERT(0);
+			//return -EINVAL;
+			return 0;
 		}
 	}
 qmi_send:
@@ -3155,6 +3159,7 @@ int cnss_set_wfc_mode(struct device *dev, struct cnss_wfc_cfg cfg)
 }
 EXPORT_SYMBOL(cnss_set_wfc_mode);
 
+static void msm_vreg_ldo_enable(struct platform_device *bcdev);
 static int cnss_probe(struct platform_device *plat_dev)
 {
 	int ret = 0;
@@ -3169,6 +3174,7 @@ static int cnss_probe(struct platform_device *plat_dev)
 		goto out;
 	}
 
+	msm_vreg_ldo_enable(plat_dev);
 	of_id = of_match_device(cnss_of_match_table, &plat_dev->dev);
 	if (!of_id || !of_id->data) {
 		cnss_pr_err("Failed to find of match device!\n");
@@ -3353,6 +3359,43 @@ static void __exit cnss_exit(void)
 {
 	platform_driver_unregister(&cnss_platform_driver);
 	cnss_debug_deinit();
+}
+
+static void msm_vreg_ldo_enable(struct platform_device *bcdev)
+{
+	const char *supply_name;
+	int ret;
+	struct device *dev;
+	struct regulator *vreg_ldo;
+	int current_uA = 50000;
+	int vreg_default_vol = 2200000;
+	supply_name = "pmr735a_s3";
+	dev = &bcdev->dev;
+	pr_info("nt ldo config %s\n", __func__);
+	if (!bcdev) {
+		pr_err("bcdev %s\n", __func__);
+		return;
+	}
+
+	vreg_ldo = regulator_get(dev, supply_name);
+	if (IS_ERR_OR_NULL(vreg_ldo)) {
+		ret = PTR_ERR(vreg_ldo);
+		pr_err("regulator_get(%s) failed for %s, ret=%d\n", supply_name, supply_name, ret);
+		return;
+	}
+	ret = regulator_set_voltage(vreg_ldo, vreg_default_vol, vreg_default_vol);
+	if (ret) {
+		pr_err("regulator_set_voltage %s failed, ret=%d\n", supply_name, ret);
+	}
+	ret = regulator_set_load(vreg_ldo, current_uA);
+	if (ret < 0) {
+		pr_err("regulator_set_load %s failed, ret=%d\n", supply_name, ret);
+	}
+
+	ret = regulator_enable(vreg_ldo);
+	if (ret) {
+		pr_err("regulator_enable %s failed, ret=%d\n", supply_name, ret);
+	}
 }
 
 module_init(cnss_initialize);
