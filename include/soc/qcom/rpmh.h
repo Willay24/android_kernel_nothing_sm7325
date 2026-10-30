@@ -26,6 +26,11 @@ int rpmh_write_sleep_and_wake(const struct device *dev);
 
 void rpmh_invalidate(const struct device *dev);
 
+int rpmh_ctrlr_idle(const struct device *dev);
+
+int rpmh_write_pdc_data(const struct device *dev,
+			const struct tcs_cmd *cmd, u32 n);
+
 #else
 
 static inline int rpmh_write(const struct device *dev, enum rpmh_state state,
@@ -46,6 +51,13 @@ static int rpmh_mode_solver_set(const struct device *dev, bool enable)
 { return -ENODEV; }
 
 static int rpmh_write_sleep_and_wake(const struct device *dev)
+{ return -ENODEV; }
+
+static inline int rpmh_ctrlr_idle(const struct device *dev)
+{ return -ENODEV; }
+
+static inline int rpmh_write_pdc_data(const struct device *dev,
+				      const struct tcs_cmd *cmd, u32 n)
 { return -ENODEV; }
 
 static inline void rpmh_invalidate(const struct device *dev)

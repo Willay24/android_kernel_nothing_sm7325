@@ -94,6 +94,11 @@
 #define CMD_STATUS_ISSUED		BIT(8)
 #define CMD_STATUS_COMPL		BIT(16)
 
+/* PDC wakeup */
+#define RSC_PDC_DATA_SIZE		2
+#define RSC_PDC_DRV_DATA		0x38
+#define RSC_PDC_DATA_OFFSET		0x08
+
 #define ACCL_TYPE(addr)			((addr >> 16) & 0xF)
 #define NR_ACCL_TYPES			3
 #define MAX_RSC_COUNT			2
@@ -906,6 +911,43 @@ static bool rpmh_rsc_ctrlr_is_busy(struct rsc_drv *drv)
 	return false;
 }
 
+bool rpmh_rsc_ctrlr_is_idle(struct rsc_drv *drv)
+{
+	unsigned long flags;
+	bool busy;
+
+	spin_lock_irqsave(&drv->lock, flags);
+	busy = rpmh_rsc_ctrlr_is_busy(drv);
+	spin_unlock_irqrestore(&drv->lock, flags);
+
+	return !busy;
+}
+
+int rpmh_rsc_write_pdc_data(struct rsc_drv *drv, const struct tcs_request *msg)
+{
+	int i;
+	void __iomem *addr = drv->base + RSC_PDC_DRV_DATA;
+	struct tcs_group *tcs = &drv->tcs[CONTROL_TCS];
+	struct tcs_cmd *cmd;
+
+	if (!msg || !msg->cmds || msg->num_cmds != RSC_PDC_DATA_SIZE ||
+	    !tcs->num_tcs)
+		return -EINVAL;
+
+	for (i = 0; i < msg->num_cmds; i++) {
+		cmd = &msg->cmds[i];
+		/* Only data is write capable */
+		writel_relaxed(cmd->data, addr);
+		trace_rpmh_send_msg(drv, RSC_PDC_DRV_DATA, i, 0, cmd);
+		ipc_log_string(drv->ipc_log_ctx,
+			       "PDC write: n=%d addr=%#x data=%x",
+			       i, cmd->addr, cmd->data);
+		addr += RSC_PDC_DATA_OFFSET;
+	}
+
+	return 0;
+}
+
 /**
  * rpmh_rsc_cpu_pm_callback() - Check if any of the AMCs are busy.
  * @nfb:    Pointer to the notifier block in struct rsc_drv.
@@ -1155,6 +1197,7 @@ static int rpmh_rsc_probe(struct platform_device *pdev)
 	base = devm_ioremap_resource(&pdev->dev, res);
 	if (IS_ERR(base))
 		return PTR_ERR(base);
+	drv->base = base;
 
 	ret = rpmh_probe_tcs_config(pdev, drv, base);
 	if (ret)
