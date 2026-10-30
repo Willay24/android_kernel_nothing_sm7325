@@ -198,13 +198,13 @@ static int rmnet_data_pm_set_rps(char *buf, int len)
 static void rmnet_data_pm_set_pm_qos(unsigned long speed)
 {
 	if (speed >= rmnet_pm_qos_mbps && !pm_qos_requested) {
-		pr_info("%s pm_qos_add_request\n", __func__);
-		pm_qos_add_request(&rmnet_qos_req, PM_QOS_CPU_DMA_LATENCY,
-				   PM_QOS_RMNET_LATENCY_VALUE);
+		pr_info("%s cpu_latency_qos_add_request\n", __func__);
+		cpu_latency_qos_add_request(&rmnet_qos_req,
+					    PM_QOS_RMNET_LATENCY_VALUE);
 		pm_qos_requested = true;
 	} else if (speed < rmnet_pm_qos_mbps && pm_qos_requested) {
-		pr_info("%s pm_qos_remove_request\n", __func__);
-		pm_qos_remove_request(&rmnet_qos_req);
+		pr_info("%s cpu_latency_qos_remove_request\n", __func__);
+		cpu_latency_qos_remove_request(&rmnet_qos_req);
 		pm_qos_requested = false;
 	}
 }
@@ -376,6 +376,11 @@ static int rmnet_data_dev_cb(struct notifier_block *nb,
 		ret = unregister_pm_notifier(&rmnet_data_argos_nb);
 		if (ret)
 			pr_err("Fail to unregister rmnet_data pm argos notifier block\n");
+
+		if (pm_qos_requested) {
+			cpu_latency_qos_remove_request(&rmnet_qos_req);
+			pm_qos_requested = false;
+		}
 
 		kfree(cfg);
 		cfg = NULL;
