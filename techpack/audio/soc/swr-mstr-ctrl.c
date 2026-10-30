@@ -18,6 +18,7 @@
 #include <linux/gpio.h>
 #include <linux/of_gpio.h>
 #include <linux/pm_runtime.h>
+#include <linux/pm_qos.h> 
 #include <linux/of.h>
 #include <soc/soundwire.h>
 #include <soc/swr-common.h>
@@ -86,6 +87,8 @@
 #define SWR_OVERFLOW_RETRY_COUNT 30
 
 #define SWRM_PHY_ADDR_MAP_COUNT 2
+
+#define CPU_IDLE_LATENCY 10  
 
 /* pm runtime auto suspend timer in msecs */
 static int auto_suspend_timer = 500;
@@ -2878,9 +2881,8 @@ static int swrm_probe(struct platform_device *pdev)
 	swrm->wlock_holders = 0;
 	swrm->pm_state = SWRM_PM_SLEEPABLE;
 	init_waitqueue_head(&swrm->pm_wq);
-	pm_qos_add_request(&swrm->pm_qos_req,
-			   PM_QOS_CPU_DMA_LATENCY,
-			   PM_QOS_DEFAULT_VALUE);
+	cpu_latency_qos_add_request(&swrm->pm_qos_req,
+			    PM_QOS_DEFAULT_VALUE);
 
 	for (i = 0 ; i < SWR_MSTR_PORT_LEN; i++)
 		INIT_LIST_HEAD(&swrm->mport_cfg[i].port_req_list);
@@ -3057,7 +3059,7 @@ err_irq_fail:
 	mutex_destroy(&swrm->iolock);
 	mutex_destroy(&swrm->clklock);
 	mutex_destroy(&swrm->pm_lock);
-	pm_qos_remove_request(&swrm->pm_qos_req);
+	cpu_latency_qos_remove_request(&swrm->pm_qos_req);
 	mutex_destroy(&swrm->runtime_lock);
 
 err_pdata_fail:
@@ -3097,7 +3099,7 @@ static int swrm_remove(struct platform_device *pdev)
 	mutex_destroy(&swrm->clklock);
 	mutex_destroy(&swrm->force_down_lock);
 	mutex_destroy(&swrm->pm_lock);
-	pm_qos_remove_request(&swrm->pm_qos_req);
+	cpu_latency_qos_remove_request(&swrm->pm_qos_req);
 	mutex_destroy(&swrm->runtime_lock);
 	devm_kfree(&pdev->dev, swrm);
 	return 0;
@@ -3807,8 +3809,8 @@ static bool swrm_lock_sleep(struct swr_mstr_ctrl *swrm)
 	mutex_lock(&swrm->pm_lock);
 	if (swrm->wlock_holders++ == 0) {
 		dev_dbg(swrm->dev, "%s: holding wake lock\n", __func__);
-		pm_qos_update_request(&swrm->pm_qos_req,
-					  msm_cpuidle_get_deep_idle_latency());
+		cpu_latency_qos_update_request(&swrm->pm_qos_req,
+			       CPU_IDLE_LATENCY);
 		pm_stay_awake(swrm->dev);
 	}
 	mutex_unlock(&swrm->pm_lock);
@@ -3843,8 +3845,8 @@ static void swrm_unlock_sleep(struct swr_mstr_ctrl *swrm)
 		 */
 		if (likely(swrm->pm_state == SWRM_PM_AWAKE))
 			swrm->pm_state = SWRM_PM_SLEEPABLE;
-		pm_qos_update_request(&swrm->pm_qos_req,
-				  PM_QOS_DEFAULT_VALUE);
+		cpu_latency_qos_update_request(&swrm->pm_qos_req,
+			       PM_QOS_DEFAULT_VALUE);
 		pm_relax(swrm->dev);
 	}
 	mutex_unlock(&swrm->pm_lock);
