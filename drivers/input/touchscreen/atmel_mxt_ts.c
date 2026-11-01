@@ -38,6 +38,7 @@
 
 #ifdef CONFIG_DRM
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #endif
 
 /* Firmware files */
@@ -388,7 +389,7 @@ struct mxt_data {
 
 	u32 panel_minx, panel_miny, panel_maxx, panel_maxy;
 	u32 disp_minx, disp_miny, disp_maxx, disp_maxy;
-	struct notifier_block notifier;
+	void *panel_cookie;
 };
 
 struct mxt_vb2_buffer {
@@ -3515,49 +3516,39 @@ static const struct dmi_system_id chromebook_T9_suspend_dmi[] = {
 
 #ifdef CONFIG_DRM
 
-static int mxt_state_chg_callback(struct notifier_block *nb,
-		unsigned long val, void *data)
+static void mxt_panel_event_callback(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notification, void *data)
 {
-	struct mxt_data *mxt = container_of(nb, struct mxt_data, notifier);
-	struct drm_panel_notifier *evdata = data;
-	unsigned int blank;
+	struct mxt_data *mxt = data;
 	struct input_dev *input_dev;
 
-	if (!evdata)
-		return 0;
+	if (!notification || !mxt || notification->notif_data.early_trigger)
+		return;
 
-	if (val != DRM_PANEL_EVENT_BLANK || !mxt)
-		return 0;
+	input_dev = mxt->input_dev;
+	switch (notification->notif_type) {
+	case DRM_PANEL_EVENT_BLANK:
+		if (input_dev)
+			mutex_lock(&input_dev->mutex);
 
-	if (evdata->data) {
-		blank = *(int *) (evdata->data);
-		input_dev = mxt->input_dev;
-		switch (blank) {
-		case DRM_PANEL_BLANK_POWERDOWN:
-			if (input_dev)
-				mutex_lock(&input_dev->mutex);
+		mxt_stop(mxt);
 
-			mxt_stop(mxt);
+		if (input_dev)
+			mutex_unlock(&input_dev->mutex);
+		break;
 
-			if (input_dev)
-				mutex_unlock(&input_dev->mutex);
-			break;
+	case DRM_PANEL_EVENT_UNBLANK:
+		if (input_dev)
+			mutex_lock(&input_dev->mutex);
 
-		case DRM_PANEL_BLANK_UNBLANK:
-			if (input_dev)
-				mutex_lock(&input_dev->mutex);
+		mxt_start(mxt);
 
-			mxt_start(mxt);
-
-			if (input_dev)
-				mutex_unlock(&input_dev->mutex);
-			break;
-		default:
-			break;
-		}
+		if (input_dev)
+			mutex_unlock(&input_dev->mutex);
+		break;
+	default:
+		break;
 	}
-
-	return NOTIFY_OK;
 }
 
 #endif
@@ -3717,9 +3708,16 @@ static int mxt_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	}
 
 #ifdef CONFIG_DRM
-	data->notifier.notifier_call = mxt_state_chg_callback;
-	if (active_panel)
-		drm_panel_notifier_register(active_panel, &data->notifier);
+	if (active_panel) {
+		data->panel_cookie = panel_event_notifier_register(
+				PANEL_EVENT_NOTIFICATION_PRIMARY,
+				PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH,
+				active_panel, mxt_panel_event_callback, data);
+		if (IS_ERR(data->panel_cookie)) {
+			dev_err(&client->dev, "Failed to register panel event notifier\n");
+			data->panel_cookie = NULL;
+		}
+	}
 #endif
 
 	data->suspended = true;
@@ -3739,8 +3737,10 @@ static int mxt_remove(struct i2c_client *client)
 	struct mxt_data *data = i2c_get_clientdata(client);
 
 #ifdef CONFIG_DRM
-	if (active_panel)
-		drm_panel_notifier_unregister(active_panel, &data->notifier);
+	if (data->panel_cookie) {
+		panel_event_notifier_unregister(data->panel_cookie);
+		data->panel_cookie = NULL;
+	}
 #endif
 
 	disable_irq(data->irq);
