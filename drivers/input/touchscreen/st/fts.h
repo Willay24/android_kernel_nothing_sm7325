@@ -376,6 +376,7 @@ struct fts_ts_info {
 	int fwupdate_stat;
 
 	struct notifier_block notifier;
+	void *panel_cookie;
 	bool sensor_sleep;
 	struct wakeup_source *wakeup_source;
 

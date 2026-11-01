@@ -3102,22 +3102,20 @@ static int syna_tcm_early_suspend(struct device *dev)
 	return 0;
 }
 
-static int syna_tcm_fb_notifier_cb(struct notifier_block *nb,
-		unsigned long action, void *data)
+static void syna_tcm_panel_event_cb(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notification, void *data)
 {
-	int retval = 0;
-	int transition;
-	struct drm_panel_notifier *evdata = data;
-	struct syna_tcm_hcd *tcm_hcd =
-			container_of(nb, struct syna_tcm_hcd, fb_notifier);
+	int retval;
+	bool early;
+	struct syna_tcm_hcd *tcm_hcd = data;
 
-	if (!evdata)
-		return 0;
+	if (!notification || !tcm_hcd)
+		return;
 
-	transition = *(int *)evdata->data;
+	early = notification->notif_data.early_trigger;
 
 	if (atomic_read(&tcm_hcd->firmware_flashing)
-		&& transition == DRM_PANEL_BLANK_POWERDOWN) {
+		&& notification->notif_type == DRM_PANEL_EVENT_BLANK) {
 		retval = wait_event_interruptible_timeout(tcm_hcd->reflash_wq,
 				!atomic_read(&tcm_hcd->firmware_flashing),
 				msecs_to_jiffies(RESPONSE_TIMEOUT_MS));
@@ -3125,33 +3123,32 @@ static int syna_tcm_fb_notifier_cb(struct notifier_block *nb,
 			LOGE(tcm_hcd->pdev->dev.parent,
 				"Timed out waiting for flashing firmware\n");
 			atomic_set(&tcm_hcd->firmware_flashing, 0);
-			return -EIO;
+			return;
 		}
 	}
 
-	if (action == DRM_PANEL_EARLY_EVENT_BLANK &&
-			transition == DRM_PANEL_BLANK_POWERDOWN)
-		retval = syna_tcm_early_suspend(&tcm_hcd->pdev->dev);
-	else if (action == DRM_PANEL_EVENT_BLANK) {
-		if (transition == DRM_PANEL_BLANK_POWERDOWN) {
-			retval = syna_tcm_suspend(&tcm_hcd->pdev->dev);
+	switch (notification->notif_type) {
+	case DRM_PANEL_EVENT_BLANK:
+		if (early) {
+			syna_tcm_early_suspend(&tcm_hcd->pdev->dev);
+		} else {
+			syna_tcm_suspend(&tcm_hcd->pdev->dev);
 			tcm_hcd->fb_ready = 0;
-		} else if (transition == DRM_PANEL_BLANK_UNBLANK) {
-#ifndef RESUME_EARLY_UNBLANK
-			retval = syna_tcm_resume(&tcm_hcd->pdev->dev);
-			tcm_hcd->fb_ready++;
-#endif
 		}
-	} else if (action == DRM_PANEL_EARLY_EVENT_BLANK &&
-			transition == DRM_PANEL_BLANK_UNBLANK) {
+		break;
+	case DRM_PANEL_EVENT_UNBLANK:
 #ifdef RESUME_EARLY_UNBLANK
-		retval = syna_tcm_resume(&tcm_hcd->pdev->dev);
-		tcm_hcd->fb_ready++;
+		if (early) {
+#else
+		if (!early) {
 #endif
+			syna_tcm_resume(&tcm_hcd->pdev->dev);
+			tcm_hcd->fb_ready++;
+		}
+		break;
+	default:
+		break;
 	}
-
-
-	return 0;
 }
 
 #elif CONFIG_FB
@@ -3488,11 +3485,14 @@ static int syna_tcm_probe(struct platform_device *pdev)
 	}
 
 #ifdef CONFIG_DRM
-	tcm_hcd->fb_notifier.notifier_call = syna_tcm_fb_notifier_cb;
 	if (active_panel) {
-		retval = drm_panel_notifier_register(active_panel,
-				&tcm_hcd->fb_notifier);
-		if (retval < 0) {
+		tcm_hcd->panel_cookie = panel_event_notifier_register(
+				PANEL_EVENT_NOTIFICATION_PRIMARY,
+				PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH,
+				active_panel, syna_tcm_panel_event_cb, tcm_hcd);
+		if (IS_ERR(tcm_hcd->panel_cookie)) {
+			retval = PTR_ERR(tcm_hcd->panel_cookie);
+			tcm_hcd->panel_cookie = NULL;
 			dev_err(&pdev->dev,
 					"%s: Failed to register fb notifier client\n",
 					__func__);
@@ -3542,9 +3542,10 @@ static int syna_tcm_probe(struct platform_device *pdev)
 
 err_create_run_kthread:
 #ifdef CONFIG_DRM
-	if (active_panel)
-		drm_panel_notifier_unregister(active_panel,
-				&tcm_hcd->fb_notifier);
+	if (tcm_hcd->panel_cookie) {
+		panel_event_notifier_unregister(tcm_hcd->panel_cookie);
+		tcm_hcd->panel_cookie = NULL;
+	}
 #elif CONFIG_FB
 	fb_unregister_client(&tcm_hcd->fb_notifier);
 #endif
@@ -3645,7 +3646,6 @@ static int syna_tcm_remove(struct platform_device *pdev)
 	struct syna_tcm_module_handler *tmp_handler;
 	struct syna_tcm_hcd *tcm_hcd = platform_get_drvdata(pdev);
 	const struct syna_tcm_board_data *bdata = tcm_hcd->hw_if->bdata;
-	struct drm_panel *active_panel = tcm_get_panel();
 
 	mutex_lock(&mod_pool.mutex);
 
@@ -3686,9 +3686,10 @@ static int syna_tcm_remove(struct platform_device *pdev)
 	kthread_stop(tcm_hcd->notifier_thread);
 
 #ifdef CONFIG_DRM
-	if (active_panel)
-		drm_panel_notifier_unregister(active_panel,
-				&tcm_hcd->fb_notifier);
+	if (tcm_hcd->panel_cookie) {
+		panel_event_notifier_unregister(tcm_hcd->panel_cookie);
+		tcm_hcd->panel_cookie = NULL;
+	}
 #elif CONFIG_FB
 	fb_unregister_client(&tcm_hcd->fb_notifier);
 #endif
