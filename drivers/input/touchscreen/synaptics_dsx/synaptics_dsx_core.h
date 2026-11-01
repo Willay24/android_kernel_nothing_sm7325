@@ -50,6 +50,7 @@
 #endif
 
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 
 #if (LINUX_VERSION_CODE > KERNEL_VERSION(2, 6, 38))
 #define KERNEL_ABOVE_2_6_38
@@ -373,7 +374,7 @@ struct synaptics_rmi4_data {
 	struct pinctrl_state *pinctrl_state_active;
 	struct pinctrl_state *pinctrl_state_suspend;
 	struct pinctrl_state *pinctrl_state_release;
-	struct notifier_block fb_notifier;
+	void *panel_cookie;
 	struct work_struct reset_work;
 	struct workqueue_struct *reset_workqueue;
 #ifdef CONFIG_HAS_EARLYSUSPEND

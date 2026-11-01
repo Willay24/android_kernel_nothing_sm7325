@@ -8,6 +8,7 @@
 
 #include <linux/types.h>
 #include <linux/notifier.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 /**********************************************************/
 enum FP_MODE{
 	GF_IMAGE_MODE = 0,
@@ -134,7 +135,8 @@ struct gf_dev {
 #ifdef GF_FASYNC
 	struct fasync_struct *async;
 #endif
-	struct notifier_block notifier;
+	panel_event_notifier_handler notifier;
+	void *cookie;
 	char device_available;
 	char fb_black;
 

@@ -467,49 +467,38 @@ static int ili_v3_drm_check_dt(struct device_node *np)
 	return -ENODEV;
 }
 
-static int drm_notifier_callback(struct notifier_block *self, unsigned long event, void *data)
+static void drm_notifier_callback(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notification, void *data)
 {
-	struct drm_panel_notifier *evdata = data;
-	int *blank = NULL;
+	bool early;
 
-	if (!evdata) {
-		ILI_ERR("evdata is null");
-		return 0;
+	if (!notification) {
+		ILI_ERR("notification is null");
+		return;
 	}
 
-	if (!((event == DRM_PANEL_EARLY_EVENT_BLANK)
-			|| (event == DRM_PANEL_EVENT_BLANK))) {
-		ILI_INFO("event(%lu) do not need process\n", event);
-		return 0;
-	}
+	early = notification->notif_data.early_trigger;
+	ILI_INFO("DRM event:%d,early:%d", notification->notif_type, early);
 
-	blank = evdata->data;
-	ILI_INFO("DRM event:%lu,blank:%d", event, *blank);
-	switch (*blank) {
-	case DRM_PANEL_BLANK_UNBLANK:
-		if (DRM_PANEL_EARLY_EVENT_BLANK == event) {
-			ILI_INFO("resume: event = %lu, not care\n", event);
-		} else if (DRM_PANEL_EVENT_BLANK == event) {
-			ILI_INFO("resume: event = %lu, TP_RESUME\n", event);
-		if (ili_sleep_handler(TP_RESUME) < 0)
-			ILI_ERR("TP resume failed\n");
+	switch (notification->notif_type) {
+	case DRM_PANEL_EVENT_UNBLANK:
+		if (!early) {
+			ILI_INFO("resume: TP_RESUME\n");
+			if (ili_sleep_handler(TP_RESUME) < 0)
+				ILI_ERR("TP resume failed\n");
 		}
 		break;
-	case DRM_PANEL_BLANK_POWERDOWN:
-		if (DRM_PANEL_EARLY_EVENT_BLANK == event) {
-			ILI_INFO("suspend: event = %lu, TP_SUSPEND\n", event);
+	case DRM_PANEL_EVENT_BLANK:
+		if (early) {
+			ILI_INFO("suspend: TP_SUSPEND\n");
 			if (ili_sleep_handler(TP_DEEP_SLEEP) < 0)
 				ILI_ERR("TP suspend failed\n");
-		} else if (DRM_PANEL_EVENT_BLANK == event) {
-			ILI_INFO("suspend: event = %lu, not care\n", event);
 		}
 		break;
 	default:
-		ILI_INFO("DRM BLANK(%d) do not need process\n", *blank);
+		ILI_INFO("DRM event(%d) do not need process\n", notification->notif_type);
 		break;
 	}
-
-	return 0;
 }
 #else
 static int ilitek_plat_notifier_fb(struct notifier_block *self, unsigned long event, void *data)
@@ -602,10 +591,15 @@ static void ilitek_plat_sleep_init(void)
 #if defined(CONFIG_FB) || defined(CONFIG_DRM_MSM)
 	ILI_INFO("Init notifier_fb struct\n");
 #ifdef __DRM_PANEL_H__
-	ilits->notifier_fb.notifier_call = drm_notifier_callback;
 	if (active_panel) {
-		if (drm_panel_notifier_register(active_panel, &ilits->notifier_fb))
-		ILI_ERR("[DRM]drm_panel_notifier_register fail\n");
+		ilits->panel_cookie = panel_event_notifier_register(
+				PANEL_EVENT_NOTIFICATION_PRIMARY,
+				PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH,
+				active_panel, drm_notifier_callback, NULL);
+		if (IS_ERR(ilits->panel_cookie)) {
+			ilits->panel_cookie = NULL;
+			ILI_ERR("[DRM]panel_event_notifier_register fail\n");
+		}
 	}
 #else
 	ilits->notifier_fb.notifier_call = ilitek_plat_notifier_fb;
