@@ -95,6 +95,7 @@
 #ifdef CONFIG_FB
 #ifdef CONFIG_DRM
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #endif
 #include <linux/notifier.h>
 #include <linux/fb.h>
@@ -865,6 +866,7 @@ struct ilitek_ts_data {
 	struct regulator *vdd;
 	struct regulator *vcc;
 
+	void *panel_cookie;
 #ifdef CONFIG_FB
 	struct notifier_block notifier_fb;
 #else

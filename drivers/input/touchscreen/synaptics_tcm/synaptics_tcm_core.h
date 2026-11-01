@@ -43,6 +43,7 @@
 #include <linux/input/synaptics_tcm.h>
 #ifdef CONFIG_DRM
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #elif CONFIG_FB
 #include <linux/fb.h>
 #include <linux/notifier.h>
@@ -431,7 +432,9 @@ struct syna_tcm_hcd {
 	struct pinctrl_state *pinctrl_state_active;
 	struct pinctrl_state *pinctrl_state_suspend;
 	struct pinctrl_state *pinctrl_state_release;
-#if defined(CONFIG_DRM) || defined(CONFIG_FB)
+#if defined(CONFIG_DRM)
+	void *panel_cookie;
+#elif defined(CONFIG_FB)
 	struct notifier_block fb_notifier;
 #endif
 	struct syna_tcm_buffer in;
