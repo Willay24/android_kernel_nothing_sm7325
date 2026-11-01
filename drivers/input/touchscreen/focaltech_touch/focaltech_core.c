@@ -39,6 +39,7 @@
 #include <linux/of_irq.h>
 #ifdef CONFIG_DRM_PANEL
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #endif
 #include <linux/power_supply.h>
 #include "focaltech_core.h"
@@ -1772,29 +1773,24 @@ static int drm_check_dt(struct device_node *np)
     return PTR_ERR(panel);
 }
 
-static int drm_notifier_callback(struct notifier_block *self,
-                                 unsigned long event, void *data)
+static void fts_panel_notifier_callback(enum panel_event_notifier_tag tag,
+        struct panel_event_notification *notification, void *client_data)
 {
-    struct fts_ts_data *ts_data = container_of(self, struct fts_ts_data,
-                                  drm_notifier);
-    struct drm_panel_notifier *evdata = data;
-    int *blank;
+    struct fts_ts_data *ts_data = client_data;
 
-    if (!evdata || !evdata->data)
-        return NOTIFY_DONE;
+    if (!notification)
+        return;
 
-    blank = evdata->data;
-
-    switch (*blank) {
-    case DRM_PANEL_BLANK_POWERDOWN:
-    case DRM_PANEL_BLANK_LP:
-        if (event == DRM_PANEL_EARLY_EVENT_BLANK) {
+    switch (notification->notif_type) {
+    case DRM_PANEL_EVENT_BLANK:
+    case DRM_PANEL_EVENT_BLANK_LP:
+        if (notification->notif_data.early_trigger) {
             flush_workqueue(ts_data->ts_workqueue);
             queue_work(ts_data->ts_workqueue, &ts_data->suspend_work);
         }
         break;
-    case DRM_PANEL_BLANK_UNBLANK:
-        if (event == DRM_PANEL_EVENT_BLANK) {
+    case DRM_PANEL_EVENT_UNBLANK:
+        if (!notification->notif_data.early_trigger) {
             ts_data->blank_up = 1;
             flush_workqueue(ts_data->ts_workqueue);
             queue_work(ts_data->ts_workqueue, &ts_data->resume_work);
@@ -1803,8 +1799,25 @@ static int drm_notifier_callback(struct notifier_block *self,
     default:
         break;
     }
+}
 
-    return NOTIFY_DONE;
+static void fts_register_panel_events(struct fts_ts_data *ts_data)
+{
+    void *cookie;
+
+    if (!active_panel)
+        return;
+
+    cookie = panel_event_notifier_register(PANEL_EVENT_NOTIFICATION_PRIMARY,
+                                           PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH,
+                                           active_panel,
+                                           fts_panel_notifier_callback, ts_data);
+    if (IS_ERR(cookie)) {
+        FTS_ERROR("Failed to register panel notifier, ret=%ld", PTR_ERR(cookie));
+        return;
+    }
+
+    ts_data->notifier_cookie = cookie;
 }
 #endif
 
@@ -2479,13 +2492,7 @@ static int fts_ts_probe_entry(struct fts_ts_data *ts_data)
 		FTS_ERROR("get battery psy failed, don't register callback for charger mode");
 
 #ifdef CONFIG_DRM_PANEL
-    ts_data->drm_notifier.notifier_call = drm_notifier_callback;
-    if (active_panel) {
-        ret = drm_panel_notifier_register(active_panel,
-                                          &ts_data->drm_notifier);
-        if (ret)
-            FTS_ERROR("Failed to register DRM panel notifier, ret=%d", ret);
-    }
+    fts_register_panel_events(ts_data);
 #endif
 
 #ifdef FTS_NOTHING_TOUCHFEATURE
@@ -2539,6 +2546,12 @@ static int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 {
     FTS_FUNC_ENTER();
 
+#ifdef CONFIG_DRM_PANEL
+    if (ts_data->notifier_cookie) {
+        panel_event_notifier_unregister(ts_data->notifier_cookie);
+        ts_data->notifier_cookie = NULL;
+    }
+#endif
     cancel_work_sync(&fts_data->resume_work);
     cancel_work_sync(&fts_data->suspend_work);
     fts_point_report_check_exit(ts_data);
@@ -2575,12 +2588,6 @@ static int fts_ts_remove_entry(struct fts_ts_data *ts_data)
 
     if (ts_data->ts_workqueue)
         destroy_workqueue(ts_data->ts_workqueue);
-
-#ifdef CONFIG_DRM_PANEL
-    if (active_panel)
-        drm_panel_notifier_unregister(active_panel,
-                                      &ts_data->drm_notifier);
-#endif
 
     if (gpio_is_valid(ts_data->pdata->reset_gpio))
         gpio_free(ts_data->pdata->reset_gpio);
