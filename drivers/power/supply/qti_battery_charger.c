@@ -20,9 +20,7 @@
 #include <linux/power_supply.h>
 #include <linux/soc/qcom/pmic_glink.h>
 #include <linux/soc/qcom/battery_charger.h>
-#ifdef CONFIG_DRM_PANEL
-#include <drm/drm_panel.h>
-#endif
+#include <linux/soc/qcom/panel_event_notifier.h>
 #include "qti_typec_class.h"
 #include <linux/of_gpio.h>
 
@@ -57,9 +55,6 @@
 #define WLS_FW_UPDATE_TIME_MS		1000
 #define WLS_FW_BUF_SIZE			128
 #define DEFAULT_RESTRICT_FCC_UA		1000000
-#define FAST_CHG_CURRENT_MAX_UA		6000000
-#define ADSP_INIT_TRY			20
-#define ADSP_INIT_WAIT_MS		50
 #define CONFIG_NT_CHG
 #define CONFIG_STWLC38_FW
 #define DIVIDE_1000_TIMES			1000
@@ -74,7 +69,7 @@ enum{
        T1Ibat_HEAD = 6,
        Ibat_HEAD = 0,
 };
-static int nt_fcc_flag = -1;
+int nt_fcc_flag = -1;
 #define CYCLE_COUNT		20
 enum nt_health_chg_ctrol {
      NT_HEALTH_ENABLE_CHG = 3,
@@ -280,9 +275,7 @@ struct battery_chg_dev {
 	struct dentry			*debugfs_dir;
 	/* extcon for VBUS/ID notification for USB for micro USB */
 	struct extcon_dev		*extcon;
-#ifdef CONFIG_DRM_PANEL
-	struct notifier_block		drm_notifier;
-#endif
+	void				*notifier_cookie;
 	u32				*thermal_levels;
 	const char			*wls_fw_name;
 	int				curr_thermal_level;
@@ -578,9 +571,10 @@ int qti_battery_charger_get_prop(const char *name,
 		return -ENODEV;
 
 	bcdev = power_supply_get_drvdata(psy);
-	power_supply_put(psy);
 	if (!bcdev)
 		return -ENODEV;
+
+	power_supply_put(psy);
 
 	switch (prop_id) {
 	case BATTERY_RESISTANCE:
@@ -842,8 +836,8 @@ static void battery_chg_update_usb_type_work(struct work_struct *work)
 	battery_chg_update_uusb_type(bcdev, pst->prop[USB_ADAP_TYPE]);
 }
 
-#define LOW_BAT_THR (3400 * 1000)
-#define PLUGIN_VOLTAGE (2500 * 1000)
+#define LOW_BAT_THR 3400 * 1000
+#define PLUGIN_VOLTAGE 2500 * 1000
 
 static void nt_update_status_function_work(struct work_struct *work)
 {
@@ -896,7 +890,7 @@ static void nt_update_status_function_work(struct work_struct *work)
 		if ((pre_capacity != capacity) || (vbat < LOW_BAT_THR)) {
 			pr_info("capacity:%d,Vbat:%d\n", capacity, vbat);
 			power_supply_changed(pst->psy);
-			pm_wakeup_dev_event(bcdev->dev, 500, true);
+			pm_wakeup_dev_event(bcdev->dev, 50, true);
 		}
 		pre_capacity = capacity;
 	}
@@ -908,7 +902,7 @@ static void nt_update_status_function_work(struct work_struct *work)
 
 out:
 	queue_delayed_work(system_wq, &bcdev->nt_update_status_work,
-							round_jiffies_relative(10 * HZ));
+								round_jiffies(10 * HZ));
 }
 
 static void handle_notification(struct battery_chg_dev *bcdev, void *data,
@@ -964,7 +958,7 @@ static int battery_chg_callback(void *priv, void *data, size_t len)
 
 	if (!bcdev->initialized) {
 		pr_debug("Driver initialization failed: Dropping glink callback message: state %d\n",
-			 atomic_read(&bcdev->state));
+			 bcdev->state);
 		return 0;
 	}
 
@@ -1064,9 +1058,11 @@ static int usb_psy_set_icl(struct battery_chg_dev *bcdev, u32 prop_id, int val)
 		return rc;
 	}
 
-	/* Allow this only for SDP and not for other charger types */
+	/* Allow this only for SDP, CDP or USB_PD and not for other charger types */
 	switch (pst->prop[USB_ADAP_TYPE]) {
 	case POWER_SUPPLY_USB_TYPE_SDP:
+	case POWER_SUPPLY_USB_TYPE_PD:
+	case POWER_SUPPLY_USB_TYPE_CDP:
 		break;
 	default:
 		return -EINVAL;
@@ -1115,24 +1111,6 @@ static int usb_psy_get_prop(struct power_supply *psy,
 	pval->intval = pst->prop[prop_id];
 	if (prop == POWER_SUPPLY_PROP_TEMP)
 		pval->intval = DIV_ROUND_CLOSEST((int)pval->intval, 10);
-
-	if (prop == POWER_SUPPLY_PROP_CURRENT_MAX) {
-		rc = read_property_id(bcdev, pst, USB_ADAP_TYPE);
-		if (rc < 0)
-			return 0;
-
-		switch (pst->prop[USB_ADAP_TYPE]) {
-		case POWER_SUPPLY_USB_TYPE_PD_PPS:
-		case QTI_POWER_SUPPLY_USB_TYPE_HVDCP:
-		case QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3:
-		case QTI_POWER_SUPPLY_USB_TYPE_HVDCP_3P5:
-			pval->intval = max_t(int, pval->intval,
-					     FAST_CHG_CURRENT_MAX_UA);
-			break;
-		default:
-			break;
-		}
-	}
 
 	return 0;
 }
@@ -2143,41 +2121,6 @@ static ssize_t slowcharge_en_show(struct class *c, struct class_attribute *attr,
 }
 static CLASS_ATTR_RW(slowcharge_en);
 
-static ssize_t ibus_now_show(struct class *c, struct class_attribute *attr,
-				char *buf)
-{
-	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
-						battery_class);
-	struct psy_state *pst = &bcdev->psy_list[PSY_TYPE_USB];
-	int rc;
-
-	rc = read_property_id(bcdev, pst, USB_CURR_NOW);
-	if (rc < 0)
-		return rc;
-
-	return scnprintf(buf, PAGE_SIZE, "%d\n",
-			(int)pst->prop[USB_CURR_NOW] / DIVIDE_1000_TIMES);
-}
-static CLASS_ATTR_RO(ibus_now);
-
-static ssize_t report_update_store(struct class *c, struct class_attribute *attr,
-				const char *buf, size_t count)
-{
-	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
-						battery_class);
-	struct psy_state *pst = &bcdev->psy_list[PSY_TYPE_BATTERY];
-	u32 val;
-
-	if (kstrtou32(buf, 0, &val))
-		return -EINVAL;
-
-	if (val && pst->psy)
-		power_supply_changed(pst->psy);
-
-	return count;
-}
-static CLASS_ATTR_WO(report_update);
-
 #endif
 
 static ssize_t ship_mode_en_store(struct class *c, struct class_attribute *attr,
@@ -2405,30 +2348,33 @@ static ssize_t wls_chg_param_store(struct class *c,
 {
 	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
 						battery_class);
-	static const int head[] = {
-		BoundT0_HEAD, BoundT1_HEAD, BoundT0_Recovery_HEAD,
-		BoundT1_Recovery_HEAD, T0Ibat_HEAD, T1Ibat_HEAD, Ibat_HEAD,
-	};
-	int val[ARRAY_SIZE(head)];
-	int rc, i;
+	int rc;
+	int T0,T1,T0_R,T1_R,T0_ibat,T1_ibat,defalut_ibat;
 
 	pr_info("%s,buf:%s", __func__, buf);
 
-	rc = sscanf(buf, "%d %d %d %d %d %d %d", &val[0], &val[1], &val[2],
-			&val[3], &val[4], &val[5], &val[6]);
-	if (rc != ARRAY_SIZE(head)) {
-		pr_err("%s,param_store fail\n", __func__);
-		return -EINVAL;
-	}
+    rc = sscanf(buf, "%d %d %d %d %d %d %d", &T0,&T1,&T0_R,&T1_R,&T0_ibat,&T1_ibat,&defalut_ibat);
+    T0 = T0 + 10000 * BoundT0_HEAD;
+    T1 = T1 + 10000 * BoundT1_HEAD;
+    T0_R = T0_R + 10000 * BoundT0_Recovery_HEAD;
+    T1_R = T1_R + 10000 * BoundT1_Recovery_HEAD;
+    T0_ibat = T0_ibat + 10000 * T0Ibat_HEAD;
+    T1_ibat = T1_ibat + 10000 * T1Ibat_HEAD;
+    defalut_ibat = defalut_ibat + 10000 * Ibat_HEAD;
+    if (rc == 7) {
+            rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS], WLS_CHG_PARAM, T0);
+            rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS], WLS_CHG_PARAM, T1);
+            rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS], WLS_CHG_PARAM, T0_R);
+            rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS], WLS_CHG_PARAM, T1_R);
+            rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS], WLS_CHG_PARAM, T0_ibat);
+            rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS], WLS_CHG_PARAM, T1_ibat);
+            rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS], WLS_CHG_PARAM, defalut_ibat);
+            pr_info("%d, %d, %d, %d, %d, %d, %d", T0, T1, T0_R, T1_R, T0_ibat, T1_ibat, defalut_ibat);
+    } else {
+        pr_info("%s,param_store fail", __func__);
+    }
 
-	for (i = 0; i < ARRAY_SIZE(head); i++) {
-		rc = write_property_id(bcdev, &bcdev->psy_list[PSY_TYPE_WLS],
-				WLS_CHG_PARAM, val[i] + 10000 * head[i]);
-		if (rc < 0)
-			return rc;
-	}
-
-	return count;
+    return count;
 }
 static CLASS_ATTR_RW(wls_chg_param);
 
@@ -2510,6 +2456,37 @@ static CLASS_ATTR_RW(charging_en);
 #endif
 
 #ifdef CONFIG_NOTHING
+static int nothing_set_charge_inhibit(struct battery_chg_dev *bcdev,
+				      bool inhibit)
+{
+	bool prev_restrict_chg_en = bcdev->restrict_chg_en;
+	u32 prev_restrict_fcc_ua = bcdev->restrict_fcc_ua;
+	u32 fcc_ua = 0;
+	int rc;
+
+	if (!inhibit)
+		fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
+				DEFAULT_RESTRICT_FCC_UA;
+
+	bcdev->restrict_fcc_ua = fcc_ua;
+	bcdev->restrict_chg_en = inhibit;
+
+	rc = __battery_psy_set_charge_current(bcdev, fcc_ua);
+	if (rc < 0) {
+		bcdev->restrict_fcc_ua = prev_restrict_fcc_ua;
+		bcdev->restrict_chg_en = prev_restrict_chg_en;
+	}
+
+	return rc;
+}
+
+/*
+ * Charging control nodes, wired up regardless of wireless support.
+ * Both just move FCC (fast-charge current limit) between 0 and its
+ * default via the existing __battery_psy_set_charge_current() —
+ * that's already restrict_chg/restrict_cur's mechanism, so it's safe
+ * on every board this driver targets, wls or not.
+ */
 static ssize_t charging_enabled_store(struct class *c,
 				      struct class_attribute *attr,
 				      const char *buf, size_t count)
@@ -2524,22 +2501,9 @@ static ssize_t charging_enabled_store(struct class *c,
 
 	pr_info("%s,val:%d", __func__, val);
 
-	if (val) {
-		rc = __battery_psy_set_charge_current(bcdev,
-				bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA);
-		if (rc < 0)
-			return rc;
-		bcdev->restrict_fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA;
-		bcdev->restrict_chg_en = 0;
-	} else {
-		rc = __battery_psy_set_charge_current(bcdev, 0);
-		if (rc < 0)
-			return rc;
-		bcdev->restrict_fcc_ua = 0;
-		bcdev->restrict_chg_en = 1;
-	}
+	rc = nothing_set_charge_inhibit(bcdev, !val);
+	if (rc < 0)
+		return rc;
 
 	return count;
 }
@@ -2549,7 +2513,7 @@ static ssize_t charging_enabled_show(struct class *c,
 {
 	struct battery_chg_dev *bcdev = container_of(c, struct battery_chg_dev,
 						battery_class);
-	bool val = !bcdev->restrict_chg_en && bcdev->restrict_fcc_ua;
+	bool val = !(bcdev->restrict_chg_en && !bcdev->restrict_fcc_ua);
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n", val);
 }
@@ -2569,22 +2533,9 @@ static ssize_t bypass_charging_store(struct class *c,
 
 	pr_info("%s,val:%d", __func__, val);
 
-	if (val) {
-		rc = __battery_psy_set_charge_current(bcdev, 0);
-		if (rc < 0)
-			return rc;
-		bcdev->restrict_fcc_ua = 0;
-		bcdev->restrict_chg_en = 1;
-	} else {
-		rc = __battery_psy_set_charge_current(bcdev,
-				bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA);
-		if (rc < 0)
-			return rc;
-		bcdev->restrict_fcc_ua = bcdev->thermal_fcc_ua ? bcdev->thermal_fcc_ua :
-				DEFAULT_RESTRICT_FCC_UA;
-		bcdev->restrict_chg_en = 0;
-	}
+	rc = nothing_set_charge_inhibit(bcdev, val);
+	if (rc < 0)
+		return rc;
 
 	return count;
 }
@@ -2606,13 +2557,16 @@ static struct attribute *nothing_battery_class_attrs[] = {
 	&class_attr_usb_charger_en.attr,
 	&class_attr_charge_power.attr,
 	&class_attr_slowcharge_en.attr,
-	&class_attr_ibus_now.attr,
-	&class_attr_report_update.attr,
 	&class_attr_charge_pump_enable.attr,
 	&class_attr_typec_cc_orientation.attr,
 #endif
+#ifdef CONFIG_STWLC38_FW
 	&class_attr_syssoc.attr,
 	&class_attr_batsoc.attr,
+#endif
+#if defined(CONFIG_NT_CHG) && defined(CONFIG_STWLC38_FW)
+	&class_attr_charging_en.attr,
+#endif
 #ifdef CONFIG_NOTHING
 	&class_attr_charging_enabled.attr,
 	&class_attr_bypass_charging.attr,
@@ -2723,22 +2677,15 @@ static int battery_chg_parse_dt(struct battery_chg_dev *bcdev)
 
 	rc = of_property_count_elems_of_size(node, "qcom,thermal-mitigation",
 						sizeof(u32));
-	if (rc <= 0)
+	if (rc <= 0) {
+		if (!read_property_id(bcdev, pst, BATT_CHG_CTRL_LIM_MAX))
+			bcdev->thermal_fcc_ua = pst->prop[BATT_CHG_CTRL_LIM_MAX];
 		return 0;
+	}
 
 	len = rc;
 
-	rc = of_property_read_u32_index(node, "qcom,thermal-mitigation", 0,
-					&val);
-	if (rc < 0)
-		return rc;
-
-	for (i = 0; i < ADSP_INIT_TRY; i++) {
-		rc = read_property_id(bcdev, pst, BATT_CHG_CTRL_LIM_MAX);
-		if (!rc && pst->prop[BATT_CHG_CTRL_LIM_MAX] >= val)
-			break;
-		msleep(ADSP_INIT_WAIT_MS);
-	}
+	rc = read_property_id(bcdev, pst, BATT_CHG_CTRL_LIM_MAX);
 	if (rc < 0) {
 		pr_err("Failed to read prop BATT_CHG_CTRL_LIM_MAX, rc=%d\n",
 			rc);
@@ -2746,7 +2693,7 @@ static int battery_chg_parse_dt(struct battery_chg_dev *bcdev)
 	}
 
 	prev = pst->prop[BATT_CHG_CTRL_LIM_MAX];
-	pr_debug("FCC max from PMIC fw = %u uA\n", prev);
+	pr_err("nt-debug: FCC max from PMIC fw = %u uA (dts first val = 10000000)\n", prev);
 
 	for (i = 0; i < len; i++) {
 		rc = of_property_read_u32_index(node, "qcom,thermal-mitigation",
@@ -2864,56 +2811,78 @@ static int register_extcon_conn_type(struct battery_chg_dev *bcdev)
 	return rc;
 }
 
-#ifdef CONFIG_DRM_PANEL
-static struct drm_panel *active_panel;
-
-static int drm_check_dt(struct device_node *np)
+static void panel_event_notifier_callback(enum panel_event_notifier_tag tag,
+			struct panel_event_notification *notification, void *data)
 {
-	int i;
-	int count;
-	struct device_node *node;
-	struct drm_panel *panel;
+	struct battery_chg_dev *bcdev = data;
+
+	if (!notification) {
+		pr_debug("Invalid panel notification\n");
+		return;
+	}
+
+	pr_debug("panel event received, type: %d\n", notification->notif_type);
+	switch (notification->notif_type) {
+	case DRM_PANEL_EVENT_BLANK:
+		battery_chg_notify_disable(bcdev);
+		break;
+	case DRM_PANEL_EVENT_UNBLANK:
+		battery_chg_notify_enable(bcdev);
+		break;
+	default:
+		pr_debug("Ignore panel event: %d\n", notification->notif_type);
+		break;
+	}
+}
+
+static int battery_chg_register_panel_notifier(struct battery_chg_dev *bcdev)
+{
+	struct device_node *np = bcdev->dev->of_node;
+	struct device_node *pnode;
+	struct drm_panel *panel, *active_panel = NULL;
+	void *cookie = NULL;
+	int i, count, rc;
 
 	count = of_count_phandle_with_args(np, "qcom,display-panels", NULL);
 	if (count <= 0)
 		return 0;
 
 	for (i = 0; i < count; i++) {
-		node = of_parse_phandle(np, "qcom,display-panels", i);
-		panel = of_drm_find_panel(node);
-		of_node_put(node);
+		pnode = of_parse_phandle(np, "qcom,display-panels", i);
+		if (!pnode)
+			return -ENODEV;
+
+		panel = of_drm_find_panel(pnode);
+		of_node_put(pnode);
 		if (!IS_ERR(panel)) {
 			active_panel = panel;
-			return 0;
+			break;
 		}
 	}
 
-	return PTR_ERR(panel);
-}
-
-static int battery_chg_notify(struct notifier_block *self, unsigned long event,
-			      void *data)
-{
-	struct battery_chg_dev *bcdev = container_of(self, struct battery_chg_dev,
-						     drm_notifier);
-	struct drm_panel_notifier *evdata = data;
-	int *blank = evdata->data;
-
-	switch (*blank) {
-	case DRM_PANEL_BLANK_POWERDOWN:
-		battery_chg_notify_disable(bcdev);
-		break;
-	case DRM_PANEL_BLANK_UNBLANK:
-		battery_chg_notify_enable(bcdev);
-		break;
-	default:
-		pr_debug("Ignore panel event: %d\n", *blank);
-		break;
+	if (!active_panel) {
+		rc = PTR_ERR(panel);
+		if (rc != -EPROBE_DEFER)
+			dev_err(bcdev->dev, "Failed to find active panel, rc=%d\n", rc);
+		return rc;
 	}
 
-	return NOTIFY_OK;
+	cookie = panel_event_notifier_register(
+			PANEL_EVENT_NOTIFICATION_PRIMARY,
+			PANEL_EVENT_NOTIFIER_CLIENT_BATTERY_CHARGER,
+			active_panel,
+			panel_event_notifier_callback,
+			(void *)bcdev);
+	if (IS_ERR(cookie)) {
+		rc = PTR_ERR(cookie);
+		dev_err(bcdev->dev, "Failed to register panel event notifier, rc=%d\n", rc);
+		return rc;
+	}
+
+	pr_debug("register panel notifier successful\n");
+	bcdev->notifier_cookie = cookie;
+	return 0;
 }
-#endif
 
 static int battery_chg_probe(struct platform_device *pdev)
 {
@@ -2960,24 +2929,9 @@ static int battery_chg_probe(struct platform_device *pdev)
 	INIT_WORK(&bcdev->usb_type_work, battery_chg_update_usb_type_work);
 	bcdev->dev = dev;
 
-#ifdef CONFIG_DRM_PANEL
-	rc = drm_check_dt(bcdev->dev->of_node);
-	if (rc) {
-		pr_err("Failed to parse active panel\n");
-		return (rc == -EPROBE_DEFER) ? rc : -ENODEV;
-	}
-
-	bcdev->drm_notifier.notifier_call = battery_chg_notify;
-	if (active_panel) {
-		rc = drm_panel_notifier_register(active_panel, &bcdev->drm_notifier);
-		if (rc) {
-			pr_err("Failed to register DRM panel notifier, rc=%d\n", rc);
-			return rc;
-		} else {
-			pr_info("Registered DRM panel notifier successfully\n");
-		}
-	}
-#endif
+	rc = battery_chg_register_panel_notifier(bcdev);
+	if (rc < 0)
+		return rc;
 
 	client_data.id = MSG_OWNER_BC;
 	client_data.name = "battery_charger";
@@ -2991,6 +2945,8 @@ static int battery_chg_probe(struct platform_device *pdev)
 		if (rc != -EPROBE_DEFER)
 			dev_err(dev, "Error in registering with pmic_glink %d\n",
 				rc);
+		if (bcdev->notifier_cookie)
+			panel_event_notifier_unregister(bcdev->notifier_cookie);
 		return rc;
 	}
 
@@ -3037,16 +2993,16 @@ static int battery_chg_probe(struct platform_device *pdev)
 	if (bcdev->connector_type == USB_CONNECTOR_TYPE_MICRO_USB) {
 		bcdev->typec_class = qti_typec_class_init(bcdev->dev);
 		if (IS_ERR_OR_NULL(bcdev->typec_class)) {
-			rc = bcdev->typec_class ? PTR_ERR(bcdev->typec_class) : -ENODEV;
-			dev_err(dev, "Failed to init typec class rc=%d\n", rc);
-			return rc;
+			dev_err(dev, "Failed to init typec class err=%d\n",
+				PTR_ERR(bcdev->typec_class));
+			return PTR_ERR(bcdev->typec_class);
 		}
 	}
 	bcdev->chg_wake = wakeup_source_register(bcdev->dev, "chg_wakelock");
 	INIT_DELAYED_WORK(&bcdev->nt_update_status_work,
 						nt_update_status_function_work);
 	queue_delayed_work(system_wq, &bcdev->nt_update_status_work,
-							round_jiffies_relative(10 * HZ));
+								round_jiffies(10 * HZ));
 
 	schedule_work(&bcdev->usb_type_work);
 
@@ -3057,6 +3013,8 @@ error:
 	complete(&bcdev->ack);
 	pmic_glink_unregister_client(bcdev->client);
 	unregister_reboot_notifier(&bcdev->reboot_notifier);
+	if (bcdev->notifier_cookie)
+		panel_event_notifier_unregister(bcdev->notifier_cookie);
 	return rc;
 }
 
@@ -3064,17 +3022,13 @@ static int battery_chg_remove(struct platform_device *pdev)
 {
 	struct battery_chg_dev *bcdev = platform_get_drvdata(pdev);
 	int rc;
-#ifdef CONFIG_DRM_PANEL
-	if (active_panel)
-		drm_panel_notifier_unregister(active_panel, &bcdev->drm_notifier);
-#endif
 
-	cancel_delayed_work_sync(&bcdev->nt_update_status_work);
-	wakeup_source_unregister(bcdev->chg_wake);
+	if (bcdev->notifier_cookie)
+		panel_event_notifier_unregister(bcdev->notifier_cookie);
+
 	device_init_wakeup(bcdev->dev, false);
 	debugfs_remove_recursive(bcdev->debugfs_dir);
 	cancel_work_sync(&bcdev->subsys_up_work);
-	cancel_work_sync(&bcdev->usb_type_work);
 	class_unregister(&bcdev->battery_class);
 	unregister_reboot_notifier(&bcdev->reboot_notifier);
 	qti_typec_class_deinit(bcdev->typec_class);

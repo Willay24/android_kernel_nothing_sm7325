@@ -3210,7 +3210,7 @@ struct dp_panel *dp_panel_get(struct dp_panel_in *in)
 			if (rc)
 				DP_ERR("Failed to add drm_panel\n");
 
-			dp_panel->connector->panel = &dp_panel->drm_panel;
+			sde_conn->panel = &dp_panel->drm_panel;
 		}
 	}
 
