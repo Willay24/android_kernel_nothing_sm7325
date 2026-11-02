@@ -170,7 +170,7 @@ struct pstore_record {
  */
 struct pstore_info {
 	struct module	*owner;
-	const char	*name;
+	char		*name;
 
 	struct semaphore buf_lock;
 	char		*buf;
