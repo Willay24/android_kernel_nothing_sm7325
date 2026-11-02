@@ -177,20 +177,9 @@ static int pstore_unlink(struct inode *dir, struct dentry *dentry)
 {
 	struct pstore_private *p = d_inode(dentry)->i_private;
 	struct pstore_record *record = p->record;
-	int rc = 0;
 
 	if (!record->psi->erase)
 		return -EPERM;
-
-	/* Make sure we can't race while removing this file. */
-	mutex_lock(&records_list_lock);
-	if (!list_empty(&p->list))
-		list_del_init(&p->list);
-	else
-		rc = -ENOENT;
-	mutex_unlock(&records_list_lock);
-	if (rc)
-		return rc;
 
 	mutex_lock(&record->psi->read_mutex);
 	record->psi->erase(record);
@@ -204,7 +193,12 @@ static void pstore_evict_inode(struct inode *inode)
 	struct pstore_private	*p = inode->i_private;
 
 	clear_inode(inode);
-	free_pstore_private(p);
+	if (p) {
+		mutex_lock(&records_list_lock);
+		list_del(&p->list);
+		mutex_unlock(&records_list_lock);
+		free_pstore_private(p);
+	}
 }
 
 static const struct inode_operations pstore_dir_inode_operations = {
@@ -423,7 +417,6 @@ static void pstore_kill_sb(struct super_block *sb)
 {
 	kill_litter_super(sb);
 	pstore_sb = NULL;
-	INIT_LIST_HEAD(&records_list);
 }
 
 static struct file_system_type pstore_fs_type = {
