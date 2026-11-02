@@ -22,13 +22,14 @@
 #include <linux/magic.h>
 #include <linux/pstore.h>
 #include <linux/slab.h>
+#include <linux/spinlock.h>
 #include <linux/uaccess.h>
 
 #include "internal.h"
 
 #define	PSTORE_NAMELEN	64
 
-static DEFINE_MUTEX(records_list_lock);
+static DEFINE_SPINLOCK(records_list_lock);
 static LIST_HEAD(records_list);
 
 struct pstore_private {
@@ -191,12 +192,13 @@ static int pstore_unlink(struct inode *dir, struct dentry *dentry)
 static void pstore_evict_inode(struct inode *inode)
 {
 	struct pstore_private	*p = inode->i_private;
+	unsigned long		flags;
 
 	clear_inode(inode);
 	if (p) {
-		mutex_lock(&records_list_lock);
+		spin_lock_irqsave(&records_list_lock, flags);
 		list_del(&p->list);
-		mutex_unlock(&records_list_lock);
+		spin_unlock_irqrestore(&records_list_lock, flags);
 		free_pstore_private(p);
 	}
 }
@@ -295,11 +297,12 @@ int pstore_mkfile(struct dentry *root, struct pstore_record *record)
 	int			rc = 0;
 	char			name[PSTORE_NAMELEN];
 	struct pstore_private	*private, *pos;
+	unsigned long		flags;
 	size_t			size = record->size + record->ecc_notice_size;
 
 	WARN_ON(!inode_is_locked(d_inode(root)));
 
-	mutex_lock(&records_list_lock);
+	spin_lock_irqsave(&records_list_lock, flags);
 	list_for_each_entry(pos, &records_list, list) {
 		if (pos->record->type == record->type &&
 		    pos->record->id == record->id &&
@@ -308,7 +311,7 @@ int pstore_mkfile(struct dentry *root, struct pstore_record *record)
 			break;
 		}
 	}
-	mutex_unlock(&records_list_lock);
+	spin_unlock_irqrestore(&records_list_lock, flags);
 	if (rc)
 		return rc;
 
@@ -340,9 +343,9 @@ int pstore_mkfile(struct dentry *root, struct pstore_record *record)
 
 	d_add(dentry, inode);
 
-	mutex_lock(&records_list_lock);
+	spin_lock_irqsave(&records_list_lock, flags);
 	list_add(&private->list, &records_list);
-	mutex_unlock(&records_list_lock);
+	spin_unlock_irqrestore(&records_list_lock, flags);
 
 	return 0;
 
