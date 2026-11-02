@@ -36,7 +36,6 @@ static struct super_block *pstore_sb;
 
 struct pstore_private {
 	struct list_head list;
-	struct dentry *dentry;
 	struct pstore_record *record;
 	size_t total_size;
 };
@@ -192,7 +191,6 @@ static int pstore_unlink(struct inode *dir, struct dentry *dentry)
 		list_del_init(&p->list);
 	else
 		rc = -ENOENT;
-	p->dentry = NULL;
 	mutex_unlock(&records_list_lock);
 	if (rc)
 		return rc;
@@ -308,35 +306,6 @@ static struct dentry *psinfo_lock_root(void)
 	return root;
 }
 
-int pstore_put_backend_records(struct pstore_info *psi)
-{
-	struct pstore_private *pos, *tmp;
-	struct dentry *root;
-	int rc = 0;
-
-	root = psinfo_lock_root();
-	if (!root)
-		return 0;
-
-	mutex_lock(&records_list_lock);
-	list_for_each_entry_safe(pos, tmp, &records_list, list) {
-		if (pos->record->psi == psi) {
-			list_del_init(&pos->list);
-			rc = simple_unlink(d_inode(root), pos->dentry);
-			if (WARN_ON(rc))
-				break;
-			d_drop(pos->dentry);
-			dput(pos->dentry);
-			pos->dentry = NULL;
-		}
-	}
-	mutex_unlock(&records_list_lock);
-
-	inode_unlock(d_inode(root));
-
-	return rc;
-}
-
 /*
  * Make a regular file in the root directory of our file system.
  * Load it up with "size" bytes of data from "buf".
@@ -383,7 +352,6 @@ int pstore_mkfile(struct dentry *root, struct pstore_record *record)
 	if (!dentry)
 		goto fail_private;
 
-	private->dentry = dentry;
 	private->record = record;
 	inode->i_size = private->total_size = size;
 	inode->i_private = private;
