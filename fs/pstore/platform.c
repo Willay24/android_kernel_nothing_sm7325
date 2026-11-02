@@ -627,7 +627,7 @@ int pstore_register(struct pstore_info *psi)
 	 * Update the module parameter backend, so it is visible
 	 * through /sys/module/pstore/parameters/backend
 	 */
-	backend = kstrdup(psi->name, GFP_KERNEL);
+	backend = psi->name;
 
 	pr_info("Registered %s as persistent store backend\n", psi->name);
 
@@ -670,7 +670,6 @@ void pstore_unregister(struct pstore_info *psi)
 	free_buf_for_compression();
 
 	psinfo = NULL;
-	kfree(backend);
 	backend = NULL;
 	mutex_unlock(&psinfo_lock);
 }
