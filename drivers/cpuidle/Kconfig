@@ -43,7 +43,7 @@ config CPU_IDLE_GOV_HALTPOLL
 	  Some virtualized workloads benefit from using it.
 
 config CPU_IDLE_GOV_QCOM_LPM
-	tristate "Qualcomm Technologies, Inc. CPU and Cluster governor"
+	bool "Qualcomm Technologies, Inc. CPU and Cluster governor"
 	depends on ARCH_QCOM
 	depends on ARM_PSCI_CPUIDLE
 	help

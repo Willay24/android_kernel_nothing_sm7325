@@ -325,4 +325,12 @@ static inline void cpuidle_clear_idle_cpu(unsigned int cpu) { }
 static inline void wake_idle_cpus_in_mask(const struct cpumask *mask) { }
 #endif
 
+#ifdef CONFIG_CPU_IDLE_GOV_QCOM_LPM
+void qcom_lpm_idle_enter(int *state, struct cpuidle_device *dev);
+void qcom_lpm_idle_exit(int state, struct cpuidle_device *dev);
+#else
+static inline void qcom_lpm_idle_enter(int *state, struct cpuidle_device *dev) {}
+static inline void qcom_lpm_idle_exit(int state, struct cpuidle_device *dev) {}
+#endif
+
 #endif /* _LINUX_CPUIDLE_H */

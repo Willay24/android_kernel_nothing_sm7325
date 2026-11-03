@@ -19,7 +19,6 @@
 #include <linux/tick.h>
 #include <linux/time64.h>
 
-#include <trace/hooks/pm_domain.h>
 #define CREATE_TRACE_POINTS
 #include "trace-cluster-lpm.h"
 #include "qcom-lpm.h"
@@ -398,18 +397,6 @@ void update_cluster_select(struct lpm_cpu *cpu_gov)
 	}
 }
 
-static void android_vh_allow_domain_state(void *unused,
-					  struct generic_pm_domain *genpd,
-					  uint32_t idx, bool *allow)
-{
-	struct lpm_cluster *cluster_gov = to_cluster(genpd);
-
-	if (!cluster_gov)
-		return;
-
-	*allow = cluster_gov->state_allowed[idx];
-}
-
 static int lpm_cluster_gov_remove(struct platform_device *pdev)
 {
 	struct generic_pm_domain *genpd = pd_to_genpd(pdev->dev.pm_domain);
@@ -485,17 +472,11 @@ static struct platform_driver qcom_cluster_lpm_driver = {
 
 static void cluster_gov_disable(void)
 {
-#if defined(_TRACE_HOOK_PM_DOMAIN_H)
-	unregister_trace_android_vh_allow_domain_state(android_vh_allow_domain_state, NULL);
-#endif
 	platform_driver_unregister(&qcom_cluster_lpm_driver);
 }
 
 static void cluster_gov_enable(void)
 {
-#if defined(_TRACE_HOOK_PM_DOMAIN_H)
-	register_trace_android_vh_allow_domain_state(android_vh_allow_domain_state, NULL);
-#endif
 	platform_driver_register(&qcom_cluster_lpm_driver);
 }
 
