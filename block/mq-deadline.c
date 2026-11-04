@@ -605,50 +605,58 @@ static bool dd_has_work(struct blk_mq_hw_ctx *hctx)
 /*
  * sysfs parts below
  */
-#define SHOW_INT(__FUNC, __VAR)						\
+static ssize_t
+deadline_var_show(int var, char *page)
+{
+	return sprintf(page, "%d\n", var);
+}
+
+static void
+deadline_var_store(int *var, const char *page)
+{
+	char *p = (char *) page;
+
+	*var = simple_strtol(p, &p, 10);
+}
+
+#define SHOW_FUNCTION(__FUNC, __VAR, __CONV)				\
 static ssize_t __FUNC(struct elevator_queue *e, char *page)		\
 {									\
 	struct deadline_data *dd = e->elevator_data;			\
-									\
-	return sysfs_emit(page, "%d\n", __VAR);				\
+	int __data = __VAR;						\
+	if (__CONV)							\
+		__data = jiffies_to_msecs(__data);			\
+	return deadline_var_show(__data, (page));			\
 }
-#define SHOW_JIFFIES(__FUNC, __VAR) SHOW_INT(__FUNC, jiffies_to_msecs(__VAR))
-SHOW_JIFFIES(deadline_read_expire_show, dd->fifo_expire[DD_READ]);
-SHOW_JIFFIES(deadline_write_expire_show, dd->fifo_expire[DD_WRITE]);
-SHOW_INT(deadline_writes_starved_show, dd->writes_starved);
-SHOW_INT(deadline_front_merges_show, dd->front_merges);
-SHOW_INT(deadline_fifo_batch_show, dd->fifo_batch);
-#undef SHOW_INT
-#undef SHOW_JIFFIES
+SHOW_FUNCTION(deadline_read_expire_show, dd->fifo_expire[DD_READ], 1);
+SHOW_FUNCTION(deadline_write_expire_show, dd->fifo_expire[DD_WRITE], 1);
+SHOW_FUNCTION(deadline_writes_starved_show, dd->writes_starved, 0);
+SHOW_FUNCTION(deadline_front_merges_show, dd->front_merges, 0);
+SHOW_FUNCTION(deadline_fifo_batch_show, dd->fifo_batch, 0);
+#undef SHOW_FUNCTION
 
 #define STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, __CONV)			\
 static ssize_t __FUNC(struct elevator_queue *e, const char *page, size_t count)	\
 {									\
 	struct deadline_data *dd = e->elevator_data;			\
-	int __data, __ret;						\
-									\
-	__ret = kstrtoint(page, 0, &__data);				\
-	if (__ret < 0)							\
-		return __ret;						\
+	int __data;							\
+	deadline_var_store(&__data, (page));				\
 	if (__data < (MIN))						\
 		__data = (MIN);						\
 	else if (__data > (MAX))					\
 		__data = (MAX);						\
-	*(__PTR) = __CONV(__data);					\
+	if (__CONV)							\
+		*(__PTR) = msecs_to_jiffies(__data);			\
+	else								\
+		*(__PTR) = __data;					\
 	return count;							\
 }
-#define STORE_INT(__FUNC, __PTR, MIN, MAX)				\
-	STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, )
-#define STORE_JIFFIES(__FUNC, __PTR, MIN, MAX)				\
-	STORE_FUNCTION(__FUNC, __PTR, MIN, MAX, msecs_to_jiffies)
-STORE_JIFFIES(deadline_read_expire_store, &dd->fifo_expire[DD_READ], 0, INT_MAX);
-STORE_JIFFIES(deadline_write_expire_store, &dd->fifo_expire[DD_WRITE], 0, INT_MAX);
-STORE_INT(deadline_writes_starved_store, &dd->writes_starved, INT_MIN, INT_MAX);
-STORE_INT(deadline_front_merges_store, &dd->front_merges, 0, 1);
-STORE_INT(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX);
+STORE_FUNCTION(deadline_read_expire_store, &dd->fifo_expire[DD_READ], 0, INT_MAX, 1);
+STORE_FUNCTION(deadline_write_expire_store, &dd->fifo_expire[DD_WRITE], 0, INT_MAX, 1);
+STORE_FUNCTION(deadline_writes_starved_store, &dd->writes_starved, INT_MIN, INT_MAX, 0);
+STORE_FUNCTION(deadline_front_merges_store, &dd->front_merges, 0, 1, 0);
+STORE_FUNCTION(deadline_fifo_batch_store, &dd->fifo_batch, 0, INT_MAX, 0);
 #undef STORE_FUNCTION
-#undef STORE_INT
-#undef STORE_JIFFIES
 
 #define DD_ATTR(name) \
 	__ATTR(name, 0644, deadline_##name##_show, deadline_##name##_store)
