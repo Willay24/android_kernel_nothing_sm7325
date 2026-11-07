@@ -17,7 +17,3 @@ source "drivers/platform/olpc/Kconfig"
 source "drivers/platform/msm/Kconfig"
 
 source "drivers/platform/surface/Kconfig"
-
-if ARCH_QCOM
-source "drivers/platform/xiaomi/Kconfig"
-endif
