@@ -1,0 +1,149 @@
+// This file is for attribution of nothing spacewar platform only
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
+#include <dt-bindings/iio/qcom,spmi-adc7-pm7325.h>
+#include <dt-bindings/iio/qcom,spmi-adc7-pm8350b.h>
+
+#include "yupik-abra-common-overlay.dtsi"
+#include "nothing-spacewar-pinctrl.dtsi"
+#include "nothing-sm7325-common.dtsi"
+#include "nothing-spacewar-audio-overlay.dtsi"
+#include "nothing-spacewar-charge.dtsi"
+
+&removed_mem {
+	reg = <0x0 0xc0000000 0x0 0x6800000>;
+};
+
+/*
+ * PMK8350 device specific diff for Nothing Spacewar platform
+ */
+&pmk8350_vadc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pm7325_pa3_therm3_default>;
+
+	pm8350b_conn_therm {
+		reg = <PM8350B_ADC7_AMUX_THM4_100K_PU>;
+		label = "pm8350b_conn_therm";
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+};
+
+&pm8350b_haptics {
+	status = "okay";
+};
+
+// Touch
+&qupv3_se13_spi {
+	status = "okay";
+	qcom,rt;
+	qcom,spi-touch-active = "focaltech,fts_ts";
+	pinctrl-names = "default", "sleep";
+	pinctrl-0 = <&qupv3_se13_spi_active>;
+	pinctrl-1 = <&qupv3_se13_spi_sleep_nt &qupv3_se13_spi_sleep_cs>;
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	/* FocalTech FT5662 */
+	focaltech@0 {
+		status = "okay";
+		compatible = "focaltech,fts_ts";
+		reg = <0>;
+		spi-max-frequency = <6000000>;
+		wakeup-source;
+
+		interrupt-parent = <&tlmm>;
+		interrupts = <81 0x2008>;
+
+		focaltech,irq-gpio = <&tlmm 81 0x2008>;
+		focaltech,reset-gpio = <&tlmm 105 0x00>;
+		focaltech,max-touch-number = <10>;
+		focaltech,display-coords = <0 0 1080 2400>;
+		focaltech,ic-type = <0x3658d488>;
+
+		/* Nothing touch-feature tuning */
+		focaltech,touch-def-array = <3 3 3 3>;
+		focaltech,touch-range-array = <1 2 3 4 5>;
+		focaltech,touch-expert-array = <2 2 2 2
+						3 3 3 3
+						4 4 4 4>;
+
+		vdd-supply   = <&L3C>;
+		avdd-supply  = <&L3C>;
+		iovdd-supply = <&L8C>;
+
+		panel = <&dsi_rm692e5_visionox_amoled_120hz_cmd
+			 &dsi_r66451_amoled_144hz_video_cphy>;
+
+		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend", "pmx_ts_release";
+		pinctrl-0 = <&ts_active>;
+		pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
+		pinctrl-2 = <&ts_release>;
+	};
+
+	/* Goodix GT9916S (Berlin-D) */
+	goodix-berlin@0 {
+		status = "disabled";
+		compatible = "goodix,gt9916S", "goodix,brl-d";
+		reg = <0>;
+		spi-max-frequency = <1000000>;
+
+		goodix,reset-gpio = <&tlmm 105 0x00>;
+		goodix,irq-gpio   = <&tlmm 81 0x2800>;
+		goodix,irq-flags  = <2>;
+		goodix,panel-max-x = <1080>;
+		goodix,panel-max-y = <2400>;
+		goodix,panel-max-w = <255>;
+		goodix,panel-max-p = <4096>;
+		goodix,pen-enable;
+		goodix,firmware-name = "goodix_firmware.bin";
+		goodix,config-name   = "goodix_cfg_group.bin";
+		goodix,avdd-name  = "avdd";
+		goodix,iovdd-name = "iovdd";
+ 
+		qcom,display-panels = <&dsi_rm692e5_visionox_amoled_120hz_cmd
+				       &dsi_r66451_amoled_144hz_video_cphy>;
+
+ 		avdd-supply  = <&L3C>;
+		iovdd-supply = <&L8C>;
+	};
+};
+
+// Fingerprint
+&qupv3_se14_spi {
+	status = "okay";
+
+	goodix_fp@0 {
+		compatible = "goodix,fingerprint";
+		reg = <0>;
+		spi-max-frequency = <6000000>;
+		interrupt-parent = <&tlmm>;
+		fp-gpio-power = <&tlmm 2 0x00>;
+		fp-gpio-irq = <&tlmm 34 0x00>;
+		fp-gpio-reset = <&tlmm 61 0x00>;
+		panel = <&dsi_rm692e5_visionox_amoled_120hz_cmd>;
+		status = "okay";
+	};
+};
+
+&qcom_qseecom {
+	reg = <0xc1800000 0x5000000>;
+	reg-names = "secapp-region";
+};
+
+&sdhc_2 {
+	status = "disabled";
+};
+
+&qupv3_se8_spi {
+	status = "disabled";
+};
+
+&usb2_phy0 {
+	qcom,param-override-seq =
+		<0xe7 0x6c	/* override_x0 */
+		 0x0e 0x70	/* override_x1 */
+		 0x0b 0x74>;	/* override_x2 */
+};

@@ -15,8 +15,10 @@
 
 #define FSA4480_I2C_NAME	"fsa4480-driver"
 
+#define FSA4480_DEVICE_ID       0x00
 #define FSA4480_SWITCH_SETTINGS 0x04
 #define FSA4480_SWITCH_CONTROL  0x05
+#define FSA4480_SWITCH_STATUS   0X06
 #define FSA4480_SWITCH_STATUS1  0x07
 #define FSA4480_SLOW_L          0x08
 #define FSA4480_SLOW_R          0x09
@@ -27,6 +29,9 @@
 #define FSA4480_DELAY_L_MIC     0x0E
 #define FSA4480_DELAY_L_SENSE   0x0F
 #define FSA4480_DELAY_L_AGND    0x10
+#define FSA4480_FUNCTION_ENABLE 0X12
+#define FSA4480_JACK_STATUS     0X17
+#define FSA4480_JACK_FLAG       0X18
 #define FSA4480_RESET           0x1E
 
 struct fsa4480_priv {
@@ -42,6 +47,8 @@ struct fsa4480_priv {
 	u32 use_powersupply;
 	int switch_control;
 };
+
+static unsigned int device_id;
 
 struct fsa4480_reg_val {
 	u16 reg;
@@ -64,11 +71,7 @@ static const struct fsa4480_reg_val fsa_reg_i2c_defaults[] = {
 	{FSA4480_DELAY_L_MIC, 0x00},
 	{FSA4480_DELAY_L_SENSE, 0x00},
 	{FSA4480_DELAY_L_AGND, 0x09},
-#ifdef CONFIG_MACH_XIAOMI_LISA
-	{FSA4480_SWITCH_SETTINGS, 0xF8},
-#else
 	{FSA4480_SWITCH_SETTINGS, 0x98},
-#endif
 };
 
 static void fsa4480_usbc_update_settings(struct fsa4480_priv *fsa_priv,
@@ -171,6 +174,12 @@ static int fsa4480_usbc_event_changed(struct notifier_block *nb_ptr,
 		return fsa4480_usbc_event_changed_ucsi(fsa_priv, evt, ptr);
 }
 
+bool is_dio4480(void)
+{
+	return device_id == 241;
+}
+EXPORT_SYMBOL(is_dio4480);
+
 static int fsa4480_usbc_analog_setup_switches_psupply(
 						struct fsa4480_priv *fsa_priv)
 {
@@ -214,11 +223,7 @@ static int fsa4480_usbc_analog_setup_switches_psupply(
 				TYPEC_ACCESSORY_NONE, NULL);
 
 		/* deactivate switches */
-#ifdef CONFIG_MACH_XIAOMI_LISA
-		fsa4480_usbc_update_settings(fsa_priv, 0x18, 0xF8);
-#else
 		fsa4480_usbc_update_settings(fsa_priv, 0x18, 0x98);
-#endif
 		break;
 	default:
 		/* ignore other usb connection modes */
@@ -235,6 +240,7 @@ static int fsa4480_usbc_analog_setup_switches_ucsi(
 {
 	int rc = 0;
 	int mode;
+	int value = 0;
 	struct device *dev;
 
 	if (!fsa_priv)
@@ -249,13 +255,60 @@ static int fsa4480_usbc_analog_setup_switches_ucsi(
 
 	dev_dbg(dev, "%s: setting GPIOs active = %d\n",
 		__func__, mode != TYPEC_ACCESSORY_NONE);
+	regmap_write(fsa_priv->regmap, FSA4480_RESET, 0x01);
+	msleep(1);
 
 	switch (mode) {
 	/* add all modes FSA should notify for in here */
 	case TYPEC_ACCESSORY_AUDIO:
 		/* activate switches */
-		fsa4480_usbc_update_settings(fsa_priv, 0x00, 0x9F);
-
+		/* re-read chip id after reset */
+		regmap_read(fsa_priv->regmap, FSA4480_DEVICE_ID, &device_id);
+		dev_dbg(fsa_priv->dev, "%s: reg[0x00]=0x%x\n",__func__, device_id);
+		if (is_dio4480()) {
+			dev_info(dev, "%s: headset plug in on dio4480\n", __func__);
+			dev_dbg(fsa_priv->dev, "%s:DIO headset detection .\n",__func__);
+			regmap_write(fsa_priv->regmap, FSA4480_SLOW_L, 0x4f);
+			regmap_read(fsa_priv->regmap, FSA4480_SLOW_L, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x08]=0x%x\n",__func__, value);
+			regmap_write(fsa_priv->regmap, FSA4480_SLOW_R, 0x4f);
+			regmap_read(fsa_priv->regmap, FSA4480_SLOW_R, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x09]=0x%x\n",__func__, value);
+			regmap_write(fsa_priv->regmap, FSA4480_SLOW_MIC, 0x4f);
+			regmap_read(fsa_priv->regmap, FSA4480_SLOW_MIC, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x0a]=0x%x\n",__func__, value);
+			regmap_write(fsa_priv->regmap, FSA4480_SLOW_SENSE, 0x4f);
+			regmap_read(fsa_priv->regmap, FSA4480_SLOW_SENSE, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x0b]=0x%x\n",__func__, value);
+			regmap_write(fsa_priv->regmap, FSA4480_SLOW_GND, 0x4f);
+			regmap_read(fsa_priv->regmap, FSA4480_SLOW_GND, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x0c]=0x%x\n",__func__, value);
+			regmap_write(fsa_priv->regmap, FSA4480_FUNCTION_ENABLE, 0x09);
+			dev_dbg(fsa_priv->dev, "%s: set reg[0x12] done.\n",__func__);
+			regmap_read(fsa_priv->regmap, FSA4480_FUNCTION_ENABLE, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x12]=0x%x\n",__func__, value);
+			msleep(1000);
+			regmap_read(fsa_priv->regmap, FSA4480_JACK_FLAG, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x18]=0x%x\n",__func__, value);
+			msleep(1);
+			regmap_read(fsa_priv->regmap, FSA4480_JACK_STATUS, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x17]=0x%x\n",__func__, value);
+			regmap_read(fsa_priv->regmap, FSA4480_SWITCH_STATUS, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x6]=0x%x\n",__func__, value);
+			regmap_read(fsa_priv->regmap, FSA4480_SWITCH_STATUS1, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x7]=0x%x\n",__func__, value);
+		} else {
+			dev_info(dev, "%s: headset plug in on fsa4480\n", __func__);
+			fsa4480_usbc_update_settings(fsa_priv, 0x00, 0x9F);
+			regmap_write(fsa_priv->regmap, FSA4480_FUNCTION_ENABLE, 0x01);
+			dev_dbg(fsa_priv->dev, "%s: set reg[0x12] done.\n",__func__);
+			regmap_read(fsa_priv->regmap, FSA4480_JACK_STATUS, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x17]=0x%x\n",__func__, value);
+			regmap_read(fsa_priv->regmap, FSA4480_SWITCH_STATUS, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x6]=0x%x\n",__func__, value);
+			regmap_read(fsa_priv->regmap, FSA4480_SWITCH_STATUS1, &value);
+			dev_dbg(fsa_priv->dev, "%s: reg[0x7]=0x%x\n",__func__, value);
+		}
 		/* notify call chain on event */
 		blocking_notifier_call_chain(&fsa_priv->fsa4480_notifier,
 					     mode, NULL);
@@ -266,11 +319,9 @@ static int fsa4480_usbc_analog_setup_switches_ucsi(
 				TYPEC_ACCESSORY_NONE, NULL);
 
 		/* deactivate switches */
-#ifdef CONFIG_MACH_XIAOMI_LISA
-		fsa4480_usbc_update_settings(fsa_priv, 0x18, 0xF8);
-#else
 		fsa4480_usbc_update_settings(fsa_priv, 0x18, 0x98);
-#endif
+		regmap_write(fsa_priv->regmap, FSA4480_FUNCTION_ENABLE, 0x00);
+		dev_dbg(fsa_priv->dev, "%s: set reg[0x12] reset.\n",__func__);
 		break;
 	default:
 		/* ignore other usb connection modes */
@@ -353,11 +404,7 @@ int fsa4480_unreg_notifier(struct notifier_block *nb,
 
 	mutex_lock(&fsa_priv->notification_lock);
 
-#ifdef CONFIG_MACH_XIAOMI_LISA
-	fsa4480_usbc_update_settings(fsa_priv, 0x18, 0xF8);
-#else
 	fsa4480_usbc_update_settings(fsa_priv, 0x18, 0x98);
-#endif
 	rc = blocking_notifier_chain_unregister
 				(&fsa_priv->fsa4480_notifier, nb);
 	mutex_unlock(&fsa_priv->notification_lock);
@@ -413,7 +460,7 @@ int fsa4480_switch_event(struct device_node *node,
 			fsa_priv->switch_control = 0x7;
 		fsa4480_usbc_update_settings(fsa_priv, fsa_priv->switch_control,
 					     0x9F);
-		break;
+		return 1;
 	case FSA_USBC_ORIENTATION_CC1:
 		fsa4480_usbc_update_settings(fsa_priv, 0x18, 0xF8);
 		return fsa4480_validate_display_port_settings(fsa_priv);
@@ -421,11 +468,7 @@ int fsa4480_switch_event(struct device_node *node,
 		fsa4480_usbc_update_settings(fsa_priv, 0x78, 0xF8);
 		return fsa4480_validate_display_port_settings(fsa_priv);
 	case FSA_USBC_DISPLAYPORT_DISCONNECTED:
-#ifdef CONFIG_MACH_XIAOMI_LISA
-		fsa4480_usbc_update_settings(fsa_priv, 0x18, 0xF8);
-#else
 		fsa4480_usbc_update_settings(fsa_priv, 0x18, 0x98);
-#endif
 		break;
 	default:
 		break;
@@ -484,6 +527,8 @@ static int fsa4480_probe(struct i2c_client *i2c,
 		goto err_data;
 	}
 
+	regmap_read(fsa_priv->regmap, FSA4480_DEVICE_ID, &device_id);
+	dev_info(fsa_priv->dev, "%s: usb switch device_id(%u)\n", __func__, device_id);
 	fsa4480_update_reg_defaults(fsa_priv->regmap);
 
 	fsa_priv->nb.notifier_call = fsa4480_usbc_event_changed;
@@ -557,6 +602,8 @@ static int fsa4480_remove(struct i2c_client *i2c)
 
 	if (!fsa_priv)
 		return -EINVAL;
+	regmap_write(fsa_priv->regmap, FSA4480_FUNCTION_ENABLE, 0x00);
+	dev_dbg(fsa_priv->dev, "%s: set reg[0x12] reset.\n",__func__);
 
 	if (fsa_priv->use_powersupply) {
 		/* deregister from PMI */
@@ -565,11 +612,7 @@ static int fsa4480_remove(struct i2c_client *i2c)
 	} else {
 		unregister_ucsi_glink_notifier(&fsa_priv->nb);
 	}
-#ifdef CONFIG_MACH_XIAOMI_LISA
-	fsa4480_usbc_update_settings(fsa_priv, 0x18, 0xF8);
-#else
 	fsa4480_usbc_update_settings(fsa_priv, 0x18, 0x98);
-#endif
 	cancel_work_sync(&fsa_priv->usbc_analog_work);
 	pm_relax(fsa_priv->dev);
 	mutex_destroy(&fsa_priv->notification_lock);
