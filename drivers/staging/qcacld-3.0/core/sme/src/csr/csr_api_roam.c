@@ -10155,7 +10155,7 @@ void csr_roam_joined_state_msg_processor(struct mac_context *mac, void *msg_buf)
 		struct csr_roam_session *pSession;
 		tSirSmeAssocIndToUpperLayerCnf *pUpperLayerAssocCnf;
 		struct csr_roam_info *roam_info;
-		uint32_t sessionId;
+		uint32_t sessionId = 0;
 		QDF_STATUS status;
 
 		sme_debug("ASSOCIATION confirmation can be given to upper layer ");
@@ -12640,7 +12640,6 @@ static QDF_STATUS csr_roam_start_wait_for_key_timer(
 QDF_STATUS csr_roam_stop_wait_for_key_timer(struct mac_context *mac)
 {
 	uint8_t vdev_id = mac->roam.WaitForKeyTimerInfo.vdev_id;
-#ifdef WLAN_DEBUG
 	tpCsrNeighborRoamControlInfo pNeighborRoamInfo =
 		&mac->roam.neighborRoamInfo[vdev_id];
 
@@ -12649,7 +12648,6 @@ QDF_STATUS csr_roam_stop_wait_for_key_timer(struct mac_context *mac)
 						   neighborRoamState),
 		mac_trace_getcsr_roam_sub_state(mac->roam.
 						curSubState[vdev_id]));
-#endif
 	if (csr_neighbor_roam_is_handoff_in_progress(mac, vdev_id)) {
 		/*
 		 * Enable heartbeat timer when hand-off is in progress

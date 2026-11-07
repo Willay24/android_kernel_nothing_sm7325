@@ -38,6 +38,11 @@ endif
 
 include $(WLAN_ROOT)/configs/$(patsubst "%",%,$(CONFIG_QCA_CLD_WLAN_PROFILE))_defconfig
 
+# set DEVNAME, MODNAME
+ifneq ($(DEVNAME),)
+	MODNAME := $(DEVNAME)
+endif
+
 # add configurations in WLAN_CFG_OVERRIDE
 ifneq ($(WLAN_CFG_OVERRIDE),)
 WLAN_CFG_OVERRIDE_FILE := $(WLAN_ROOT)/.wlan_cfg_override
@@ -3423,6 +3428,7 @@ cppflags-$(CONFIG_WLAN_HANG_EVENT) += -DDP_SUPPORT_RECOVERY_NOTIFY
 #endof dummy flags
 
 ccflags-$(CONFIG_ENABLE_SIZE_OPTIMIZE) += -Os
+ccflags-$(CONFIG_DISABLE_DEBUG_INFO) += -g0
 
 # DFS component
 cppflags-$(CONFIG_WLAN_DFS_STATIC_MEM_ALLOC) += -DWLAN_DFS_STATIC_MEM_ALLOC
@@ -3819,6 +3825,8 @@ endif
 # driver attached. Moreover, as the first priority, host driver will only
 # append DYNAMIC_SINGLE_CHIP to the path of firmware/mac/ini file.
 
+DYNAMIC_SINGLE_CHIP ?= $(CONFIG_QCA_CLD_WLAN_DYNAMIC_SINGLE_CHIP_NAME)
+
 ifneq ($(DYNAMIC_SINGLE_CHIP),)
 ccflags-y += -DDYNAMIC_SINGLE_CHIP=\"$(DYNAMIC_SINGLE_CHIP)\"
 ifneq ($(MULTI_IF_NAME),)
@@ -3859,6 +3867,12 @@ ifeq ($(findstring arm, $(ARCH)),)
 else
 	ccflags-y += -DWLAN_HOST_ARCH_ARM=1
 endif
+
+# Android wifi state control interface
+ifeq ($(WLAN_CTRL_NAME),)
+	WLAN_CTRL_NAME=wlan
+endif
+ccflags-y += -DWLAN_CTRL_NAME=\"$(WLAN_CTRL_NAME)\"
 
 # inject some build related information
 ifeq ($(CONFIG_BUILD_TAG), y)

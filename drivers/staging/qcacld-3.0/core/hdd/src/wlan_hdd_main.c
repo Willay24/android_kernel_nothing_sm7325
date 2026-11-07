@@ -210,7 +210,11 @@
 #define WLAN_MODULE_NAME  module_name(THIS_MODULE)
 #endif
 #else
+#ifdef MULTI_IF_NAME
+#define WLAN_MODULE_NAME  MULTI_IF_NAME
+#else
 #define WLAN_MODULE_NAME  "wlan"
+#endif
 #endif
 
 #ifdef TIMER_MANAGER
@@ -245,6 +249,9 @@ static struct cdev wlan_hdd_state_cdev;
 static struct class *class;
 static dev_t device;
 static bool hdd_loaded = false;
+
+// Hack qcacld-3.0 to work properly when built-in
+#define MODULE
 
 /* the Android framework expects this param even though we don't use it */
 #define BUF_LEN 20
@@ -11091,7 +11098,6 @@ void hdd_adapter_feature_update_work_deinit(struct hdd_adapter *adapter)
 	hdd_exit();
 }
 
-#ifdef WLAN_DEBUG
 static uint8_t *hdd_tp_level_to_str(uint32_t level)
 {
 	switch (level) {
@@ -11108,7 +11114,6 @@ static uint8_t *hdd_tp_level_to_str(uint32_t level)
 		return "INVAL";
 	}
 }
-#endif
 
 #define HDD_DUMP_STAT_HELP(STAT_ID) \
 	hdd_nofl_debug("%u -- %s", STAT_ID, (# STAT_ID))
@@ -11220,7 +11225,6 @@ int hdd_wlan_clear_stats(struct hdd_adapter *adapter, int stats_id)
 
 void wlan_hdd_display_tx_rx_histogram(struct hdd_context *hdd_ctx)
 {
-#ifdef WLAN_DEBUG
 	int i;
 
 #ifdef WLAN_FEATURE_DP_BUS_BANDWIDTH
@@ -11263,7 +11267,6 @@ void wlan_hdd_display_tx_rx_histogram(struct hdd_context *hdd_ctx)
 				       hist->is_tx_pm_qos_high ? "HIGH" : "LOW");
 		}
 	}
-#endif
 }
 
 /**
@@ -16781,6 +16784,9 @@ static void hdd_set_adapter_wlm_def_level(struct hdd_context *hdd_ctx)
 	int ret;
 	QDF_STATUS qdf_status;
 	uint8_t latency_level;
+
+	if (QDF_GLOBAL_FTM_MODE == hdd_get_conparam())
+		return;
 
 	ret = wlan_hdd_validate_context(hdd_ctx);
 	if (ret != 0)

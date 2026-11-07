@@ -1449,6 +1449,15 @@ ol_txrx_pdev_post_attach(struct cdp_soc_t *soc_hdl, uint8_t pdev_id)
 	 */
 	qdf_mem_zero(&pdev->rx_pn[0], sizeof(pdev->rx_pn));
 
+	/* WEP: 24-bit PN */
+	pdev->rx_pn[htt_sec_type_wep40].len =
+		pdev->rx_pn[htt_sec_type_wep104].len =
+			pdev->rx_pn[htt_sec_type_wep128].len = 24;
+
+	pdev->rx_pn[htt_sec_type_wep40].cmp =
+		pdev->rx_pn[htt_sec_type_wep104].cmp =
+			pdev->rx_pn[htt_sec_type_wep128].cmp = ol_rx_pn_cmp24;
+
 	/* TKIP: 48-bit TSC, CCMP: 48-bit PN */
 	pdev->rx_pn[htt_sec_type_tkip].len =
 		pdev->rx_pn[htt_sec_type_tkip_nomic].len =
@@ -1821,9 +1830,7 @@ static QDF_STATUS ol_txrx_pdev_detach(struct cdp_soc_t *soc_hdl, uint8_t pdev_id
 	struct ol_txrx_pdev_t *pdev = ol_txrx_get_pdev_from_pdev_id(soc,
 								    pdev_id);
 	struct ol_txrx_stats_req_internal *req, *temp_req;
-#ifdef WLAN_DEBUG
 	int i = 0;
-#endif
 
 	if (!soc) {
 		ol_txrx_err("soc is NULL");
@@ -1845,7 +1852,6 @@ static QDF_STATUS ol_txrx_pdev_detach(struct cdp_soc_t *soc_hdl, uint8_t pdev_id
 	TAILQ_FOREACH_SAFE(req, &pdev->req_list, req_list_elem, temp_req) {
 		TAILQ_REMOVE(&pdev->req_list, req, req_list_elem);
 		pdev->req_list_depth--;
-#ifdef WLAN_DEBUG
 		ol_txrx_err(
 			"%d: %pK,verbose(%d), concise(%d), up_m(0x%x), reset_m(0x%x)\n",
 			i++,
@@ -1855,7 +1861,6 @@ static QDF_STATUS ol_txrx_pdev_detach(struct cdp_soc_t *soc_hdl, uint8_t pdev_id
 			req->base.stats_type_upload_mask,
 			req->base.stats_type_reset_mask
 			);
-#endif
 		qdf_mem_free(req);
 	}
 	qdf_spin_unlock_bh(&pdev->req_list_spinlock);
@@ -4196,12 +4201,10 @@ ol_txrx_fw_stats_handler(ol_txrx_pdev_handle pdev,
 
 			if (status == HTT_DBG_STATS_STATUS_PARTIAL)
 				more = 1;
-#ifdef WLAN_DEBUG
 			if (req->base.print.verbose || req->base.print.concise)
 				/* provide the header along with the data */
 				htt_t2h_stats_print(stats_info_list,
 						    req->base.print.concise);
-#endif
 
 			switch (type) {
 			case HTT_DBG_STATS_WAL_PDEV_TXRX:
@@ -4580,7 +4583,6 @@ static void ol_txrx_disp_peer_stats(ol_txrx_pdev_handle pdev)
 void ol_txrx_stats_display(ol_txrx_pdev_handle pdev,
 			   enum qdf_stats_verbosity_level level)
 {
-#ifdef WLAN_DEBUG
 	u64 tx_dropped =
 		pdev->stats.pub.tx.dropped.download_fail.pkts
 		  + pdev->stats.pub.tx.dropped.target_discard.pkts
@@ -4700,7 +4702,6 @@ void ol_txrx_stats_display(ol_txrx_pdev_handle pdev,
 		       pdev->stats.pub.rx.rx_ind_histogram.pkts_41_50,
 		       pdev->stats.pub.rx.rx_ind_histogram.pkts_51_60,
 		       pdev->stats.pub.rx.rx_ind_histogram.pkts_61_plus);
-#endif
 
 	ol_txrx_disp_peer_stats(pdev);
 }

@@ -56,8 +56,15 @@
 #define WLAN_MODULE_NAME  module_name(THIS_MODULE)
 #endif
 #else
+#ifdef MULTI_IF_NAME
+#define WLAN_MODULE_NAME  MULTI_IF_NAME
+#else
 #define WLAN_MODULE_NAME  "wlan"
 #endif
+#endif
+
+// Hack qcacld-3.0 to work properly when built-in
+#define MODULE
 
 #define SSR_MAX_FAIL_CNT 3
 static uint8_t re_init_fail_cnt, probe_fail_cnt;
