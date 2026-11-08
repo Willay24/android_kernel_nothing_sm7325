@@ -11,7 +11,7 @@
 #include "nothing-spacewar-charge.dtsi"
 
 / {
-	model = "Qualcomm Technologies, Inc. Nothing Phone (1)";
+	model = "spacewar based Qualcomm Technologies, Inc. SM7325";
 	compatible = "qcom,yupik-idp", "qcom,yupik", "qcom,qrd";
 	qcom,msm-id = <475 0x10000>, <515 0x10000>;
 	qcom,board-id = <0x1000B 0>;
