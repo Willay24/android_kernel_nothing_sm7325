@@ -1,0 +1,186 @@
+#include <dt-bindings/iio/qcom,spmi-adc7-pm7325.h>
+#include <dt-bindings/iio/qcom,spmi-adc7-pm8350b.h>
+#include <dt-bindings/iio/qcom,spmi-adc7-pmk8350.h>
+
+&pm7325_gpios {
+	/* disable PM7325 GPIO2 to use the GPIO pin for ADC */
+	pm7325_pa3_therm3 {
+		pm7325_pa3_therm3_default: pm7325_pa3_therm3_default {
+			pins = "gpio2";
+			function = "normal";
+			bias-high-impedance;
+			status = "okay";
+		};
+	};
+
+	/* disable PM7325 GPIO3 to use the GPIO pin for ADC */
+	pm7325_pa4_therm4 {
+		pm7325_pa4_therm4_default: pm7325_pa4_therm4_default {
+			pins = "gpio3";
+			function = "normal";
+			bias-high-impedance;
+			status = "okay";
+		};
+	};
+};
+
+&pm8350b_gpios {
+	/* disable PM8350B GPIO3 to use the GPIO pin for ADC */
+	pm8350b_usb_therm2 {
+		pm8350b_usb_therm2_default: pm8350b_usb_therm2_default {
+			pins = "gpio3";
+			function = "normal";
+			bias-high-impedance;
+			status = "okay";
+		};
+	};
+};
+
+&pmk8350_vadc {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pm7325_pa3_therm3_default
+			&pm7325_pa4_therm4_default
+			&pm8350b_usb_therm2_default>;
+
+	pm7325_quiet_therm {
+		label = "pm7325_quiet_therm";
+		reg = <PM7325_ADC7_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pm7325_cam_flash_therm {
+		label = "pm7325_cam_flash_therm";
+		reg = <PM7325_ADC7_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pm7325_sdm_skin_therm {
+		label = "pm7325_sdm_skin_therm";
+		reg = <PM7325_ADC7_AMUX_THM3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pm7325_wide_rfc_therm {
+		label = "pm7325_wide_rfc_therm";
+		reg = <PM7325_ADC7_AMUX_THM4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pmk8350_xo_therm {
+		label = "pmk8350_xo_therm";
+		reg = <PMK8350_ADC7_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pm7325_pa3_therm3 {
+		label = "pm7325_pa3_therm3";
+		reg = <PM7325_ADC7_GPIO1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pm7325_pa4_therm4 {
+		label = "pm7325_pa4_therm4";
+		reg = <PM7325_ADC7_GPIO2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pm8350b_usb_therm2 {
+		label = "pm8350b_usb_therm2";
+		reg = <PM8350B_ADC7_GPIO3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+
+	pm8350b_conn_therm {
+		label = "pm8350b_conn_therm";
+		reg = <PM8350B_ADC7_AMUX_THM4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+		qcom,pre-scaling = <1 1>;
+	};
+};
+
+&pmk8350_adc_tm {
+	pm7325_quiet_therm {
+		reg = <PM7325_ADC7_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	pm7325_cam_flash_therm {
+		reg = <PM7325_ADC7_AMUX_THM2_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	pm7325_sdm_skin_therm {
+		reg = <PM7325_ADC7_AMUX_THM3_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	pm7325_wide_rfc_therm {
+		reg = <PM7325_ADC7_AMUX_THM4_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+
+	pmk8350_xo_therm {
+		reg = <PMK8350_ADC7_AMUX_THM1_100K_PU>;
+		qcom,ratiometric;
+		qcom,hw-settle-time = <200>;
+	};
+};
+
+&pmk8350 {
+	pmk8350_adc_tm_iio_0: adc_tm_0@3400 {
+		compatible = "qcom,adc-tm7-iio";
+		reg = <0x3400>;
+		#thermal-sensor-cells = <1>;
+		#address-cells = <1>;
+		#size-cells = <0>;
+		io-channels = <&pmk8350_vadc PM8350B_ADC7_AMUX_THM1_100K_PU>,
+				<&pmk8350_vadc PM7325_ADC7_GPIO1_100K_PU>,
+				<&pmk8350_vadc PM7325_ADC7_GPIO2_100K_PU>,
+				<&pmk8350_vadc PM8350B_ADC7_GPIO3_100K_PU>;
+
+		pm8350b_batt_therm {
+			reg = <PM8350B_ADC7_AMUX_THM1_100K_PU>;
+			qcom,ratiometric;
+			qcom,hw-settle-time = <200>;
+		};
+
+		pm7325_pa3_therm3 {
+			reg = <PM7325_ADC7_GPIO1_100K_PU>;
+			qcom,ratiometric;
+			qcom,hw-settle-time = <200>;
+		};
+
+		pm7325_pa4_therm4 {
+			reg = <PM7325_ADC7_GPIO2_100K_PU>;
+			qcom,ratiometric;
+			qcom,hw-settle-time = <200>;
+		};
+
+		pm8350b_usb_therm2 {
+			reg = <PM8350B_ADC7_GPIO3_100K_PU>;
+			qcom,ratiometric;
+			qcom,hw-settle-time = <200>;
+		};
+	};
+};

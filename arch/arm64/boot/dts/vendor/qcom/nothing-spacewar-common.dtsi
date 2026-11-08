@@ -1,0 +1,102 @@
+#include <dt-bindings/gpio/gpio.h>
+
+&spmi_debug_bus {
+	status = "disabled";
+};
+
+&spmi_glink_debug {
+	status = "disabled";
+};
+
+/* pm8008 PMIC and LDO are not used by Nothing SM7325 platform */
+&pm8008i_chip {
+	status = "disabled";
+};
+
+&pm8008i_ldo {
+	status = "disabled";
+};
+
+&pm8008j_chip {
+	status = "disabled";
+};
+
+&pm8008j_ldo {
+	status = "disabled";
+};
+
+/* PMR735A is not used by Nothing SM7325 platform */
+&pmr735a_spmi {
+	status = "disabled";
+};
+
+&pmr735a_temp_alarm {
+	disable-thermal-zone;
+	status = "disabled";
+};
+
+&apps_rsc {
+	rpmh-regulator-ldoe2 {
+		status = "disabled";
+	};
+
+	rpmh-regulator-ldoe3 {
+		status = "disabled";
+	};
+
+	rpmh-regulator-ldoe4 {
+		status = "disabled";
+	};
+
+	rpmh-regulator-ldoe5 {
+		status = "disabled";
+	};
+
+	rpmh-regulator-ldoe6 {
+		status = "disabled";
+	};
+};
+
+&L3C {
+	regulator-min-microvolt = <3300000>;
+	regulator-max-microvolt = <3300000>;
+	qcom,init-voltage = <3300000>;
+};
+
+&pm8350c_l12 {
+	qcom,init-voltage = <1800000>;
+};
+
+&removed_mem {
+	reg = <0x0 0xc0000000 0x0 0x6800000>;
+};
+
+&ufsphy_mem {
+	compatible = "qcom,ufs-phy-qmp-v4-yupik";
+
+	vdda-phy-supply = <&L10C>;
+	vdda-pll-supply = <&L6B>;
+	vdda-phy-max-microamp = <97500>;
+	vdda-pll-max-microamp = <18400>;
+
+	status = "okay";
+};
+
+&ufshc_mem {
+	vdd-hba-supply = <&gcc_ufs_phy_gdsc>;
+	vdd-hba-fixed-regulator;
+
+	vcc-supply = <&L7B>;
+	vcc-voltage-level = <2952000 2952000>;
+	vcc-low-voltage-sup;
+	vcc-max-microamp = <800000>;
+
+	vccq-supply = <&L9B>;
+	vccq-max-microamp = <900000>;
+	vccq-min-microamp = <10000>;
+
+	qcom,vddp-ref-clk-supply = <&L9B>;
+	qcom,vddp-ref-clk-max-microamp = <100>;
+
+	status = "okay";
+};
