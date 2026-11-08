@@ -1,2 +1,4 @@
 *.c   diff=cpp
 *.h   diff=cpp
+*.dtsi text eol=lf
+*.dts text eol=lf
