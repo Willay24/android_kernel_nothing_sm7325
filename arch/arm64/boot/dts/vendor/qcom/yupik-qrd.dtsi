@@ -10,60 +10,10 @@
 #include "camera/abra-camera-sensor.dtsi"
 
 &soc {
-	gpio_keys {
-		compatible = "gpio-keys";
-		label = "gpio-keys";
-
-		pinctrl-names = "default";
-		pinctrl-0 = <&key_vol_up_default>;
-
-		vol_up {
-			label = "volume_up";
-			gpios = <&pm7325_gpios 6 GPIO_ACTIVE_LOW>;
-			linux,input-type = <1>;
-			linux,code = <KEY_VOLUMEUP>;
-			gpio-key,wakeup;
-			debounce-interval = <15>;
-			linux,can-disable;
-		};
-	};
-
 	pmic-pon-log {
 		compatible = "qcom,pmic-pon-log";
 		nvmem = <&pmk8350_sdam_5>;
 		nvmem-names = "pon_log";
-	};
-};
-
-&usb2_phy0 {
-	qcom,param-override-seq =
-		<0xe6 0x6c	/* override_x0 */
-		 0x0b 0x70	/* override_x1 */
-		 0x14 0x74>;	/* override_x2 */
-};
-
-&qupv3_se9_i2c {
-	status = "ok";
-	qcom,clk-freq-out = <1000000>;
-	#address-cells = <1>;
-	#size-cells = <0>;
-	nq@28 {
-		compatible = "qcom,sn-nci";
-		reg = <0x28>;
-		qcom,sn-irq = <&tlmm 41 0x00>;
-		qcom,sn-ven = <&tlmm 38 0x00>;
-		qcom,sn-firm = <&tlmm 40 0x00>;
-		qcom,sn-clkreq = <&tlmm 39 0x00>;
-		qcom,sn-vdd-1p8-supply = <&L18B>;
-		qcom,sn-vdd-1p8-voltage = <1800000 1800000>;
-		qcom,sn-vdd-1p8-current = <157000>;
-		interrupt-parent = <&tlmm>;
-		interrupts = <41 0>;
-		interrupt-names = "nfc_irq";
-		pinctrl-names = "nfc_active", "nfc_suspend";
-		pinctrl-0 = <&nfc_int_active &nfc_enable_active>;
-		pinctrl-1 = <&nfc_int_suspend &nfc_enable_suspend>;
-		status = "okay";
 	};
 };
 
@@ -206,102 +156,6 @@
 		reg = <PM8350B_ADC7_GPIO2_100K_PU>;
 		qcom,ratiometric;
 		qcom,hw-settle-time = <200>;
-	};
-};
-
-&pm7325_gpios {
-	pm7325_pa3_therm3 {
-		pm7325_pa3_therm3_default: pm7325_pa3_therm3_default {
-			pins = "gpio2";
-			function = "normal";
-			bias-high-impedance;
-			status = "disabled";
-		};
-	};
-	pm7325_pa4_therm4 {
-		pm7325_pa4_therm4_default: pm7325_pa4_therm4_default {
-			pins = "gpio3";
-			function = "normal";
-			bias-high-impedance;
-			status = "disabled";
-		};
-	};
-};
-
-&pm8350b_gpios {
-	pm8350b_usb_therm2 {
-		pm8350b_usb_therm2_default: pm8350b_usb_therm2_default {
-			pins = "gpio3";
-			function = "normal";
-			bias-high-impedance;
-			status = "disabled";
-		};
-	};
-};
-
-&pmk8350_vadc {
-	pinctrl-names = "default";
-	pinctrl-0 = <
-	             &pm7325_pa3_therm3_default
-	             &pm7325_pa4_therm4_default
-	             &pm8350b_usb_therm2_default
-	            >;
-	pm7325_pa3_therm3 {
-		reg = <PM7325_ADC7_GPIO1_100K_PU>;
-		label = "pm7325_pa3_therm3";
-		qcom,ratiometric;
-		qcom,hw-settle-time = <200>;
-		qcom,pre-scaling = <1 1>;
-	};
-
-	pm7325_pa4_therm4 {
-		reg = <PM7325_ADC7_GPIO2_100K_PU>;
-		label = "pm7325_pa4_therm4";
-		qcom,ratiometric;
-		qcom,hw-settle-time = <200>;
-		qcom,pre-scaling = <1 1>;
-	};
-
-	pm8350b_usb_therm2 {
-		reg = <PM8350B_ADC7_GPIO3_100K_PU>;
-		label = "pm8350b_usb_therm2";
-		qcom,ratiometric;
-		qcom,hw-settle-time = <200>;
-		qcom,pre-scaling = <1 1>;
-	};
-};
-
-&pmk8350 {
-	pmk8350_adc_tm_iio_0: adc_tm_0@3400 {
-		compatible = "qcom,adc-tm7-iio";
-		reg = <0x3400>;
-		#thermal-sensor-cells = <1>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-		io-channels = <&pmk8350_vadc PM8350B_ADC7_AMUX_THM1_100K_PU>,
-		<&pmk8350_vadc PM7325_ADC7_GPIO1_100K_PU>,
-		<&pmk8350_vadc PM7325_ADC7_GPIO2_100K_PU>,
-		<&pmk8350_vadc PM8350B_ADC7_GPIO3_100K_PU>;
-		pm8350b_batt_therm {
-			reg = <PM8350B_ADC7_AMUX_THM1_100K_PU>;
-			qcom,ratiometric;
-			qcom,hw-settle-time = <200>;
-		};
-		pm8350b_usb_therm2 {
-			reg = <PM8350B_ADC7_GPIO3_100K_PU>;
-			qcom,ratiometric;
-			qcom,hw-settle-time = <200>;
-		};
-		pm7325_pa3_therm3 {
-			reg = <PM7325_ADC7_GPIO1_100K_PU>;
-			qcom,ratiometric;
-			qcom,hw-settle-time = <200>;
-		};
-		pm7325_pa4_therm4 {
-			reg = <PM7325_ADC7_GPIO2_100K_PU>;
-			qcom,ratiometric;
-			qcom,hw-settle-time = <200>;
-		};
 	};
 };
 
@@ -1053,17 +907,6 @@
 	};
 };
 
-&battery_charger {
-	qcom,thermal-mitigation = <6500000 5000000 4000000 3000000 2500000
-				2000000 0>;
-};
-
-&pm8350b_amoled_ecm {
-	status = "disabled";
-	display-panels = <&dsi_r66451_amoled_90hz_cmd_cphy
-			&dsi_r66451_amoled_144hz_cmd_cphy>;
-};
-
 &pm8350b_tz {
 	io-channels = <&pmk8350_vadc PM8350B_ADC7_DIE_TEMP>;
 	io-channel-names = "thermal";
@@ -1192,102 +1035,6 @@
 				  <&bolero>;
 };
 
-&sdhc_1 {
-	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&sdc1_on>;
-	pinctrl-1 = <&sdc1_off>;
-
-	vdd-supply = <&L7B>;
-	qcom,vdd-voltage-level = <2952000 2952000>;
-	qcom,vdd-current-level = <0 570000>;
-
-	vdd-io-supply = <&L19B>;
-	qcom,vdd-io-always-on;
-	qcom,vdd-io-lpm-sup;
-	qcom,vdd-io-voltage-level = <1800000 1800000>;
-	qcom,vdd-io-current-level = <0 325000>;
-
-	status = "ok";
-};
-
-&sdhc_2 {
-	pinctrl-names = "default", "sleep";
-	pinctrl-0 = <&sdc2_on>;
-	pinctrl-1 = <&sdc2_off>;
-
-	vdd-supply = <&L9C>;
-	qcom,vdd-voltage-level = <2960000 2960000>;
-	qcom,vdd-current-level = <0 800000>;
-
-	vdd-io-supply = <&L6C>;
-	qcom,vdd-io-voltage-level = <1800000 2960000>;
-	qcom,vdd-io-current-level = <0 22000>;
-
-	cd-gpios = <&tlmm 91 GPIO_ACTIVE_LOW>;
-
-	status = "disabled";
-};
-
-&qupv3_se13_i2c {
-	status = "disabled";
-};
-
-&qupv3_se13_spi {
-	status = "ok";
-	qcom,spi-touch-active = "focaltech,fts_ts";
-
-	focaltech@0 {
-		status = "okay";
-		compatible = "focaltech,fts_ts";
-		reg = <0x0>;
-		spi-max-frequency = <6000000>;
-		interrupt-parent = <&tlmm>;
-		interrupts = <81 0x2008>;
-		focaltech,reset-gpio = <&tlmm 105 0x00>;
-		focaltech,irq-gpio = <&tlmm 81 0x2008>;
-		focaltech,display-coords = <0 0 1080 2400>;
-		focaltech,max-touch-number = <10>;
-		focaltech,ic-type = <0x3658D488>;
-
-		vdd-supply = <&L3C>;
-		iovdd-supply = <&L8C>;
-
-		pinctrl-names = "pmx_ts_active", "pmx_ts_suspend","pmx_ts_release";
-		pinctrl-0 = <&ts_active>;
-		pinctrl-1 = <&ts_int_suspend &ts_reset_suspend>;
-		pinctrl-2 = <&ts_release>;
-		focaltech,trusted-touch-mode = "vm_mode";
-		focaltech,touch-environment = "pvm";
-		focaltech,trusted-touch-spi-irq = <601>;
-		focaltech,trusted-touch-io-bases = <0xf134000 0xf135000 0xf136000 0xf137000 0xf169000 0xf151000 0xa94000 0x00a10000>;
-		focaltech,trusted-touch-io-sizes = <0x1000 0x1000 0x1000 0x1000 0x1000 0x1000 0x1000 0x4000>;
-		panel = <&dsi_rm692e5_visionox_amoled_120hz_cmd>;
-	};
-
-	goodix-berlin@0 {
-		compatible = "goodix,gt9916S";
-		reg = <0>;
-		spi-max-frequency = <1000000>;
-
-		goodix,avdd-name = "avdd";
-		avdd-supply = <&L3C>;
-		goodix,iovdd-name = "iovdd";
-		iovdd-supply = <&L8C>;
-
-		goodix,reset-gpio = <&tlmm 105 0x0>;
-		goodix,irq-gpio = <&tlmm 81 0x2800>;
-		goodix,irq-flags = <2>; /* 1:trigger rising, 2:trigger falling;*/
-		goodix,panel-max-x = <1080>;
-		goodix,panel-max-y = <2400>;
-		goodix,panel-max-w = <255>;
-		goodix,panel-max-p = <4096>; /* max pressure that pen device supported */
-		goodix,pen-enable; /* support active stylus device*/
-
-		goodix,firmware-name = "goodix_firmware.bin";
-		goodix,config-name = "goodix_cfg_group.bin";
-	};
-};
-
 &qupv3_se9_i2c {
     status = "okay";
     st21nfc: st21nfc@08 {
@@ -1306,92 +1053,7 @@
     };
 };
 
-&qupv3_se14_spi {
-	status = "okay";
-	goodix_fp@0 {
-		compatible = "goodix,fingerprint";
-		reg = <0>;
-		spi-max-frequency = <6000000>;
-		interrupt-parent = <&tlmm>;
-		fp-gpio-power = <&tlmm 2 0x00>;
-		fp-gpio-irq = <&tlmm 34 0x00>;
-		fp-gpio-reset = <&tlmm 61 0x00>;
-		panel = <&dsi_rm692e5_visionox_amoled_120hz_cmd>;
-		status = "okay";
-	};
-
-};
-
-&qupv3_se2_i2c {
-	status = "okay";
-	tfa98xx@34 {
-		compatible = "tfa,tfa98xx";
-		reg = <0x34>;
-		reset-gpio = <&tlmm 101 0>;
-	};
-
-	tfa98xx@35 {
-		compatible = "tfa,tfa98xx";
-		reg = <0x35>;
-	};
-};
-&tlmm{
-	aw210xx_led_pins {
-		led_gpio_en: led_gpio_en {
-			mux {
-				pins = "gpio18";
-				function = "gpio";
-			};
-
-			config {
-				pins = "gpio18";
-				drive-strength = <2>;
-				output-high;
-				bias-pull-up;
-			};
-		};
-	};
-};
-
-&qupv3_se1_i2c {
-	status = "ok";
-	aw210xx_led@20 {
-		compatible = "awinic,aw210xx_led";
-		reg = <0x20>;
-		enable-gpio = <&tlmm 18 0x00>;
-		global_current = <0x20>;
-		osc_clk = <1>;
-		br_res = <3>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&led_gpio_en>;
-		status = "ok";
-		aw210xx,led {
-			aw210xx,name = "aw210xx_led";
-			aw210xx,imax = <1>;
-			aw210xx,brightness = <4095>;
-			aw210xx,max_brightness = <4095>;
-			};
-		};
-};
-
 &qupv3_se1_i2c {
 	/delete-node/ nq@64;
 };
 
-&soc {
-	hardware_id {
-		compatible = "nt,hwid";
-		gpio_id1 = <&tlmm 19 0x00>;
-		gpio_id2 = <&tlmm 21 0x00>;
-	};
-
-	slot_state {
-		compatible = "nt,slot_check";
-		gpio112 = <&tlmm 112 0x00>;
-		gpio116 = <&tlmm 116 0x00>;
-	};
-};
-
-&icnss2 {
-	use-nv-mac;
-};

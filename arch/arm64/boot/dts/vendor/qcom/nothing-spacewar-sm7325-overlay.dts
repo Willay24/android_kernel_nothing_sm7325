@@ -2,8 +2,13 @@
 /plugin/;
 
 #include "yupik-qrd.dtsi"
-#include "nothing-spacewar-sm7325.dtsi"
-#include "nothing-spacewar-charge.dtsi"
+#include "yupik-abra-common-overlay.dtsi"
+#include "nothing-spacewar-pinctrl.dtsi"
+#include "nothing-spacewar-common.dtsi"
+#include "nothing-spacewar-pmic-overlay.dtsi"
+#include "nothing-spacewar-qrd.dtsi"
+#include "nothing-spacewar-audio-overlay.dtsi"
+#include "nothing-spacewar-thermal.dtsi"
 
 / {
 	model = "Qualcomm Technologies, Inc. Nothing Phone (1)";

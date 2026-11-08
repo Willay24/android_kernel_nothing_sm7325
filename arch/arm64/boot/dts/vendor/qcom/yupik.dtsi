@@ -471,6 +471,7 @@
 	};
 
 	qcom: ramoops {
+		status = "ok";
 		compatible = "ramoops";
 		reg = <0x0 0xa9000000 0x0 0x200000>;
 		record-size = <0x200000>;
