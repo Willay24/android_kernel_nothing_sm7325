@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Copyright (c) 2017-2019, The Linux Foundation. All rights reserved.
  * Copyright (c) 2022-2024 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
@@ -497,6 +496,13 @@ IRQCHIP_MATCH("qcom,pdc", qcom_pdc_init)
 IRQCHIP_PLATFORM_DRIVER_END(qcom_pdc)
 #else
 IRQCHIP_DECLARE(qcom_pdc, "qcom,pdc", qcom_pdc_init);
+IRQCHIP_DECLARE(pdc_lahaina, "qcom,lahaina-pdc", qcom_pdc_init);
+IRQCHIP_DECLARE(pdc_direwolf, "qcom,direwolf-pdc", qcom_pdc_init);
+IRQCHIP_DECLARE(pdc_shima, "qcom,shima-pdc", qcom_pdc_init);
+IRQCHIP_DECLARE(pdc_sm6150, "qcom,sm6150-pdc", qcom_pdc_init);
+IRQCHIP_DECLARE(pdc_sm8150, "qcom,sm8150-pdc", qcom_pdc_init);
+IRQCHIP_DECLARE(pdc_yupik, "qcom,yupik-pdc", qcom_pdc_init);
+IRQCHIP_DECLARE(pdc_sdxlemur, "qcom,sdxlemur-pdc", qcom_pdc_init);
 #endif
 MODULE_DESCRIPTION("Qualcomm Technologies, Inc. Power Domain Controller");
 MODULE_LICENSE("GPL v2");
