@@ -135,8 +135,9 @@
 
 			sd-cd {
 				pins = "gpio91";
-				bias-disable;
+				bias-pull-down;
 				drive-strength = <2>;
+				input-enable;
 			};
 		};
 

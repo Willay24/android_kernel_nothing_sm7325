@@ -1,5 +1,5 @@
 &tlmm {
-	qcom,gpios-reserved = <32 33>;
+	qcom,gpios-reserved = <32 33 51>;
 
 	qupv3_se13_spi_sleep_nt: qupv3_se13_spi_sleep_nt {
 		mux {
