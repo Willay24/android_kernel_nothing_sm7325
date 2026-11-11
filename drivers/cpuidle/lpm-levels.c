@@ -100,14 +100,24 @@ static void cluster_prepare(struct lpm_cluster *cluster,
 static bool sleep_disabled = true;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0444);
 
-static int lpm_drm_panel_notify(struct notifier_block *nb,
-		unsigned long val, void *ptr)
+/*
+ * Screen-on => WFI only. The panel is looked up from our own DT node
+ * ("qcom,display-panels") and we subscribe to the DRM panel
+ * notifier directly, so we no longer depend on dsi_display.c or on the
+ * thermal interface to hand us a drm_panel.
+ */
+static int lpm_panel_event_notify(struct notifier_block *nb,
+		unsigned long event, void *data)
 {
-	struct drm_panel_notifier *evdata = ptr;
+	struct drm_panel_notifier *evdata = data;
 	int *blank;
 
-	if (val != DRM_PANEL_EARLY_EVENT_BLANK || !evdata || !evdata->data)
-		return NOTIFY_OK;
+	/* Need the early (pre-commit) event so WFI-only is set before scanout */
+	if (event != DRM_PANEL_EARLY_EVENT_BLANK)
+		return NOTIFY_DONE;
+
+	if (!evdata || !evdata->data)
+		return NOTIFY_DONE;
 
 	blank = evdata->data;
 	switch (*blank) {
@@ -117,7 +127,6 @@ static int lpm_drm_panel_notify(struct notifier_block *nb,
 		break;
 	case DRM_PANEL_BLANK_POWERDOWN:
 	case DRM_PANEL_BLANK_LP:
-        case DRM_PANEL_BLANK_LP2:
 		sleep_disabled = false;
 		wake_up_all_idle_cpus();
 		break;
@@ -128,11 +137,52 @@ static int lpm_drm_panel_notify(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-static struct notifier_block drm_notifier = {
-	.notifier_call = lpm_drm_panel_notify,
+static struct notifier_block lpm_drm_notifier = {
+	.notifier_call = lpm_panel_event_notify,
 };
 
-extern struct drm_panel *get_panel(void);
+static int lpm_find_panel(struct platform_device *pdev,
+		struct drm_panel **out)
+{
+	struct device_node *np = pdev->dev.of_node;
+	struct drm_panel *panel = ERR_PTR(-ENODEV);
+	struct device_node *pnode;
+	int i, count;
+
+	*out = NULL;
+	count = of_count_phandle_with_args(np, "qcom,display-panels", NULL);
+	if (count <= 0)
+		return -ENODEV;
+
+	for (i = 0; i < count; i++) {
+		pnode = of_parse_phandle(np, "qcom,display-panels", i);
+		if (!pnode)
+			continue;
+		panel = of_drm_find_panel(pnode);
+		of_node_put(pnode);
+		if (!IS_ERR(panel)) {
+			*out = panel;
+			return 0;
+		}
+	}
+
+	return PTR_ERR(panel);	/* -EPROBE_DEFER until the panel is up */
+}
+
+static void lpm_register_panel_notifier(struct drm_panel *panel)
+{
+	int rc;
+
+	rc = drm_panel_notifier_register(panel, &lpm_drm_notifier);
+	if (rc) {
+		pr_err("Failed to register DRM panel notifier, rc=%d\n", rc);
+		/* Never leave deep idle disabled forever */
+		sleep_disabled = false;
+		return;
+	}
+
+	pr_info("Registered DRM panel notifier\n");
+}
 #else
 static bool sleep_disabled;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0664);
@@ -1764,16 +1814,17 @@ static int lpm_probe(struct platform_device *pdev)
 	struct hrtimer *cpu_histtimer;
 	struct kobject *module_kobj = NULL;
 #ifdef CONFIG_LPM_WFI_SCREEN_ON
-	struct drm_panel *active_panel = get_panel();
+	struct drm_panel *active_panel = NULL;
 
-	if (!active_panel)
-		return -EPROBE_DEFER;
-
-	ret = drm_panel_notifier_register(active_panel, &drm_notifier);
-	if (ret)
-		pr_err("Failed to register DRM panel notifier, ret=%d\n", ret);
-	else
-		pr_info("Registered DRM panel notifier\n");
+	/* Look the panel up first so a deferral is cheap (nothing to undo) */
+	ret = lpm_find_panel(pdev, &active_panel);
+	if (ret == -EPROBE_DEFER)
+		return ret;
+	if (ret) {
+		pr_warn("No usable qcom,display-panels (%d), deep idle stays enabled\n",
+			ret);
+		sleep_disabled = false;
+	}
 #endif
 
 	get_online_cpus();
@@ -1836,6 +1887,11 @@ static int lpm_probe(struct platform_device *pdev)
 
 	suspend_set_ops(&lpm_suspend_ops);
 	s2idle_set_ops(&lpm_s2idle_ops);
+
+#ifdef CONFIG_LPM_WFI_SCREEN_ON
+	if (active_panel)
+		lpm_register_panel_notifier(active_panel);
+#endif
 
 	return 0;
 failed:
