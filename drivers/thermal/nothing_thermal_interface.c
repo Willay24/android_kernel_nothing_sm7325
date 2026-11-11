@@ -17,8 +17,10 @@
 #include <linux/string.h>
 #include <linux/suspend.h>
 #include <linux/thermal.h>
-#ifdef CONFIG_DRM_PANEL
+#if IS_ENABLED(CONFIG_DRM_PANEL)
+#define NOTHING_THERMAL_PANEL_NOTIFIER
 #include <drm/drm_panel.h>
+#include <linux/workqueue.h>
 #endif
 
 #include <net/netlink.h>
@@ -29,20 +31,14 @@
 
 #define CPUFREQ_LIMIT_LEVEL_MARGIN	3
 
-#ifdef CONFIG_DRM_PANEL
-static int nothing_thermal_notify(struct notifier_block *self,
-		unsigned long event, void *data);
+#ifdef NOTHING_THERMAL_PANEL_NOTIFIER
+#define PANEL_REG_RETRY_MS	1000
+#define PANEL_REG_MAX_TRIES	60
 
 static struct drm_panel *active_panel;
-static struct notifier_block drm_notifier = {
-	.notifier_call = nothing_thermal_notify,
-};
-
-struct drm_panel *get_panel(void)
-{
-	return active_panel;
-}
-EXPORT_SYMBOL(get_panel);
+static bool panel_notifier_registered;
+static int panel_reg_tries;
+static struct delayed_work panel_reg_work;
 #endif
 
 static struct nothing_thermal_device {
@@ -593,26 +589,31 @@ static void nothing_destroy_thermal_message_node(void)
 	}
 }
 
-#ifdef CONFIG_DRM_PANEL
-static int nothing_thermal_notify(struct notifier_block *self, unsigned long event,
-			     void *data)
+#ifdef NOTHING_THERMAL_PANEL_NOTIFIER
+static int nothing_thermal_panel_event(struct notifier_block *nb,
+		unsigned long event, void *data)
 {
 	struct drm_panel_notifier *evdata = data;
-	int *blank = evdata->data;
+	int *blank;
 
+	/* Only the post-commit event: screen_state follows the real panel state */
 	if (event != DRM_PANEL_EVENT_BLANK)
 		return NOTIFY_DONE;
 
+	if (!evdata || !evdata->data)
+		return NOTIFY_DONE;
+
+	blank = evdata->data;
 	switch (*blank) {
 	case DRM_PANEL_BLANK_UNBLANK:
 		screen_state = 1;
 		break;
-	case DRM_PANEL_BLANK_LP:
 	case DRM_PANEL_BLANK_POWERDOWN:
+	case DRM_PANEL_BLANK_LP:
 		screen_state = 0;
 		break;
 	default:
-		break;
+		return NOTIFY_DONE;
 	}
 
 	if (screen_last_status != screen_state) {
@@ -624,23 +625,71 @@ static int nothing_thermal_notify(struct notifier_block *self, unsigned long eve
 	return NOTIFY_OK;
 }
 
-int nothing_thermal_register_panel(struct drm_panel *panel)
+static struct notifier_block nothing_thermal_drm_nb = {
+	.notifier_call = nothing_thermal_panel_event,
+};
+
+/*
+ * Find the panel from our own DT node (qcom,display-panels) and subscribe to
+ * the DRM panel notifier. The panel may not be probed yet at
+ * late_initcall time, so retry from a delayed work instead of relying on
+ * dsi_display.c to push the panel to us.
+ */
+static void nothing_thermal_panel_reg_work(struct work_struct *work)
 {
-	int ret;
+	struct device_node *np, *pnode;
+	struct drm_panel *panel = ERR_PTR(-ENODEV);
+	int i, count, rc;
 
-	if (active_panel)
-		return 0;
+	if (panel_notifier_registered)
+		return;
 
-	ret = drm_panel_notifier_register(panel, &drm_notifier);
-	if (ret) {
+	np = of_find_node_by_name(NULL, "nothing-thermal-interface");
+	if (!np) {
+		pr_err("%s: nothing-thermal-interface node not found\n", __func__);
+		return;
+	}
+
+	count = of_count_phandle_with_args(np, "qcom,display-panels", NULL);
+	if (count <= 0) {
+		pr_warn("%s: no qcom,display-panels, screen_state disabled\n",
+			__func__);
+		of_node_put(np);
+		return;
+	}
+
+	for (i = 0; i < count; i++) {
+		pnode = of_parse_phandle(np, "qcom,display-panels", i);
+		if (!pnode)
+			continue;
+		panel = of_drm_find_panel(pnode);
+		of_node_put(pnode);
+		if (!IS_ERR(panel))
+			break;
+	}
+	of_node_put(np);
+
+	if (IS_ERR(panel)) {
+		if (PTR_ERR(panel) == -EPROBE_DEFER &&
+		    ++panel_reg_tries < PANEL_REG_MAX_TRIES) {
+			schedule_delayed_work(&panel_reg_work,
+					msecs_to_jiffies(PANEL_REG_RETRY_MS));
+			return;
+		}
+		pr_err("%s: panel not found, rc=%ld\n", __func__, PTR_ERR(panel));
+		return;
+	}
+
+	rc = drm_panel_notifier_register(panel, &nothing_thermal_drm_nb);
+	if (rc) {
 		pr_err("%s: Failed to register DRM panel notifier, rc=%d\n",
-		       __func__, ret);
-		return ret;
+		       __func__, rc);
+		return;
 	}
 
 	active_panel = panel;
-	pr_info("%s: Registered DRM panel notifier successfully\n", __func__);
-	return 0;
+	panel_notifier_registered = true;
+	pr_info("%s: Registered DRM panel notifier\n", __func__);
 }
 #endif
 
@@ -713,15 +762,23 @@ static int __init nothing_thermal_interface_init(void)
 		pr_err("%s: usb online notifier registration failed err: %d\n",
 		       __func__, ret);
 
+#ifdef NOTHING_THERMAL_PANEL_NOTIFIER
+	INIT_DELAYED_WORK(&panel_reg_work, nothing_thermal_panel_reg_work);
+	schedule_delayed_work(&panel_reg_work, 0);
+#endif
+
 	return 0;
 }
 late_initcall(nothing_thermal_interface_init);
 
 static void __exit nothing_thermal_interface_exit(void)
 {
-#ifdef CONFIG_DRM_PANEL
-	if (active_panel)
-		drm_panel_notifier_unregister(active_panel, &drm_notifier);
+#ifdef NOTHING_THERMAL_PANEL_NOTIFIER
+	cancel_delayed_work_sync(&panel_reg_work);
+	if (panel_notifier_registered) {
+		drm_panel_notifier_unregister(active_panel, &nothing_thermal_drm_nb);
+		panel_notifier_registered = false;
+	}
 #endif
 	nothing_destroy_thermal_message_node();
 	nothing_thermal_cpu_destroy();
