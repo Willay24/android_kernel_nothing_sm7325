@@ -448,6 +448,7 @@ static u32 msm_cvp_map_user_persist_buf(struct msm_cvp_inst *inst,
 	print_internal_buffer(CVP_MEM, "map persist", inst, pbuf);
 
 	iova = smem->device_addr + buf->offset;
+	mutex_unlock(&inst->persistbufs.lock);
 
 	mutex_unlock(&inst->persistbufs.lock);
 
