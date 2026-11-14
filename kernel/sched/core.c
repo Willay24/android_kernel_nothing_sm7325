@@ -2295,7 +2295,8 @@ void __proxy_remove_from_sleeping_owner(struct task_struct *owner, struct task_s
 	if (p->sleeping_owner == owner) {
 		list_del_init(&p->blocked_node);
 		WRITE_ONCE(p->sleeping_owner, NULL);
-		put_task_struct(owner); // matches get in proxy_enqueue_on_owner
+		put_task_struct(owner); // matches get in proxy_enqueue_on_owner()
+		put_task_struct(p);	// matchet get in proxy_enqueue_on_owner()
 	}
 }
 
@@ -4001,6 +4002,10 @@ static void do_activate_blocked_waiter(struct rq *target_rq, struct task_struct 
 		if (state == TASK_WAKING)
 			return;
 
+		/* Dead tasks don't activate */
+		if (state == TASK_DEAD || READ_ONCE(p->exit_state))
+			return;
+
 		if (READ_ONCE(p->on_rq)) {
 			/*
 			 * We raced with a non mutex handoff activation of p.
@@ -4130,6 +4135,7 @@ static void activate_blocked_waiters(struct rq *target_rq,
 					     blocked_node);
 			WARN_ON(p == owner);
 			WARN_ON(p->sleeping_owner != owner);
+			get_task_struct(p);
 			__proxy_remove_from_sleeping_owner(owner, p);
 			raw_spin_unlock_irqrestore(&owner->blocked_lock, flags);
 
@@ -4142,6 +4148,7 @@ static void activate_blocked_waiters(struct rq *target_rq,
 				list_add_tail(&p->blocked_activation_node, &bal_head);
 			}
 			raw_spin_unlock_irqrestore(&p->blocked_lock, flags);
+			put_task_struct(p);
 
 			raw_spin_lock_irqsave(&owner->blocked_lock, flags);
 		}
@@ -7421,6 +7428,7 @@ static void proxy_enqueue_on_owner(struct rq *rq, struct task_struct *owner,
 	WARN_ON(!p->on_rq);
 	WARN_ON(p->sleeping_owner);
 	get_task_struct(owner);
+	get_task_struct(p);
 	WRITE_ONCE(p->sleeping_owner, owner);
 	/*
 	 * ttwu_do_activate must not have a chance to activate p

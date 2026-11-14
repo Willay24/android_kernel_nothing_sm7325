@@ -117,6 +117,9 @@ DECLARE_HOOK(android_vh_do_shrink_slab,
 DECLARE_HOOK(android_vh_should_memcg_bypass,
 	TP_PROTO(struct mem_cgroup *memcg, int priority, bool *bypass),
 	TP_ARGS(memcg, priority, bypass));
+DECLARE_HOOK(android_vh_should_memcg_bypass_ext,
+	TP_PROTO(struct mem_cgroup *memcg, int priority, bool *bypass, int *op),
+	TP_ARGS(memcg, priority, bypass, op));
 DECLARE_HOOK(android_vh_vmscan_kswapd_done,
 	TP_PROTO(int node_id, unsigned int highest_zoneidx, unsigned int alloc_order,
 		unsigned int reclaim_order),
@@ -160,6 +163,9 @@ DECLARE_HOOK(android_vh_evict_folios_bypass,
 DECLARE_HOOK(android_vh_mm_get_zone_mark,
 	TP_PROTO(struct zone *zone, unsigned long *mark),
 	TP_ARGS(zone, mark));
+DECLARE_HOOK(android_vh_mm_get_zone_mark_mglru,
+	TP_PROTO(struct zone *zone, unsigned long *size),
+	TP_ARGS(zone, size));
 DECLARE_HOOK(android_vh_mm_isolate_priv_lru,
 	TP_PROTO(unsigned long nr_to_scan, struct lruvec *lruvec, enum lru_list lru,
 		struct list_head *dst, int reclaim_idx, bool may_unmap,
@@ -198,6 +204,13 @@ DECLARE_HOOK(android_vh_scan_page_skip_current_prio,
 	TP_PROTO(bool cgroup_reclaim, int priority, struct lruvec *lruvec,
 		 int reclaim_idx, bool *skip),
 	TP_ARGS(cgroup_reclaim, priority, lruvec, reclaim_idx, skip));
+DECLARE_HOOK(android_vh_is_exec_file_folio,
+	TP_PROTO(const struct folio *folio, vm_flags_t vm_flags, bool *is_exec),
+	TP_ARGS(folio, vm_flags, is_exec));
+DECLARE_HOOK(android_vh_sort_folio_protect,
+	TP_PROTO(struct lruvec *lruvec, struct folio *folio, int tier_idx,
+		 bool *protect),
+	TP_ARGS(lruvec, folio, tier_idx, protect));
 #endif /* _TRACE_HOOK_VMSCAN_H */
 /* This part must be outside protection */
 #include <trace/define_trace.h>

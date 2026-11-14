@@ -42,6 +42,16 @@ static inline bool vma_is_ptshare_client(const struct vm_area_struct *vma)
 }
 
 /**
+ * vmg_is_ptshare_client - Check whether a VMA merge maps a client VMA
+ * @vmg: The struct vma_merge_struct of the merge.
+ *
+ * A macro, as struct vma_merge_struct is private to mm/.
+ *
+ * Return: true if the range being mapped or modified has VM_PT_SHARED.
+ */
+#define vmg_is_ptshare_client(vmg)	(!!((vmg)->vm_flags & VM_PT_SHARED))
+
+/**
  * vma_shares_pagetables - Check whether a client VMA is attached to its domain
  * @vma: The VMA to check.
  *
@@ -171,6 +181,54 @@ static inline int ptdesc_ptshare_count(struct ptdesc *pt)
 	return atomic_read(&pt->pt_ptshare_count);
 }
 
+int __ptshare_unshare_vma(struct vm_area_struct *vma);
+
+/**
+ * ptshare_unshare_vma_locked - Give a client VMA private page tables again
+ * @vma: The VMA whose page tables or bounds are about to change.
+ *
+ * Call this before splitting @vma or changing its PTEs, so that the change
+ * does not reach page tables shared with other processes. Does nothing if
+ * @vma does not share page tables, so callers that hold the mmap_lock for
+ * write can call it for any VMA.
+ *
+ * Context: The caller holds the mmap_lock of @vma->vm_mm for write and no
+ * rmap lock. Unsharing write-locks @vma itself, which needs the mmap write
+ * lock and keeps out page faults under the per-VMA lock, and takes the
+ * shadow MM's mmap_lock, which nests outside i_mmap_rwsem.
+ *
+ * Return: 0 if @vma no longer shares page tables, or -EINVAL if it could
+ * not be unshared, in which case it is unchanged.
+ */
+static inline int ptshare_unshare_vma_locked(struct vm_area_struct *vma)
+{
+	mmap_assert_write_locked(vma->vm_mm);
+	if (!vma_shares_pagetables(vma))
+		return 0;
+	return __ptshare_unshare_vma(vma);
+}
+
+/**
+ * ptshare_sync_vm_flags - Drop a stale VM_PT_SHARED from precomputed flags
+ * @vma: The VMA that @vm_flags are about to be written to.
+ * @vm_flags: Flags computed from @vma before it may have been unshared.
+ *
+ * Unsharing a client VMA, directly or by splitting it, clears VM_PT_SHARED.
+ * Callers that compute new flags before such an operation and write them
+ * back afterwards pass them through this helper once the operation has
+ * returned. Until then the flags must keep VM_PT_SHARED, so that the merge
+ * checks keep refusing to merge the VMA while it still shares page tables.
+ *
+ * Return: @vm_flags, without VM_PT_SHARED if @vma is no longer a client VMA.
+ */
+static inline vm_flags_t ptshare_sync_vm_flags(const struct vm_area_struct *vma,
+					       vm_flags_t vm_flags)
+{
+	if (!vma_is_ptshare_client(vma))
+		vm_flags &= ~VM_PT_SHARED;
+	return vm_flags;
+}
+
 /* dup_mm() copies the parent's mm_struct: start outside any domain. */
 static inline void ptshare_mm_init(struct mm_struct *mm)
 {
@@ -183,6 +241,8 @@ static inline bool vma_is_ptshare_client(const struct vm_area_struct *vma)
 {
 	return false;
 }
+
+#define vmg_is_ptshare_client(vmg)	((void)(vmg), false)
 
 static inline bool vma_shares_pagetables(const struct vm_area_struct *vma)
 {
@@ -231,6 +291,17 @@ static inline bool ptdesc_ptshare_dec(struct ptdesc *pt)
 static inline int ptdesc_ptshare_count(struct ptdesc *pt)
 {
 	return 0;
+}
+
+static inline int ptshare_unshare_vma_locked(struct vm_area_struct *vma)
+{
+	return 0;
+}
+
+static inline vm_flags_t ptshare_sync_vm_flags(const struct vm_area_struct *vma,
+					       vm_flags_t vm_flags)
+{
+	return vm_flags;
 }
 
 static inline void ptshare_mm_init(struct mm_struct *mm)
