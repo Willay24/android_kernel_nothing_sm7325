@@ -1,183 +1,127 @@
-# How do I submit patches to Android Common Kernels
+# Linux 6.18 for redwood (SM7325)
 
-1. BEST: Make all of your changes to upstream Linux. If appropriate, backport to the stable releases.
-   These patches will be merged automatically in the corresponding common kernels. If the patch is already
-   in upstream Linux, post a backport of the patch that conforms to the patch requirements below.
-   - Do not send patches upstream that contain only symbol exports. To be considered for upstream Linux,
-additions of `EXPORT_SYMBOL_GPL()` require an in-tree modular driver that uses the symbol -- so include
-the new driver or changes to an existing driver in the same patchset as the export.
-   - When sending patches upstream, the commit message must contain a clear case for why the patch
-is needed and beneficial to the community. Enabling out-of-tree drivers or functionality is not
-a persuasive case.
+Kernel source for the **Redmi Note 12 Pro 5G / POCO X5 Pro 5G** (`redwood`,
+Snapdragon 778G, SM7325 "yupik"). It brings Qualcomm's lahaina/yupik
+platform from the 6.12 CLO kernel onto Android Common Kernel 6.18.
 
-2. LESS GOOD: Develop your patches out-of-tree (from an upstream Linux point-of-view). Unless these are
-   fixing an Android-specific bug, these are very unlikely to be accepted unless they have been
-   coordinated with kernel-team@android.com. If you want to proceed, post a patch that conforms to the
-   patch requirements below.
+| | |
+|---|---|
+| Version | Linux 6.18.39 (`6.18.39-Suvkernel`) |
+| Base | ACK `android17-6.18`, with `android17-6.18-lts` merged in |
+| Platform | Qualcomm common kernel delta and soc-repo drivers, carried over from 6.12 |
+| Layout | GKI: generic code built in, SoC and board drivers as modules |
+| Config | `gki_defconfig` + `vendor/redwood.config` |
+| Toolchain | Android Clang 22.0.2 (r596125), Rust 1.88.0, bindgen 0.72.1 |
+| Runs | PixelOS 17 and AOSPA, as a daily driver |
 
-# Common Kernel patch requirements
+## Repositories
 
-- All patches must conform to the Linux kernel coding standards and pass `scripts/checkpatch.pl`
-- Patches shall not break gki_defconfig or allmodconfig builds for arm, arm64, x86, x86_64 architectures
-(see  https://source.android.com/setup/build/building-kernels)
-- If the patch is not merged from an upstream branch, the subject must be tagged with the type of patch:
-`UPSTREAM:`, `BACKPORT:`, `FROMGIT:`, `FROMLIST:`, or `ANDROID:`.
-- All patches must have a `Change-Id:` tag (see https://gerrit-review.googlesource.com/Documentation/user-changeid.html)
-- If an Android bug has been assigned, there must be a `Bug:` tag.
-- All patches must have a `Signed-off-by:` tag by the author and the submitter
+| Repository | Contents |
+|---|---|
+| **redwood-6.18-kernel** (this one) | The kernel |
+| [redwood-6.18-modules](https://github.com/suvojeet-sengupta/redwood-6.18-modules) | Vendor and out-of-tree modules: display, GPU, audio, camera, video, Wi-Fi, data, securemsm, redwood drivers, and their build scripts |
+| [redwood-6.18-devicetrees](https://github.com/suvojeet-sengupta/redwood-6.18-devicetrees) | The SoC and redwood devicetrees (dtb and dtbo), and the porting status |
+| [device_xiaomi_redwood-kernel-6.18](https://github.com/suvojeet-sengupta/device_xiaomi_redwood-kernel-6.18) | Ready-made Image, modules, dtb and dtbo for ROM builds |
+| [device_xiaomi_redwood](https://github.com/suvojeet-sengupta/device_xiaomi_redwood/tree/seventeen) | Android device tree, PixelOS 17 (`seventeen`) |
+| [device_xiaomi_redwood_clo](https://github.com/suvojeet-sengupta/device_xiaomi_redwood_clo/tree/6.18) | Android device tree, AOSPA (`6.18`) |
+| [vendor_xiaomi_redwood_pixelos](https://github.com/suvojeet-sengupta/vendor_xiaomi_redwood_pixelos/tree/seventeen) | Vendor blobs for the PixelOS tree |
 
-Additional requirements are listed below based on patch type
+## What's on top of ACK
 
-## Requirements for backports from mainline Linux: `UPSTREAM:`, `BACKPORT:`
+**Platform**
+- Qualcomm's common kernel changes and soc-repo drivers from 6.12, merged into 6.18's build
+- Generic drivers restored where Qualcomm's tree replaced them
+- `vendor/redwood.config`, built from Qualcomm's `lahaina_perf` config
+- The `android17-6.18` GKI KMI kept, so KernelSU's LKM loads
 
-- If the patch is a cherry-pick from Linux mainline with no changes at all
-    - tag the patch subject with `UPSTREAM:`.
-    - add upstream commit information with a `(cherry picked from commit ...)` line
-    - if applicable, prefer to cherry-pick the commit from the corresponding LTS branch.
-    - append new signature tags (e.g. `Bug:`, `Change-Id:`, etc.) at the end to keep the
-      chronological order.
-    - Example:
-        - if the upstream commit message is
-```
-        important patch from upstream
+**Boot, memory and IOMMU**
+- 6.18 early boot fixed for yupik
+- arm-smmu: domain page sizes set for 6.18, and the TLB invalidated on unmap
+- Reserved IOVA regions translated the 6.12 way again. Without that, the WPSS firmware crashed on its first access
+- Qualcomm fastmap DMA ops. Without them, UFS reads returned stale data
+- zram recompresses idle pages with zstd
 
-        This is the detailed description of the important patch
+**Power and scheduling**
+- WALT removed: plain EAS with schedutil
+- Fast PELT and the TEO cpuidle governor by default
+- RT tasks get a 25% uclamp floor
+- `msm_performance` sets its frequency floors under EAS
+- The CPU cluster power domain syncs (`qcom,lpm-cluster-dev`), so the SoC reaches deep sleep
+- UCSI handles connector changes outside the RX worker, so USB doesn't drop on plug-in
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
-```
->- then Joe Smith would upload the patch for the common kernel as
-```
-        UPSTREAM: important patch from upstream
+**Audio, data and Android**
+- The `snd_pcm_check_no_buffer` vendor hook, dropped in 6.18, is back. Voice calls need it
+- The ASoC "no BE" check moved back from open to prepare. The sound trigger HAL opens its PCM before routing it
+- qrtr: `vendor_qrtr` can bind the control ports
+- SELinux: optional fallback to the pre-xperm netlink check (`redwood.nlmsg_legacy`), for vendor policy that lacks the 6.18 `allowxperm` rules
+- Rust enabled for ashmem and the Rust Binder driver (`binder.impl=rust`)
+- BTF included
 
-        This is the detailed description of the important patch
+**Bring-up aids**
+- `redwood_splashcon`: an optional console on the boot splash (`redwood_splashcon.enable=1`)
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
+`git log --author=suvojeet` lists every one of these commits.
 
-        Bug: 135791357
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        (cherry picked from commit c31e73121f4c1ec41143423ac6ce3ce6dafdcec1)
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
+## Building
 
-- If the patch requires any changes from the upstream version, tag the patch with `BACKPORT:`
-instead of `UPSTREAM:`.
-    - use the same tags as `UPSTREAM:`
-    - add comments about the changes under the `(cherry picked from commit ...)` line
-    - Example:
-```
-        BACKPORT: important patch from upstream
+Requirements:
+- Android Clang r596125
+- Rust 1.88.0 with `rust-src`, plus bindgen 0.72.1
+- pahole 1.25 or newer
 
-        This is the detailed description of the important patch
+Rust has to be in `PATH` when the config is made. Otherwise Kconfig turns
+`CONFIG_RUST` off without a warning, and ashmem and the Rust Binder go with
+it, which leaves Android with no `/dev/ashmem`.
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
+```sh
+export PATH=<clang>/bin:$HOME/.cargo/bin:$PATH
+export LIBCLANG_PATH=<clang>/lib
+M="make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 LOCALVERSION= PAHOLE=<pahole>"
 
-        Bug: 135791357
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        (cherry picked from commit c31e73121f4c1ec41143423ac6ce3ce6dafdcec1)
-        [joe: Resolved minor conflict in drivers/foo/bar.c ]
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
-
-## Requirements for other backports: `FROMGIT:`, `FROMLIST:`,
-
-- If the patch has been merged into an upstream maintainer tree, but has not yet
-been merged into Linux mainline
-    - tag the patch subject with `FROMGIT:`
-    - add info on where the patch came from as `(cherry picked from commit <sha1> <repo> <branch>)`.
-This must be a branch on a tree which is normally merged into Linus's tree and is not rebased. For
-example, don't use `linux-next` which is rebased and never directly merged into Linus's tree, but
-you *can* use SHAs from `net` *or* `net-next`, which are merged into Linus's tree at various points
-in the release.
-    - if changes were required, use `BACKPORT: FROMGIT:`
-    - Example:
-        - if the commit message in the maintainer tree is
-```
-        important patch from upstream
-
-        This is the detailed description of the important patch
-
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
-```
->- then Joe Smith would upload the patch for the common kernel as
-```
-        FROMGIT: important patch from upstream
-
-        This is the detailed description of the important patch
-
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
-
-        Bug: 135791357
-        (cherry picked from commit 878a2fd9de10b03d11d2f622250285c7e63deace
-         https://git.kernel.org/pub/scm/linux/kernel/git/foo/bar.git test-branch)
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
+$M gki_defconfig vendor/redwood.config
+$M -j$(nproc) Image modules
+$M INSTALL_MOD_PATH=modules INSTALL_MOD_STRIP=1 modules_install
 ```
 
+The defconfig gives exactly the configuration of the published prebuilt.
+`out/arch/arm64/boot/Image` is the kernel. Build the vendor modules against
+the same `out/` with
+[redwood-6.18-modules](https://github.com/suvojeet-sengupta/redwood-6.18-modules),
+and the dtb and dtbo with
+[redwood-6.18-devicetrees](https://github.com/suvojeet-sengupta/redwood-6.18-devicetrees).
 
-- If the patch has been submitted to LKML, but not accepted into any maintainer tree
-    - tag the patch subject with `FROMLIST:`
-    - add a `Link:` tag with a link to the submittal on lore.kernel.org
-    - add a `Bug:` tag with the Android bug (required for patches not accepted into
-a maintainer tree)
-    - if changes were required, use `BACKPORT: FROMLIST:`
-    - Example:
-```
-        FROMLIST: important patch from upstream
+To build a ROM, use the
+[prebuilt](https://github.com/suvojeet-sengupta/device_xiaomi_redwood-kernel-6.18)
+and nothing has to be compiled.
 
-        This is the detailed description of the important patch
+## Updating
 
-        Signed-off-by: Fred Jones <fred.jones@foo.org>
+`main` follows `android17-6.18` and `android17-6.18-lts` from
+`https://android.googlesource.com/kernel/common`. The stable sublevels
+(6.18.x) arrive through `-lts`.
 
-        Bug: 135791357
-        Link: https://lore.kernel.org/lkml/20190619171517.GA17557@someone.com/
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
+Every new sublevel changes the module vermagic, so all of the modules (in-tree
+and vendor) have to be rebuilt along with the Image. A new Image with old
+modules won't boot.
 
-- If a patch has been submitted to the community, but rejected, do NOT use the
-  `FROMLIST:` tag to try to hide this fact.  Use the `ANDROID:` tag as
-  described below as this must be considered as an Android-specific submission,
-  not an upstream submission as the community will not accept these changes
-  as-is.
+## Status
 
-## Requirements for Android-specific patches: `ANDROID:`
+What works and what doesn't is tracked in
+[redwood-6.18-devicetrees](https://github.com/suvojeet-sengupta/redwood-6.18-devicetrees#status).
+In short:
+- Working: display, GPU, touch, audio and calls, camera, video, Wi-Fi, Bluetooth, mobile data on both SIMs, sensors, fingerprint, charging, deep sleep
+- Kept off: CoreSight, the Qualcomm watchdog and `tz_log`
 
-- If the patch is fixing a bug to Android-specific code
-    - tag the patch subject with `ANDROID:`
-    - add a `Fixes:` tag that cites the patch with the bug
-    - Example:
-```
-        ANDROID: fix android-specific bug in foobar.c
+## Credits
 
-        This is the detailed description of the important fix
+- Google, for the Android Common Kernel
+- Qualcomm (CodeLinaro), for the lahaina/yupik platform
+- The Linux kernel community
 
-        Fixes: 1234abcd2468 ("foobar: add cool feature")
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
+The original ACK contribution guide is in [README.ACK.md](README.ACK.md).
 
-- If the patch is a new feature
-    - tag the patch subject with `ANDROID:`
-    - add a `Bug:` tag with the Android bug (required for android-specific features)
+## License
 
-## Requirements for revert patches:
+GPL-2.0, like the Linux kernel. See [COPYING](COPYING).
 
-- Add a reason for the revert
-- Do not delete or modify the revert information that is generated when using
-`git revert`
-- If modifications have been made after creating the revert, include a list of
-these in the commit message
-- Example:
-```
-        Revert "ANDROID: fix android-specific bug in foobar.c"
-
-        This reverts commit a57a7913f53e34c8a8d905444b126b3316146e69.
-
-        Reason for revert: Breaks a lot of internal tests
-
-        Additional modifications: Resolved merge conflicts
-
-        Bug: 135791357
-        Change-Id: I4caaaa566ea080fa148c5e768bb1a0b6f7201c01
-        Signed-off-by: Joe Smith <joe.smith@foo.org>
-```
+Ported and maintained by Suvojeet Sengupta.
