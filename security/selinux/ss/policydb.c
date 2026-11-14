@@ -2663,7 +2663,7 @@ static int role_trans_write(struct policydb *p, void *fp)
 {
 	struct role_trans *r = p->role_tr;
 	struct role_trans *tr;
-	u32 buf[3];
+	__le32 buf[3];
 	size_t nel;
 	int rc;
 
@@ -2695,7 +2695,7 @@ static int role_trans_write(struct policydb *p, void *fp)
 static int role_allow_write(struct role_allow *r, void *fp)
 {
 	struct role_allow *ra;
-	u32 buf[2];
+	__le32 buf[2];
 	size_t nel;
 	int rc;
 
@@ -3420,6 +3420,10 @@ int policydb_write(struct policydb *p, void *fp)
 	if (p->mls_enabled)
 		config |= POLICYDB_CONFIG_MLS;
 
+	if (p->android_netlink_route)
+		config |= POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE;
+	if (p->android_netlink_getneigh)
+		config |= POLICYDB_CONFIG_ANDROID_NETLINK_GETNEIGH;
 	if (p->reject_unknown)
 		config |= REJECT_UNKNOWN;
 	if (p->allow_unknown)
