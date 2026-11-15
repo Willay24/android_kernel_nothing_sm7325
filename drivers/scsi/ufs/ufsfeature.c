@@ -116,8 +116,8 @@ static int ufsf_read_dev_desc(struct ufsf_feature *ufsf, u8 selector)
 		  selector, desc_buf[DEVICE_DESC_PARAM_LEN],
 		  desc_buf[DEVICE_DESC_PARAM_LEN],
 		  desc_buf[DEVICE_DESC_PARAM_UFS_FEAT],
-		  desc_buf[DEVICE_DESC_PARAM_EX_FEAT_SUP+2],
-		  desc_buf[DEVICE_DESC_PARAM_EX_FEAT_SUP+3]);
+		  desc_buf[DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP+2],
+		  desc_buf[DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP+3]);
 
 	INFO_MSG("Driver Feature Version : (%.6X%s)", UFSFEATURE_DD_VER,
 		 UFSFEATURE_DD_VER_POST);
@@ -207,7 +207,7 @@ inline void ufsf_on_idle(struct ufsf_feature *ufsf, struct ufshcd_lrb *lrbp)
 	struct ufs_hba *hba = ufsf->hba;
 
 	if (hba && (hba->outstanding_tasks ||
-	    !(hba->outstanding_reqs == (1 << lrbp->task_tag))))
+	    !(hba->outstanding_reqs == (1UL << lrbp->task_tag))))
 		return;
 
 #if defined(CONFIG_UFSHID)

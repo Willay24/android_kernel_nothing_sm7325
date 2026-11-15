@@ -286,7 +286,6 @@ static struct ufs_dev_fix ufs_fixups[] = {
 	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ21AHDMM",
 		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
 #endif
-
 	END_FIX
 };
 
@@ -356,21 +355,13 @@ static inline void ufshcd_wb_config(struct ufs_hba *hba)
 		ufshcd_wb_toggle_flush(hba, true);
 }
 
-#if defined(CONFIG_UFSFEATURE)
-void ufshcd_scsi_unblock_requests(struct ufs_hba *hba)
-#else
 static void ufshcd_scsi_unblock_requests(struct ufs_hba *hba)
-#endif
 {
 	if (atomic_dec_and_test(&hba->scsi_block_reqs_cnt))
 		scsi_unblock_requests(hba->host);
 }
 
-#if defined(CONFIG_UFSFEATURE)
-void ufshcd_scsi_block_requests(struct ufs_hba *hba)
-#else
 static void ufshcd_scsi_block_requests(struct ufs_hba *hba)
-#endif
 {
 	if (atomic_inc_return(&hba->scsi_block_reqs_cnt) == 1)
 		scsi_block_requests(hba->host);
@@ -1115,12 +1106,8 @@ static bool ufshcd_is_devfreq_scaling_required(struct ufs_hba *hba,
 	return false;
 }
 
-#if defined(CONFIG_UFSFEATURE)
-int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba, u64 wait_timeout_us)
-#else
 static int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba,
 					u64 wait_timeout_us)
-#endif
 {
 	unsigned long flags;
 	int ret = 0;
@@ -4965,8 +4952,8 @@ static int ufshcd_slave_configure(struct scsi_device *sdev)
  */
 static void ufshcd_slave_destroy(struct scsi_device *sdev)
 {
-	struct ufs_hba *hba;
 	struct request_queue *q = sdev->request_queue;
+	struct ufs_hba *hba;
 
 	hba = shost_priv(sdev->host);
 	/* Drop the reference as it won't be needed anymore */
@@ -8761,13 +8748,13 @@ static int ufshcd_suspend(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 		req_link_state = UIC_LINK_OFF_STATE;
 	}
 
-#if defined(CONFIG_UFSFEATURE)
-	ufsf_suspend(&hba->ufsf);
-#endif
-
 	ret = ufshcd_crypto_suspend(hba, pm_op);
 	if (ret)
 		goto out;
+
+#if defined(CONFIG_UFSFEATURE)
+	ufsf_suspend(&hba->ufsf);
+#endif
 
 	/*
 	 * If we can't transition into any of the low power modes
@@ -9050,12 +9037,12 @@ static int ufshcd_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 		cancel_delayed_work(&hba->rpm_dev_flush_recheck_work);
 	}
 
-#if defined(CONFIG_UFSFEATURE)
-	ufsf_resume(&hba->ufsf);
-#endif
 #ifdef CONFIG_SCSI_SKHPB
 	if (hba->dev_info.wmanufacturerid == UFS_VENDOR_SKHYNIX)
 	    skhpb_resume(hba);
+#endif
+#if defined(CONFIG_UFSFEATURE)
+	ufsf_resume(&hba->ufsf);
 #endif
 	/* Schedule clock gating in case of no access to UFS device yet */
 	ufshcd_release(hba);
@@ -9635,12 +9622,13 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 	 */
 	ufshcd_set_ufs_dev_active(hba);
 
-#if defined(CONFIG_UFSFEATURE)
-	ufsf_set_init_state(&hba->ufsf);
-#endif
 #ifdef CONFIG_SCSI_SKHPB
 	ufshcd_init_hpb(hba);
 #endif
+#if defined(CONFIG_UFSFEATURE)
+	ufsf_set_init_state(&hba->ufsf);
+#endif
+
 	async_schedule(ufshcd_async_scan, hba);
 	ufs_sysfs_add_nodes(hba->dev);
 

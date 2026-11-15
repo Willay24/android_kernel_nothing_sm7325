@@ -136,7 +136,7 @@ void ufshid_get_dev_info(struct ufsf_feature *ufsf, u8 *desc_buf)
 
 	ufsf->hid_dev = NULL;
 
-	if (!(get_unaligned_be32(desc_buf + DEVICE_DESC_PARAM_EX_FEAT_SUP) &
+	if (!(get_unaligned_be32(desc_buf + DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP) &
 	      UFS_FEATURE_SUPPORT_HID_BIT)) {
 		INFO_MSG("bUFSExFeaturesSupport: HID not support");
 		goto err_out;
@@ -210,60 +210,36 @@ static void ufshid_auto_hibern8_enable(struct ufshid_dev *hid,
 				       unsigned int val)
 {
 	struct ufs_hba *hba = hid->ufsf->hba;
-	unsigned long flags;
-	u32 reg;
 
 	val = !!val;
 
-	/* Update auto hibern8 timer value if supported */
 	if (!ufshcd_is_auto_hibern8_supported(hba))
 		return;
 
-	pm_runtime_get_sync(hba->dev);
-	ufshcd_hold(hba, false);
-	down_write(&hba->clk_scaling_lock);
-	ufshcd_scsi_block_requests(hba);
-	/* wait for all the outstanding requests to finish */
-	ufshcd_wait_for_doorbell_clr(hba, U64_MAX);
-	spin_lock_irqsave(hba->host->host_lock, flags);
-
-	reg = ufshcd_readl(hba, REG_AUTO_HIBERNATE_IDLE_TIMER);
-	INFO_MSG("ahit-reg 0x%X", reg);
-
-	if (val ^ (reg != 0)) {
-		if (val) {
-			hba->ahit = hid->ahit;
-		} else {
-			/*
-			 * Store current ahit value.
-			 * We don't know who set the ahit value to different
-			 * from the initial value
-			 */
-			hid->ahit = reg;
-			hba->ahit = 0;
-		}
-
-		ufshcd_writel(hba, hba->ahit, REG_AUTO_HIBERNATE_IDLE_TIMER);
-
-		/* Make sure the timer gets applied before further operations */
-		mb();
-
-		INFO_MSG("[Before] is_auto_enabled %d", hid->is_auto_enabled);
-		hid->is_auto_enabled = val;
-
-		reg = ufshcd_readl(hba, REG_AUTO_HIBERNATE_IDLE_TIMER);
-		INFO_MSG("[After] is_auto_enabled %d ahit-reg 0x%X",
-			 hid->is_auto_enabled, reg);
-	} else {
+	if (val == ufshcd_is_auto_hibern8_enabled(hba)) {
 		INFO_MSG("is_auto_enabled %d. so it does not changed",
 			 hid->is_auto_enabled);
+		return;
 	}
 
-	spin_unlock_irqrestore(hba->host->host_lock, flags);
-	ufshcd_scsi_unblock_requests(hba);
-	up_write(&hba->clk_scaling_lock);
-	ufshcd_release(hba);
-	pm_runtime_put_noidle(hba->dev);
+	INFO_MSG("[Before] is_auto_enabled %d", hid->is_auto_enabled);
+
+	if (val) {
+		ufshcd_auto_hibern8_update(hba, hid->ahit);
+	} else {
+		/*
+		 * Store current ahit value.
+		 * We don't know who set the ahit value to different
+		 * from the initial value
+		 */
+		hid->ahit = hba->ahit;
+		ufshcd_auto_hibern8_update(hba, 0);
+	}
+
+	hid->is_auto_enabled = val;
+
+	INFO_MSG("[After] is_auto_enabled %d ahit 0x%X",
+		 hid->is_auto_enabled, hba->ahit);
 }
 
 static void ufshid_block_enter_suspend(struct ufshid_dev *hid)
