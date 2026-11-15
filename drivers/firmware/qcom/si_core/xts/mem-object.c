@@ -592,7 +592,7 @@ static void mo_release(struct si_object *object)
 	list_del(&mo->node);
 	mutex_unlock(&mo_list_mutex);
 
-	pr_info("%s unmapped.\n", si_object_name(object));
+	pr_debug("%s unmapped.\n", si_object_name(object));
 
 	kfree(mo);
 }
