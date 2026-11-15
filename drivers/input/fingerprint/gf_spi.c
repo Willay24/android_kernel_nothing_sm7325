@@ -822,7 +822,7 @@ static int gf_remove(struct platform_device *pdev)
 	fb_unregister_client(&gf_dev->notifier);
 	if (gf_dev->input)
 		input_unregister_device(gf_dev->input);
-	input_free_device(gf_dev->input);
+	gf_dev->input = NULL;
 
 	/* prevent new opens */
 	mutex_lock(&device_list_lock);
