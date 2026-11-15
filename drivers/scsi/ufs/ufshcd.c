@@ -4943,6 +4943,9 @@ static int ufshcd_slave_configure(struct scsi_device *sdev)
 		if (sdev->lun < UFS_UPIU_MAX_GENERAL_LUN)
 			hba->sdev_ufs_lu[sdev->lun] = sdev;
 #endif
+#if defined(CONFIG_UFSFEATURE)
+	ufsf_slave_configure(&hba->ufsf, sdev);
+#endif
 	return 0;
 }
 
@@ -6699,10 +6702,12 @@ out:
 	ufshcd_update_reg_hist(&hba->ufs_stats.dev_reset, (u32)err);
 	if (!err) {
 #ifdef CONFIG_SCSI_SKHPB
-	if (hba->skhpb_state == SKHPB_PRESENT)
-		hba->skhpb_state = SKHPB_RESET;
-	schedule_delayed_work(&hba->skhpb_init_work,
-						  msecs_to_jiffies(10));
+		if (hba->dev_info.wmanufacturerid == UFS_VENDOR_SKHYNIX) {
+			if (hba->skhpb_state == SKHPB_PRESENT)
+				hba->skhpb_state = SKHPB_RESET;
+			schedule_delayed_work(&hba->skhpb_init_work,
+					      msecs_to_jiffies(10));
+		}
 #endif
 		err = SUCCESS;
 	} else {
@@ -7901,9 +7906,6 @@ reinit:
 	/* Enable Auto-Hibernate if configured */
 	ufshcd_auto_hibern8_enable(hba);
 
-#if defined(CONFIG_UFSFEATURE)
-	ufsf_reset(&hba->ufsf);
-#endif
 out:
 	spin_lock_irqsave(hba->host->host_lock, flags);
 	if (ret)
@@ -7911,6 +7913,11 @@ out:
 	else if (hba->ufshcd_state == UFSHCD_STATE_RESET)
 		hba->ufshcd_state = UFSHCD_STATE_OPERATIONAL;
 	spin_unlock_irqrestore(hba->host->host_lock, flags);
+
+#if defined(CONFIG_UFSFEATURE)
+	if (!ret)
+		ufsf_reset(&hba->ufsf);
+#endif
 
 	trace_ufshcd_init(dev_name(hba->dev), ret,
 		ktime_to_us(ktime_sub(ktime_get(), start)),
