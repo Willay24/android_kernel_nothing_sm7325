@@ -76,6 +76,9 @@
 #if defined(CONFIG_SCSI_SKHPB)
 #include "ufshpb_skh.h"
 #endif
+#if defined(CONFIG_UFSFEATURE)
+#include "ufsfeature.h"
+#endif
 
 #if defined(CONFIG_UFSFEATURE)
 #include "ufsfeature.h"
@@ -1158,12 +1161,6 @@ static inline void ufshcd_rmwl(struct ufs_hba *hba, u32 mask, u32 val, u32 reg)
 	ufshcd_writel(hba, tmp, reg);
 }
 
-
-#if defined(CONFIG_UFSFEATURE)
-void ufshcd_scsi_block_requests(struct ufs_hba *hba);
-void ufshcd_scsi_unblock_requests(struct ufs_hba *hba);
-int ufshcd_wait_for_doorbell_clr(struct ufs_hba *hba, u64 wait_timeout_us);
-#endif
 int ufshcd_alloc_host(struct device *, struct ufs_hba **);
 int ufshcd_hba_enable(struct ufs_hba *hba);
 int ufshcd_init(struct ufs_hba * , void __iomem * , unsigned int);

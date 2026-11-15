@@ -207,7 +207,7 @@ inline void ufsf_on_idle(struct ufsf_feature *ufsf, struct ufshcd_lrb *lrbp)
 	struct ufs_hba *hba = ufsf->hba;
 
 	if (hba && (hba->outstanding_tasks ||
-	    !(hba->outstanding_reqs == (1 << lrbp->task_tag))))
+	    !(hba->outstanding_reqs == (1UL << lrbp->task_tag))))
 		return;
 
 #if defined(CONFIG_UFSHID)
