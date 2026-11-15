@@ -603,7 +603,7 @@ void ufshid_on_idle(struct ufsf_feature *ufsf)
 		cancel_delayed_work(&hid->hid_trigger_work);
 
 	ufshid_schedule_delayed_work(&hid->hid_trigger_work,
-				     hid->hid_on_idle_delay);
+				     msecs_to_jiffies(hid->hid_on_idle_delay));
 }
 
 /* sysfs function */

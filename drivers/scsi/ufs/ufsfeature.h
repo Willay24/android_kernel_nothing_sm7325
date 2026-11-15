@@ -93,6 +93,8 @@ void ufsf_slave_configure(struct ufsf_feature *ufsf, struct scsi_device *sdev);
 void ufsf_device_check(struct ufs_hba *hba);
 int ufsf_query_attr_retry(struct ufs_hba *hba, enum query_opcode opcode,
 			  enum attr_idn idn, u8 idx, u32 *attr_val);
+void ufsf_slave_configure(struct ufsf_feature *ufsf,
+			 struct scsi_device *sdev);
 void ufsf_reset_lu(struct ufsf_feature *ufsf);
 void ufsf_reset_host(struct ufsf_feature *ufsf);
 void ufsf_init(struct ufsf_feature *ufsf);
