@@ -234,7 +234,8 @@ static int __free_si_object(struct si_object *object)
 	if (object->release)
 		object->release(object);
 
-	synchronize_rcu();
+	/* Expedited: a normal grace period stalls every DRM decrypt. */
+	synchronize_rcu_expedited();
 
 	switch (typeof_si_object(object)) {
 	case SI_OT_USER:
