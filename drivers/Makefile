@@ -191,3 +191,4 @@ obj-$(CONFIG_COUNTER)		+= counter/
 obj-y				+= nothing_stability/
 obj-y				+= nothing_thermal/
 obj-y				+= kjson/
+obj-$(CONFIG_FGETPRIORITY) += fgetpriority/
