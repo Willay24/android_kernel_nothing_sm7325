@@ -1419,8 +1419,15 @@ struct drm_connector {
 	struct llist_node free_node;
 
 	/** @hdr_sink_metadata: HDR Metadata Information read from sink */
-	struct hdr_sink_metadata hdr_sink_metadata;
-};
+ 	struct hdr_sink_metadata hdr_sink_metadata;
+
+	/**
+	 * @panel:
+	 *
+	 * Can find the panel which connected to drm_connector.
+	 */
+	struct drm_panel *panel;
+ };
 
 #define obj_to_connector(x) container_of(x, struct drm_connector, base)
 
