@@ -237,4 +237,7 @@ source "drivers/nothing_thermal/Kconfig"
 source "drivers/kjson/Kconfig"
 
 source "drivers/kernelsu/Kconfig"
+
+source "drivers/fgetpriority/Kconfig"
+
 endmenu

@@ -192,3 +192,4 @@ obj-y				+= nothing_stability/
 obj-y				+= nothing_thermal/
 obj-y				+= kjson/
 obj-$(CONFIG_KSU) += kernelsu/
+obj-$(CONFIG_FGETPRIORITY) += fgetpriority/
