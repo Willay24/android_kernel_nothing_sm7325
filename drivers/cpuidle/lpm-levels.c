@@ -100,36 +100,34 @@ static void cluster_prepare(struct lpm_cluster *cluster,
 static bool sleep_disabled = true;
 module_param_named(sleep_disabled, sleep_disabled, bool, 0444);
 
-static int lpm_drm_panel_notify(struct notifier_block *nb,
-		unsigned long val, void *ptr)
+static void *panel_notifier_cookie;
+
+static void lpm_panel_notifier_callback(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notification, void *client_data)
 {
-	struct drm_panel_notifier *evdata = ptr;
-	int *blank;
+	if (!notification) {
+		pr_err("Invalid panel notification\n");
+		return;
+	}
 
-	if (val != DRM_PANEL_EARLY_EVENT_BLANK || !evdata || !evdata->data)
-		return NOTIFY_OK;
+	/* the old code only acted on the early event, keep that behaviour */
+	if (!notification->notif_data.early_trigger)
+		return;
 
-	blank = evdata->data;
-	switch (*blank) {
-	case DRM_PANEL_BLANK_UNBLANK:
+	switch (notification->notif_type) {
+	case DRM_PANEL_EVENT_UNBLANK:
 		sleep_disabled = true;
 		wake_up_all_idle_cpus();
 		break;
-	case DRM_PANEL_BLANK_POWERDOWN:
-        case DRM_PANEL_BLANK_LP2:
+	case DRM_PANEL_EVENT_BLANK:
+	case DRM_PANEL_EVENT_BLANK_LP:
 		sleep_disabled = false;
 		wake_up_all_idle_cpus();
 		break;
 	default:
 		break;
 	}
-
-	return NOTIFY_OK;
 }
-
-static struct notifier_block drm_notifier = {
-	.notifier_call = lpm_drm_panel_notify,
-};
 
 extern struct drm_panel *get_panel(void);
 #else
@@ -1768,11 +1766,17 @@ static int lpm_probe(struct platform_device *pdev)
 	if (!active_panel)
 		return -EPROBE_DEFER;
 
-	ret = drm_panel_notifier_register(active_panel, &drm_notifier);
-	if (ret)
-		pr_err("Failed to register DRM panel notifier, ret=%d\n", ret);
-	else
-		pr_info("Registered DRM panel notifier\n");
+	panel_notifier_cookie = panel_event_notifier_register(
+			PANEL_EVENT_NOTIFICATION_PRIMARY,
+			PANEL_EVENT_NOTIFIER_CLIENT_LPM,
+			active_panel, lpm_panel_notifier_callback, NULL);
+	if (IS_ERR_OR_NULL(panel_notifier_cookie)) {
+		pr_err("Failed to register panel event notifier, ret=%ld\n",
+		       PTR_ERR_OR_ZERO(panel_notifier_cookie));
+		panel_notifier_cookie = NULL;
+	} else {
+		pr_info("Registered panel event notifier\n");
+	}
 #endif
 
 	get_online_cpus();
@@ -1838,6 +1842,12 @@ static int lpm_probe(struct platform_device *pdev)
 
 	return 0;
 failed:
+#ifdef CONFIG_LPM_WFI_SCREEN_ON
+	if (panel_notifier_cookie) {
+		panel_event_notifier_unregister(panel_notifier_cookie);
+		panel_notifier_cookie = NULL;
+	}
+#endif
 	free_cluster_node(lpm_root_node);
 	lpm_root_node = NULL;
 
