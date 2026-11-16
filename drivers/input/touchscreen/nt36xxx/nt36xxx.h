@@ -168,7 +168,7 @@ struct nvt_ts_data {
 	int8_t phys[32];
 	const struct i2c_device_id *id;
 #if defined(CONFIG_DRM_PANEL)
-	struct notifier_block drm_notif;
+	void *panel_cookie;
 #elif defined(CONFIG_FB)
 	struct notifier_block fb_notif;
 #elif defined(CONFIG_HAS_EARLYSUSPEND)
