@@ -44,6 +44,7 @@
 #include <linux/clk.h>
 #ifdef CONFIG_LPM_WFI_SCREEN_ON
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #endif
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
@@ -102,44 +103,36 @@ module_param_named(sleep_disabled, sleep_disabled, bool, 0444);
 
 /*
  * Screen-on => WFI only. The panel is looked up from our own DT node
- * ("qcom,display-panels") and we subscribe to the DRM panel
- * notifier directly, so we no longer depend on dsi_display.c or on the
- * thermal interface to hand us a drm_panel.
+ * ("qcom,display-panels") and we subscribe to the QCOM panel event notifier,
+ * so we don't depend on dsi_display.c or on the thermal interface to hand us
+ * a drm_panel.
  */
-static int lpm_panel_event_notify(struct notifier_block *nb,
-		unsigned long event, void *data)
+static void *lpm_panel_cookie;
+
+static void lpm_panel_event_notify(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notif, void *pvt_data)
 {
-	struct drm_panel_notifier *evdata = data;
-	int *blank;
+	if (!notif)
+		return;
 
 	/* Need the early (pre-commit) event so WFI-only is set before scanout */
-	if (event != DRM_PANEL_EARLY_EVENT_BLANK)
-		return NOTIFY_DONE;
+	if (!notif->notif_data.early_trigger)
+		return;
 
-	if (!evdata || !evdata->data)
-		return NOTIFY_DONE;
-
-	blank = evdata->data;
-	switch (*blank) {
-	case DRM_PANEL_BLANK_UNBLANK:
+	switch (notif->notif_type) {
+	case DRM_PANEL_EVENT_UNBLANK:
 		sleep_disabled = true;
 		wake_up_all_idle_cpus();
 		break;
-	case DRM_PANEL_BLANK_POWERDOWN:
-	case DRM_PANEL_BLANK_LP:
+	case DRM_PANEL_EVENT_BLANK:
+	case DRM_PANEL_EVENT_BLANK_LP:
 		sleep_disabled = false;
 		wake_up_all_idle_cpus();
 		break;
 	default:
 		break;
 	}
-
-	return NOTIFY_OK;
 }
-
-static struct notifier_block lpm_drm_notifier = {
-	.notifier_call = lpm_panel_event_notify,
-};
 
 static int lpm_find_panel(struct platform_device *pdev,
 		struct drm_panel **out)
@@ -171,17 +164,21 @@ static int lpm_find_panel(struct platform_device *pdev,
 
 static void lpm_register_panel_notifier(struct drm_panel *panel)
 {
-	int rc;
+	void *cookie;
 
-	rc = drm_panel_notifier_register(panel, &lpm_drm_notifier);
-	if (rc) {
-		pr_err("Failed to register DRM panel notifier, rc=%d\n", rc);
+	cookie = panel_event_notifier_register(PANEL_EVENT_NOTIFICATION_PRIMARY,
+			PANEL_EVENT_NOTIFIER_CLIENT_LPM, panel,
+			lpm_panel_event_notify, NULL);
+	if (IS_ERR(cookie)) {
+		pr_err("Failed to register panel event notifier, rc=%ld\n",
+		       PTR_ERR(cookie));
 		/* Never leave deep idle disabled forever */
 		sleep_disabled = false;
 		return;
 	}
 
-	pr_info("Registered DRM panel notifier\n");
+	lpm_panel_cookie = cookie;
+	pr_info("Registered panel event notifier\n");
 }
 #else
 static bool sleep_disabled;

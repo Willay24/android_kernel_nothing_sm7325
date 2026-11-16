@@ -126,9 +126,19 @@ static int synaptics_rmi4_free_fingers(struct synaptics_rmi4_data *rmi4_data);
 static int synaptics_rmi4_reinit_device(struct synaptics_rmi4_data *rmi4_data);
 static int synaptics_rmi4_reset_device(struct synaptics_rmi4_data *rmi4_data,
 		bool rebuild);
-static int synaptics_rmi4_dsi_panel_notifier_cb(struct notifier_block *self,
-		unsigned long event, void *data);
+static void synaptics_rmi4_dsi_panel_notifier_cb(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notification, void *data);
 struct drm_panel *active_panel;
+
+static void synaptics_rmi4_unregister_panel_notifier(
+		struct synaptics_rmi4_data *rmi4_data)
+{
+	if (!rmi4_data->panel_cookie)
+		return;
+
+	panel_event_notifier_unregister(rmi4_data->panel_cookie);
+	rmi4_data->panel_cookie = NULL;
+}
 #ifdef CONFIG_HAS_EARLYSUSPEND
 #ifndef CONFIG_FB
 #define USE_EARLYSUSPEND
@@ -4279,12 +4289,16 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 	vir_button_map = bdata->vir_button_map;
 
 	rmi4_data->initialized = false;
-	rmi4_data->fb_notifier.notifier_call =
-					synaptics_rmi4_dsi_panel_notifier_cb;
 	if (active_panel) {
-		retval = drm_panel_notifier_register(active_panel,
-				&rmi4_data->fb_notifier);
-		if (retval < 0) {
+		rmi4_data->panel_cookie = panel_event_notifier_register(
+				PANEL_EVENT_NOTIFICATION_PRIMARY,
+				PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH,
+				active_panel,
+				synaptics_rmi4_dsi_panel_notifier_cb,
+				rmi4_data);
+		if (IS_ERR(rmi4_data->panel_cookie)) {
+			retval = PTR_ERR(rmi4_data->panel_cookie);
+			rmi4_data->panel_cookie = NULL;
 			dev_err(&pdev->dev,
 					"%s: Failed to register fb notifier client\n",
 					__func__);
@@ -4305,9 +4319,7 @@ static int synaptics_rmi4_probe(struct platform_device *pdev)
 	return retval;
 
 err_probe_wq:
-	if (active_panel)
-		drm_panel_notifier_unregister(active_panel,
-				&rmi4_data->fb_notifier);
+	synaptics_rmi4_unregister_panel_notifier(rmi4_data);
 
 err_drm_reg:
 	kfree(rmi4_data);
@@ -4539,9 +4551,7 @@ err_enable_reg:
 
 err_get_reg:
 err_drm_init_wait:
-	if (active_panel)
-		drm_panel_notifier_unregister(active_panel,
-				&rmi4_data->fb_notifier);
+	synaptics_rmi4_unregister_panel_notifier(rmi4_data);
 	cancel_work_sync(&rmi4_data->rmi4_probe_work);
 	destroy_workqueue(rmi4_data->rmi4_probe_wq);
 	kfree(rmi4_data);
@@ -4581,9 +4591,7 @@ static int synaptics_rmi4_remove(struct platform_device *pdev)
 
 	synaptics_rmi4_irq_enable(rmi4_data, false, false);
 
-	if (active_panel)
-		drm_panel_notifier_unregister(active_panel,
-				&rmi4_data->fb_notifier);
+	synaptics_rmi4_unregister_panel_notifier(rmi4_data);
 
 #ifdef USE_EARLYSUSPEND
 	unregister_early_suspend(&rmi4_data->early_suspend);
@@ -4627,45 +4635,34 @@ static int synaptics_rmi4_remove(struct platform_device *pdev)
 	return 0;
 }
 
-static int synaptics_rmi4_dsi_panel_notifier_cb(struct notifier_block *self,
-		unsigned long event, void *data)
+static void synaptics_rmi4_dsi_panel_notifier_cb(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notification, void *data)
 {
-	int transition;
-	struct drm_panel_notifier *evdata = data;
-	struct synaptics_rmi4_data *rmi4_data =
-			container_of(self, struct synaptics_rmi4_data,
-			fb_notifier);
+	struct synaptics_rmi4_data *rmi4_data = data;
 
-	if (!evdata)
-		return 0;
+	if (!notification || !rmi4_data)
+		return;
 
-	if (evdata && evdata->data && rmi4_data) {
-		if (event == DRM_PANEL_EARLY_EVENT_BLANK) {
-			transition = *(int *)evdata->data;
-			if (transition == DRM_PANEL_BLANK_POWERDOWN) {
-				if (rmi4_data->initialized)
-					synaptics_rmi4_suspend(
-							&rmi4_data->pdev->dev);
-				rmi4_data->fb_ready = false;
-			}
+	switch (notification->notif_type) {
+	case DRM_PANEL_EVENT_BLANK:
+		if (notification->notif_data.early_trigger) {
+			if (rmi4_data->initialized)
+				synaptics_rmi4_suspend(&rmi4_data->pdev->dev);
+			rmi4_data->fb_ready = false;
 		}
-	}
-
-	if (evdata && evdata->data && rmi4_data) {
-		if (event == DRM_PANEL_EVENT_BLANK) {
-			transition = *(int *)evdata->data;
-			if (transition == DRM_PANEL_BLANK_UNBLANK) {
-				if (rmi4_data->initialized)
-					synaptics_rmi4_resume(
-							&rmi4_data->pdev->dev);
-				else
-					complete(&rmi4_data->drm_init_done);
-				rmi4_data->fb_ready = true;
-			}
+		break;
+	case DRM_PANEL_EVENT_UNBLANK:
+		if (!notification->notif_data.early_trigger) {
+			if (rmi4_data->initialized)
+				synaptics_rmi4_resume(&rmi4_data->pdev->dev);
+			else
+				complete(&rmi4_data->drm_init_done);
+			rmi4_data->fb_ready = true;
 		}
+		break;
+	default:
+		break;
 	}
-
-	return 0;
 }
 
 #ifdef USE_EARLYSUSPEND

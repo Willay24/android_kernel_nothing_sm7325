@@ -42,6 +42,7 @@
 #include <linux/cpufreq.h>
 #include <linux/pm_wakeup.h>
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #include "gf_spi.h"
 
 #if defined(USE_SPI_BUS)
@@ -537,6 +538,9 @@ static long gf_compat_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 #endif /*CONFIG_COMPAT*/
 
 
+static void goodix_panel_event_handler(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notif, void *pvt_data);
+
 static int gf_open(struct inode *inode, struct file *filp)
 {
 	struct gf_dev *gf_dev = &gf;
@@ -563,10 +567,20 @@ static int gf_open(struct inode *inode, struct file *filp)
 				status = check_drm_dt(gf_dev);
 				if(status)
 					pr_err("goodix fp parse drm-panel fail\n");
-				if(gf_dev->active_panel){
-					status = drm_panel_notifier_register(gf_dev->active_panel, &gf_dev->notifier);
-					if(status)
-						pr_err("goodix fp drm_panel_notifier_register fail: %d\n",status);
+				/* Register once; it stays until gf_remove() */
+				if (gf_dev->active_panel && !gf_dev->panel_cookie) {
+					void *cookie;
+
+					cookie = panel_event_notifier_register(
+						PANEL_EVENT_NOTIFICATION_PRIMARY,
+						PANEL_EVENT_NOTIFIER_CLIENT_FINGERPRINT,
+						gf_dev->active_panel,
+						goodix_panel_event_handler, gf_dev);
+					if (IS_ERR(cookie))
+						pr_err("goodix fp panel_event_notifier_register fail: %ld\n",
+						       PTR_ERR(cookie));
+					else
+						gf_dev->panel_cookie = cookie;
 				}
 				status = gf_parse_dts(gf_dev);
 				if (status)
@@ -643,57 +657,53 @@ static const struct file_operations gf_fops = {
 #endif
 };
 
-static int goodix_fb_state_chg_callback(struct notifier_block *nb,
-		unsigned long val, void *data)
+static void goodix_panel_event_handler(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notif, void *pvt_data)
 {
-	struct gf_dev *gf_dev;
-	struct drm_panel_notifier *evdata = data;
-	unsigned int blank;
+	struct gf_dev *gf_dev = pvt_data;
 	char msg = 0;
 
-	if (val != DRM_PANEL_EARLY_EVENT_BLANK)
-		return 0;
-	pr_info("[info] %s go to the goodix_fb_state_chg_callback value = %d\n",
-			__func__, (int)val);
-	gf_dev = container_of(nb, struct gf_dev, notifier);
-	if (evdata && evdata->data && val == DRM_PANEL_EARLY_EVENT_BLANK && gf_dev) {
-		blank = *(int *)(evdata->data);
-		switch (blank) {
-		case DRM_PANEL_BLANK_POWERDOWN:
-			if (gf_dev->device_available == 1) {
-				gf_dev->fb_black = 1;
-#if defined(GF_NETLINK_ENABLE)
-				msg = GF_NET_EVENT_FB_BLACK;
-				sendnlmsg(&msg);
-#elif defined(GF_FASYNC)
-				if (gf_dev->async)
-					kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
-#endif
-			}
-			break;
-		case DRM_PANEL_BLANK_UNBLANK:
-			if (gf_dev->device_available == 1) {
-				gf_dev->fb_black = 0;
-#if defined(GF_NETLINK_ENABLE)
-				msg = GF_NET_EVENT_FB_UNBLACK;
-				sendnlmsg(&msg);
-#elif defined(GF_FASYNC)
-				if (gf_dev->async)
-					kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
-#endif
-			}
-			break;
-		default:
-			pr_info("%s defalut\n", __func__);
-			break;
-		}
-	}
-	return NOTIFY_OK;
-}
+	if (!notif || !gf_dev)
+		return;
 
-static struct notifier_block goodix_noti_block = {
-	.notifier_call = goodix_fb_state_chg_callback,
-};
+	/* Same as the old DRM_PANEL_EARLY_EVENT_BLANK: pre-commit only */
+	if (!notif->notif_data.early_trigger)
+		return;
+
+	pr_info("[info] %s panel event type = %d\n", __func__,
+			(int)notif->notif_type);
+
+	switch (notif->notif_type) {
+	case DRM_PANEL_EVENT_BLANK:
+		if (gf_dev->device_available == 1) {
+			gf_dev->fb_black = 1;
+#if defined(GF_NETLINK_ENABLE)
+			msg = GF_NET_EVENT_FB_BLACK;
+			sendnlmsg(&msg);
+#elif defined(GF_FASYNC)
+			if (gf_dev->async)
+				kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
+#endif
+		}
+		break;
+	case DRM_PANEL_EVENT_UNBLANK:
+		if (gf_dev->device_available == 1) {
+			gf_dev->fb_black = 0;
+#if defined(GF_NETLINK_ENABLE)
+			msg = GF_NET_EVENT_FB_UNBLACK;
+			sendnlmsg(&msg);
+#elif defined(GF_FASYNC)
+			if (gf_dev->async)
+				kill_fasync(&gf_dev->async, SIGIO, POLL_IN);
+#endif
+		}
+		break;
+	default:
+		pr_debug("%s ignored panel event %d\n", __func__,
+				(int)notif->notif_type);
+		break;
+	}
+}
 
 static struct class *gf_class;
 #if defined(USE_SPI_BUS)
@@ -720,6 +730,7 @@ static int gf_probe(struct platform_device *pdev)
 	gf_dev->pwr_gpio = -EINVAL;
 	gf_dev->device_available = 0;
 	gf_dev->fb_black = 0;
+	gf_dev->panel_cookie = NULL;
 
 	/* If we can allocate a minor number, hook up this device.
 	 * Reusing minors is fine so long as udev or mdev is working.
@@ -777,9 +788,6 @@ static int gf_probe(struct platform_device *pdev)
 	spi_clock_set(gf_dev, 1000000);
 #endif
 
-	gf_dev->notifier = goodix_noti_block;
-	/*fb_register_client(&gf_dev->notifier);*/
-
 	fp_ws = wakeup_source_register(&gf_dev->spi->dev,"fp_ws");
 
 	pr_info("version V%d.%d.%02d\n", VER_MAJOR, VER_MINOR, PATCH_LEVEL);
@@ -819,7 +827,10 @@ static int gf_remove(struct platform_device *pdev)
 	struct gf_dev *gf_dev = &gf;
 
 	wakeup_source_unregister(fp_ws);
-	fb_unregister_client(&gf_dev->notifier);
+	if (gf_dev->panel_cookie) {
+		panel_event_notifier_unregister(gf_dev->panel_cookie);
+		gf_dev->panel_cookie = NULL;
+	}
 	if (gf_dev->input)
 		input_unregister_device(gf_dev->input);
 	gf_dev->input = NULL;

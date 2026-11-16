@@ -20,8 +20,10 @@
 #include <linux/power_supply.h>
 #include <linux/soc/qcom/pmic_glink.h>
 #include <linux/soc/qcom/battery_charger.h>
-#ifdef CONFIG_DRM_PANEL
+#if IS_ENABLED(CONFIG_QCOM_PANEL_EVENT_NOTIFIER)
+#define BATTERY_CHG_PANEL_NOTIFIER
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #endif
 #include "qti_typec_class.h"
 #include <linux/of_gpio.h>
@@ -277,10 +279,9 @@ struct battery_chg_dev {
 	struct dentry			*debugfs_dir;
 	/* extcon for VBUS/ID notification for USB for micro USB */
 	struct extcon_dev		*extcon;
-#ifdef CONFIG_DRM_PANEL
+#ifdef BATTERY_CHG_PANEL_NOTIFIER
 	struct drm_panel		*active_panel;
-	struct notifier_block		drm_notifier;
-	bool				drm_notifier_registered;
+	void				*notifier_cookie;
 #endif
 	u32				*thermal_levels;
 	const char			*wls_fw_name;
@@ -2820,39 +2821,32 @@ static int register_extcon_conn_type(struct battery_chg_dev *bcdev)
 	return rc;
 }
 
-#ifdef CONFIG_DRM_PANEL
-static int battery_chg_drm_notifier_cb(struct notifier_block *self,
-				       unsigned long event, void *data)
+#ifdef BATTERY_CHG_PANEL_NOTIFIER
+static void battery_chg_panel_notifier_cb(enum panel_event_notifier_tag tag,
+		struct panel_event_notification *notif, void *pvt_data)
 {
-	struct battery_chg_dev *bcdev = container_of(self,
-						     struct battery_chg_dev,
-						     drm_notifier);
-	struct drm_panel_notifier *evdata = data;
-	int *blank;
+	struct battery_chg_dev *bcdev = pvt_data;
 
-	if (!evdata || !evdata->data)
-		return NOTIFY_DONE;
+	if (!notif || !bcdev)
+		return;
 
 	/* Act only on the post-blank event, ignore the early one */
-	if (event != DRM_PANEL_EVENT_BLANK)
-		return NOTIFY_DONE;
+	if (notif->notif_data.early_trigger)
+		return;
 
-	blank = evdata->data;
-	pr_debug("panel event received, blank: %d\n", *blank);
+	pr_debug("panel event received, type: %d\n", notif->notif_type);
 
-	switch (*blank) {
-	case DRM_PANEL_BLANK_POWERDOWN:
+	switch (notif->notif_type) {
+	case DRM_PANEL_EVENT_BLANK:
 		battery_chg_notify_disable(bcdev);
 		break;
-	case DRM_PANEL_BLANK_UNBLANK:
+	case DRM_PANEL_EVENT_UNBLANK:
 		battery_chg_notify_enable(bcdev);
 		break;
 	default:
-		pr_debug("Ignore panel event: %d\n", *blank);
+		pr_debug("Ignore panel event: %d\n", notif->notif_type);
 		break;
 	}
-
-	return NOTIFY_OK;
 }
 
 static int battery_chg_find_active_panel(struct battery_chg_dev *bcdev)
@@ -2885,6 +2879,7 @@ static int battery_chg_find_active_panel(struct battery_chg_dev *bcdev)
 
 static int battery_chg_register_panel_notifier(struct battery_chg_dev *bcdev)
 {
+	void *cookie;
 	int rc;
 
 	rc = battery_chg_find_active_panel(bcdev);
@@ -2897,25 +2892,26 @@ static int battery_chg_register_panel_notifier(struct battery_chg_dev *bcdev)
 	if (!bcdev->active_panel)
 		return 0;
 
-	bcdev->drm_notifier.notifier_call = battery_chg_drm_notifier_cb;
-	rc = drm_panel_notifier_register(bcdev->active_panel,
-					 &bcdev->drm_notifier);
-	if (rc) {
-		dev_err(bcdev->dev, "Failed to register DRM panel notifier, rc=%d\n", rc);
+	cookie = panel_event_notifier_register(PANEL_EVENT_NOTIFICATION_PRIMARY,
+			PANEL_EVENT_NOTIFIER_CLIENT_BATTERY_CHARGER,
+			bcdev->active_panel, battery_chg_panel_notifier_cb,
+			bcdev);
+	if (IS_ERR(cookie)) {
+		rc = PTR_ERR(cookie);
+		dev_err(bcdev->dev, "Failed to register panel event notifier, rc=%d\n", rc);
 		return rc;
 	}
 
-	bcdev->drm_notifier_registered = true;
-	pr_debug("register DRM panel notifier successful\n");
+	bcdev->notifier_cookie = cookie;
+	pr_debug("register panel event notifier successful\n");
 	return 0;
 }
 
 static void battery_chg_unregister_panel_notifier(struct battery_chg_dev *bcdev)
 {
-	if (bcdev->drm_notifier_registered) {
-		drm_panel_notifier_unregister(bcdev->active_panel,
-					      &bcdev->drm_notifier);
-		bcdev->drm_notifier_registered = false;
+	if (bcdev->notifier_cookie) {
+		panel_event_notifier_unregister(bcdev->notifier_cookie);
+		bcdev->notifier_cookie = NULL;
 	}
 }
 #else

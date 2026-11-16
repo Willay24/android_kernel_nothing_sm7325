@@ -38,6 +38,7 @@
 #include <linux/fb.h>
 #else
 #include <drm/drm_panel.h>
+#include <linux/soc/qcom/panel_event_notifier.h>
 #endif
 
 #ifdef KERNEL_ABOVE_2_6_38
@@ -1389,6 +1390,37 @@ static int fts_command(struct fts_ts_info *info, unsigned char cmd);
 static int fts_chip_initialization(struct fts_ts_info *info);
 
 static struct drm_panel *active_panel;
+
+#if !defined(CONFIG_FB_MSM)
+static void fts_panel_event_callback(enum panel_event_notifier_tag ptag,
+		struct panel_event_notification *notification, void *data);
+
+static int fts_panel_notifier_register(struct fts_ts_info *info)
+{
+	void *cookie;
+
+	if (!active_panel || info->panel_cookie)
+		return 0;
+
+	cookie = panel_event_notifier_register(PANEL_EVENT_NOTIFICATION_PRIMARY,
+			PANEL_EVENT_NOTIFIER_CLIENT_PRIMARY_TOUCH, active_panel,
+			fts_panel_event_callback, info);
+	if (IS_ERR(cookie))
+		return PTR_ERR(cookie);
+
+	info->panel_cookie = cookie;
+	return 0;
+}
+
+static void fts_panel_notifier_unregister(struct fts_ts_info *info)
+{
+	if (!info->panel_cookie)
+		return;
+
+	panel_event_notifier_unregister(info->panel_cookie);
+	info->panel_cookie = NULL;
+}
+#endif
 
 void touch_callback(unsigned int status)
 {
@@ -3495,9 +3527,8 @@ static ssize_t fts_stm_cmd_show(struct device *dev,
 #if defined(CONFIG_FB_MSM)
 		res = fb_unregister_client(&info->notifier);
 #else
-		if (active_panel)
-			res = drm_panel_notifier_unregister(active_panel,
-				&info->notifier);
+		fts_panel_notifier_unregister(info);
+		res = 0;
 #endif
 		if (res < 0) {
 			logError(1, "%s ERROR: unregister notifier failed!\n",
@@ -3700,8 +3731,7 @@ static ssize_t fts_stm_cmd_show(struct device *dev,
 	if (fb_register_client(&info->notifier) < 0)
 		logError(1, "%s ERROR: register notifier failed!\n", tag);
 #else
-	if (active_panel &&
-		drm_panel_notifier_register(active_panel, &info->notifier) < 0)
+	if (fts_panel_notifier_register(info) < 0)
 		logError(1, "%s ERROR: register notifier failed!\n", tag);
 #endif
 
@@ -4975,9 +5005,7 @@ static int fts_init_afterProbe(struct fts_ts_info *info)
 #if defined(CONFIG_FB_MSM)
 	error |= fb_register_client(&info->notifier);
 #else
-	if (active_panel)
-		error |= drm_panel_notifier_register(active_panel,
-			&info->notifier);
+	error |= fts_panel_notifier_register(info);
 #endif
 
 	if (error < OK)
@@ -5456,67 +5484,59 @@ static int fts_fb_state_chg_callback(struct notifier_block *nb,
 }
 
 #else
-static int fts_fb_state_chg_callback(struct notifier_block *nb,
-		unsigned long val, void *data)
+static void fts_panel_event_callback(enum panel_event_notifier_tag ptag,
+		struct panel_event_notification *notification, void *data)
 {
-	struct fts_ts_info *info = container_of(nb, struct fts_ts_info,
-				notifier);
-	struct drm_panel_notifier *evdata = data;
-	unsigned int blank;
+	struct fts_ts_info *info = data;
 
-	if (!evdata)
-		return 0;
-
-	if (val != DRM_PANEL_EVENT_BLANK)
-		return 0;
+	if (!notification || !info || notification->notif_data.early_trigger)
+		return;
 
 	logError(0, "%s %s: fts notifier begin!\n", tag, __func__);
-	if (evdata->data && val == DRM_PANEL_EVENT_BLANK && info) {
-		blank = *(int *) (evdata->data);
 
-		switch (blank) {
-		case DRM_PANEL_BLANK_POWERDOWN:
-			if (info->sensor_sleep && info->aoi_notify_enabled)
-				break;
-
-			if (info->aoi_notify_enabled)
-				info->aoi_wake_on_suspend = true;
-			else
-				info->aoi_wake_on_suspend = false;
-
-			if (info->aoi_wake_on_suspend) {
-				info->sensor_sleep = true;
-				__pm_stay_awake(info->wakeup_source);
-			} else {
-				queue_work(info->event_wq, &info->suspend_work);
-			}
+	switch (notification->notif_type) {
+	case DRM_PANEL_EVENT_BLANK:
+		if (info->sensor_sleep && info->aoi_notify_enabled)
 			break;
 
-		case DRM_PANEL_BLANK_UNBLANK:
-			if (info->aoi_wake_on_suspend)
-				__pm_relax(info->wakeup_source);
+		if (info->aoi_notify_enabled)
+			info->aoi_wake_on_suspend = true;
+		else
+			info->aoi_wake_on_suspend = false;
 
-			if (!info->sensor_sleep)
-				break;
-
-			if (!info->resume_bit)
-				queue_work(info->event_wq, &info->resume_work);
-
-			if (info->aoi_wake_on_suspend)
-				info->sensor_sleep = false;
-
-			break;
-		default:
-			break;
+		if (info->aoi_wake_on_suspend) {
+			info->sensor_sleep = true;
+			__pm_stay_awake(info->wakeup_source);
+		} else {
+			queue_work(info->event_wq, &info->suspend_work);
 		}
+		break;
+
+	case DRM_PANEL_EVENT_UNBLANK:
+		if (info->aoi_wake_on_suspend)
+			__pm_relax(info->wakeup_source);
+
+		if (!info->sensor_sleep)
+			break;
+
+		if (!info->resume_bit)
+			queue_work(info->event_wq, &info->resume_work);
+
+		if (info->aoi_wake_on_suspend)
+			info->sensor_sleep = false;
+
+		break;
+	default:
+		break;
 	}
-	return NOTIFY_OK;
 }
 #endif
 
+#if defined(CONFIG_FB_MSM)
 static struct notifier_block fts_noti_block = {
 	.notifier_call = fts_fb_state_chg_callback,
 };
+#endif
 
 static int fts_pinctrl_init(struct fts_ts_info *info)
 {
@@ -6141,7 +6161,9 @@ static int fts_probe_internal(struct i2c_client *client,
 	info->edge_palm_rej_enabled = 0;
 
 	info->resume_bit = 1;
+#if defined(CONFIG_FB_MSM)
 	info->notifier = fts_noti_block;
+#endif
 
 #ifdef CONFIG_ST_TRUSTED_TOUCH
 	fts_trusted_touch_init(info);
@@ -6350,8 +6372,7 @@ static int fts_remove(struct i2c_client *client)
 #if defined(CONFIG_FB_MSM)
 	fb_unregister_client(&info->notifier);
 #else
-	if (active_panel)
-		drm_panel_notifier_register(active_panel, &info->notifier);
+	fts_panel_notifier_unregister(info);
 #endif
 
 	/* unregister the device */
