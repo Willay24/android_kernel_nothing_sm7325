@@ -1060,9 +1060,9 @@ static int query_regdb_file(const char *alpha2)
 	if (!alpha2)
 		return -ENOMEM;
 
-	err = request_firmware_nowait(THIS_MODULE, true, "regulatory.db",
-				      &reg_fdev->dev, GFP_KERNEL,
-				      (void *)alpha2, regdb_fw_cb);
+	err = firmware_request_nowait_nowarn(THIS_MODULE, "regulatory.db",
+					     &reg_fdev->dev, GFP_KERNEL,
+					     (void *)alpha2, regdb_fw_cb);
 	if (err)
 		kfree(alpha2);
 
