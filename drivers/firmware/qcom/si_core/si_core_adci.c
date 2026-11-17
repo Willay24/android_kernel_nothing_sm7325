@@ -12,7 +12,7 @@ static struct task_struct *adci_task;
 static void wait_to_die(void)
 {
 	for (;;) {
-		set_current_state(TASK_UNINTERRUPTIBLE);
+		set_current_state(TASK_IDLE);
 		if (kthread_should_stop())
 			break;
 
