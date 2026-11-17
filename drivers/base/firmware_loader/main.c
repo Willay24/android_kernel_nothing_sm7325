@@ -965,13 +965,21 @@ _request_firmware(const struct firmware **firmware_p, const char *name,
 		ret = firmware_fallback_platform(fw->priv);
 
 	if (ret) {
-		if (!(opt_flags & FW_OPT_NO_WARN))
-			dev_warn(device,
-				 "Direct firmware load for %s failed with error %d\n",
-				 name, ret);
+		int direct = ret;
+
+		/*
+		 * Android keeps firmware where the kernel may not read it and
+		 * hands every file over through the sysfs fallback, so a
+		 * direct miss is normal there. Warn when the fallback failed
+		 * too.
+		 */
 		if (nondirect)
 			ret = firmware_fallback_sysfs(fw, name, device,
 						      opt_flags, ret);
+		if (ret && !(opt_flags & FW_OPT_NO_WARN))
+			dev_warn(device,
+				 "Direct firmware load for %s failed with error %d, fallback %d\n",
+				 name, direct, ret);
 	} else
 		ret = assign_fw(fw, device);
 
