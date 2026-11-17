@@ -360,7 +360,7 @@ static inline int geni_se_get_common_resources(struct platform_device *pdev,
 
 	vote_index_list = of_get_property(pdev->dev.of_node, VOTE_INDEX_PROP_NAME, &len);
 	if (!vote_index_list || len % sizeof(u32)) {
-		dev_err(&pdev->dev, "Property %s not found or invalid, len: %d\n",
+		dev_dbg(&pdev->dev, "Property %s not found or invalid, len: %d\n",
 			VOTE_INDEX_PROP_NAME, len);
 		goto dts_err;
 	}

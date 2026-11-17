@@ -3286,7 +3286,7 @@ static int geni_spi_resources_init(struct platform_device *pdev, struct spi_geni
 	ret = geni_se_get_common_resources(pdev, spi_rsc);
 	if (ret) {
 		/* error in loading vote values from dts, loading default vote values */
-		dev_err(&pdev->dev, "Error loading vote values from dts\n");
+		dev_dbg(&pdev->dev, "No vote values in the devicetree, using the defaults\n");
 		ret = geni_se_common_resources_init(spi_rsc, SPI_CORE2X_VOTE,
 						    APPS_PROC_TO_QUP_VOTE,
 						    (DEFAULT_SE_CLK * DEFAULT_BUS_WIDTH));
