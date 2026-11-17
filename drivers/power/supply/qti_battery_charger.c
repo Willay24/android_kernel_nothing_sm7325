@@ -1052,6 +1052,16 @@ static int usb_psy_set_icl(struct battery_chg_dev *bcdev,
 	if (val < 0)
 		temp = UINT_MAX;
 
+	/*
+	 * The gadget asks for 0 mA while the host suspends or unconfigures
+	 * it. redwood's charger firmware rejects a 0 uA limit and manages
+	 * input suspend on its own, so don't send it.
+	 */
+	if (!temp) {
+		pr_debug("Not setting a 0 uA ICL\n");
+		return 0;
+	}
+
 	rc = write_property_id(bcdev, pst, prop_id, temp);
 	if (rc < 0) {
 		pr_err("Failed to set ICL (%u uA) rc=%d\n", temp, rc);
