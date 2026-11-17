@@ -11,7 +11,7 @@ set -euo pipefail
 KERNEL=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 WORK=${WORK:-$(dirname "$KERNEL")/redwood-618-build}
 TC=${TC:-$WORK/toolchain}
-JOBS=${JOBS:-$(nproc)}
+export JOBS=${JOBS:-$(nproc)}
 BUILD_NUMBER=${BUILD_NUMBER:-1}
 BUILD_USER=${BUILD_USER:-build-user}
 BUILD_HOST=${BUILD_HOST:-build-host}
@@ -245,6 +245,8 @@ step_dtbo() {
 		{ cat "$LOGS/dt.log" >&2; die "devicetree build failed"; }
 	mkdir -p "$DIST"
 	python3 "$TC/mkdtboimg.py" create "$DIST/dtbo.img" "$WORK/out-dt/redwood-overlay.dtbo"
+	# Padded to 2 KiB like the prebuilt, so the two compare byte for byte
+	truncate -s %2048 "$DIST/dtbo.img"
 	echo "$DIST/dtbo.img"
 }
 
