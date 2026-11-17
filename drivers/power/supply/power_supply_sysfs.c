@@ -367,6 +367,12 @@ static umode_t power_supply_attr_is_visible(struct kobject *kobj,
 		int property = psy->desc->properties[i];
 
 		if (property == attrno) {
+#ifdef CONFIG_NT_CHARGER_COMPAT
+			if (property == POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT ||
+			    property == POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX) {
+				mode |= S_IWUSR | S_IWGRP;
+			} else
+#endif
 			if (psy->desc->property_is_writeable &&
 			    psy->desc->property_is_writeable(psy, property) > 0)
 				mode |= S_IWUSR;
