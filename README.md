@@ -64,31 +64,18 @@ platform from the 6.12 CLO kernel onto Android Common Kernel 6.18.
 
 ## Building
 
-Requirements:
-- Android Clang r596125
-- Rust 1.88.0 with `rust-src`, plus bindgen 0.72.1
-- pahole 1.25 or newer
-
-Rust has to be in `PATH` when the config is made. Otherwise Kconfig turns
-`CONFIG_RUST` off without a warning, and ashmem and the Rust Binder go with
-it, which leaves Android with no `/dev/ashmem`.
+One script builds the kernel, all 311 modules, `dtbo.img` and a flashable
+zip on any x86_64 Linux machine. It downloads its own pinned toolchain.
 
 ```sh
-export PATH=<clang>/bin:$HOME/.cargo/bin:$PATH
-export LIBCLANG_PATH=<clang>/lib
-M="make O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 LOCALVERSION= PAHOLE=<pahole>"
-
-$M gki_defconfig vendor/redwood.config
-$M -j$(nproc) Image modules
-$M INSTALL_MOD_PATH=modules INSTALL_MOD_STRIP=1 modules_install
+git clone --depth=1 https://github.com/suvojeet-sengupta/redwood-6.18-kernel
+cd redwood-6.18-kernel
+./build.sh
 ```
 
-The defconfig gives exactly the configuration of the published prebuilt.
-`out/arch/arm64/boot/Image` is the kernel. Build the vendor modules against
-the same `out/` with
-[redwood-6.18-modules](https://github.com/suvojeet-sengupta/redwood-6.18-modules),
-and the dtb and dtbo with
-[redwood-6.18-devicetrees](https://github.com/suvojeet-sengupta/redwood-6.18-devicetrees).
+The results land in `../redwood-618-build/dist`. [BUILDING.md](BUILDING.md)
+covers the requirements, the single steps, the options and what to watch
+out for.
 
 To build a ROM, use the
 [prebuilt](https://github.com/suvojeet-sengupta/device_xiaomi_redwood-kernel-6.18)
