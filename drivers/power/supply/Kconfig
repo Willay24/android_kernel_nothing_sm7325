@@ -724,6 +724,22 @@ config CHARGER_WILCO
 	  information can be found in
 	  Documentation/ABI/testing/sysfs-class-power-wilco
 
+config NT_CHARGER_COMPAT
+	bool "Nothing universal fast charge and charger compatibility"
+	depends on POWER_SUPPLY
+	default y
+	help
+	  Provides universal charger platform stubs (smart_charging /
+	  odm:smart_charging) required by OEM charger frameworks and custom
+	  ROM kernel managers, plus intelligent input current compensation
+	  that elevates clamped input current limits (900mA - 1.5A) on wall
+	  chargers / DCP to a 2.0A safe floor. Also enables userspace write
+	  access to the input_current_limit and constant_charge_current_max
+	  power supply properties so apps/kernel managers can detect and
+	  tune charging on LineageOS/AOSP based ROMs.
+
+	  If unsure, say Y.
+
 source "drivers/power/supply/qcom/Kconfig"
 
 endif # POWER_SUPPLY
