@@ -91,18 +91,6 @@ config EXTRA_FIRMWARE_DIR
 	  This option controls the directory in which the kernel build system
 	  looks for the firmware files listed in the EXTRA_FIRMWARE option.
 
-config FW_LOADER_DEFAULT_PATH
-	string "Default firmware search paths"
-	default ""
-	help
-	  Comma separated directories to search before /lib/firmware, the
-	  same list firmware_class.path takes. A firmware_class.path given
-	  on the command line or through sysfs replaces it.
-
-	  Android keeps its firmware under /vendor, outside the default
-	  paths, so every file otherwise goes through the sysfs fallback
-	  and ueventd, with a warning for each.
-
 config FW_LOADER_USER_HELPER
 	bool "Enable the firmware sysfs fallback mechanism"
 	select FW_LOADER_SYSFS

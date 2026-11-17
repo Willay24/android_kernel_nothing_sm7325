@@ -1727,9 +1727,6 @@ static int __init firmware_class_init(void)
 {
 	int ret;
 
-	if (CONFIG_FW_LOADER_DEFAULT_PATH[0] && !fw_path_para[0][0])
-		firmware_param_path_set(CONFIG_FW_LOADER_DEFAULT_PATH, NULL);
-
 	/* No need to unfold these on exit */
 	fw_cache_init();
 
