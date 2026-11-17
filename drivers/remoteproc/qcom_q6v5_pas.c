@@ -3176,7 +3176,7 @@ static const struct adsp_data yupik_cdsp_resource = {
 	.sysmon_name = "cdsp",
 	.ssctl_id = 0x17,
 	.uses_elf64 = true,
-	.auto_boot = true,
+	.auto_boot = false,
 };
 
 static const struct adsp_data yupik_mpss_resource = {
