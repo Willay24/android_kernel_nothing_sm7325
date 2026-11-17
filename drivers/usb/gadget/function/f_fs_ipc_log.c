@@ -551,19 +551,6 @@ static int exit_ffs_epfile_ioctl(struct kretprobe_instance *ri,
 	return 0;
 }
 
-static int entry_ffs_data_opened(struct kretprobe_instance *ri,
-				    struct pt_regs *regs)
-{
-	struct ffs_data *ffs = (struct ffs_data *)regs->regs[0];
-	void *context = get_ipc_context(ffs);
-
-	kprobe_log(context,
-		"enter: state %d setup_state %d flag %lu opened %d ref %d",
-		ffs->state, ffs->setup_state, ffs->flags,
-		atomic_read(&ffs->opened), refcount_read(&ffs->ref));
-	return 0;
-}
-
 static int entry_ffs_data_closed(struct kretprobe_instance *ri,
 				    struct pt_regs *regs)
 {
@@ -584,31 +571,6 @@ static int entry_ffs_data_clear(struct kretprobe_instance *ri,
 
 	kprobe_log(context, "enter: state %d setup_state %d flag %lu",
 		ffs->state, ffs->setup_state, ffs->flags);
-	return 0;
-}
-
-static int entry_functionfs_bind(struct kretprobe_instance *ri,
-				    struct pt_regs *regs)
-{
-	struct kprobe_data *data = (struct kprobe_data *)ri->data;
-	struct ffs_data *ffs = (struct ffs_data *)regs->regs[0];
-	void *context = get_ipc_context(ffs);
-
-	data->x0 = ffs;
-	kprobe_log(context, "enter: state %d setup_state %d flag %lu",
-		ffs->state, ffs->setup_state, ffs->flags);
-	return 0;
-}
-
-static int exit_functionfs_bind(struct kretprobe_instance *ri,
-				    struct pt_regs *regs)
-{
-	struct kprobe_data *data = (struct kprobe_data *)ri->data;
-	struct ffs_data *ffs = data->x0;
-	void *context = get_ipc_context(ffs);
-	unsigned long ret = regs_return_value(regs);
-
-	kprobe_log(context, "functionfs_bind returned %lu", ret);
 	return 0;
 }
 
@@ -765,35 +727,6 @@ static int exit_ffs_func_unbind(struct kretprobe_instance *ri,
 	return 0;
 }
 
-static int entry_ffs_closed(struct kretprobe_instance *ri,
-				    struct pt_regs *regs)
-{
-	struct kprobe_data *data = (struct kprobe_data *)ri->data;
-	struct ffs_data *ffs = (struct ffs_data *)regs->regs[0];
-	void *context = get_ipc_context(ffs);
-
-	data->x0 = ffs;
-	kprobe_log(context, "enter");
-	return 0;
-}
-
-static int exit_ffs_closed(struct kretprobe_instance *ri,
-				   struct pt_regs *regs)
-{
-	struct kprobe_data *data = (struct kprobe_data *)ri->data;
-	struct ffs_data *ffs = data->x0;
-	struct ffs_dev *ffs_obj = ffs->private_data;
-	void *context = get_ipc_context(ffs);
-
-	if (test_bit(FFS_FL_BOUND, &ffs->flags))
-		kprobe_log(context, "unreg gadget done");
-	else if (!ffs_obj || !ffs_obj->opts || ffs_obj->opts->no_configfs ||
-		 !ffs_obj->opts->func_inst.group.cg_item.ci_parent
-		 || !kref_read(&ffs_obj->opts->func_inst.group.cg_item.ci_kref))
-		kprobe_log(context, "exit error");
-	return 0;
-}
-
 #define ENTRY_EXIT(name) {\
 	.handler = exit_##name,\
 	.entry_handler = entry_##name,\
@@ -827,10 +760,8 @@ static struct kretprobe ffsprobes[] = {
 	ENTRY_EXIT(ffs_aio_cancel),
 	ENTRY(ffs_epfile_release),
 	ENTRY_EXIT(ffs_epfile_ioctl),
-	ENTRY(ffs_data_opened),
 	ENTRY(ffs_data_closed),
 	ENTRY(ffs_data_clear),
-	ENTRY_EXIT(functionfs_bind),
 	ENTRY(ffs_func_eps_disable),
 	ENTRY_EXIT(ffs_func_bind),
 	ENTRY(ffs_reset_work),
@@ -839,8 +770,7 @@ static struct kretprobe ffsprobes[] = {
 	ENTRY(ffs_func_setup),
 	ENTRY(ffs_func_suspend),
 	ENTRY(ffs_func_resume),
-	ENTRY_EXIT(ffs_func_unbind),
-	ENTRY_EXIT(ffs_closed)
+	ENTRY_EXIT(ffs_func_unbind)
 };
 
 static int __init kretprobe_init(void)
