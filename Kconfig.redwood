@@ -9,4 +9,12 @@ source "drivers/eom/pcie/Kconfig"
 source "drivers/powercap/qcom/Kconfig"
 source "kernel/sched/walt/Kconfig"
 
+config REDWOOD_NETMGRD_QGKI
+	bool "Report a QGKI kernel release to the vendor netmgrd"
+	help
+	  The vendor netmgrd opens the sockets that carry the modem's Wi-Fi
+	  calling traffic only when uname names a QGKI kernel. Append -qgki
+	  to the release that netmgrd reads. Every other process sees the
+	  real release.
+
 endmenu

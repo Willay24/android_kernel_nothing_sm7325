@@ -1359,6 +1359,19 @@ static int override_release(char __user *release, size_t len)
 		copy = scnprintf(buf, copy, "2.6.%u%s", v, rest);
 		ret = copy_to_user(release, buf, copy + 1);
 	}
+#ifdef CONFIG_REDWOOD_NETMGRD_QGKI
+	if (!ret) {
+		char comm[TASK_COMM_LEN];
+
+		get_task_comm(comm, current->group_leader);
+		if (!strcmp(comm, "netmgrd")) {
+			char buf[65];
+			size_t copy = scnprintf(buf, min(len, sizeof(buf)), "%s-qgki", UTS_RELEASE);
+
+			ret = copy_to_user(release, buf, copy + 1);
+		}
+	}
+#endif
 	return ret;
 }
 
