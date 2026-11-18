@@ -75,6 +75,8 @@
 
 #if defined(CONFIG_SCSI_SKHPB)
 #include "ufshpb_skh.h"
+#endif
+
 #if defined(CONFIG_UFSFEATURE)
 #include "ufsfeature.h"
 #endif

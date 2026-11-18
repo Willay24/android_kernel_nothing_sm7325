@@ -301,9 +301,7 @@ enum device_desc_param {
 #if defined(CONFIG_UFSHID)
 	DEVICE_DESC_PARAM_HID_VER		= 0x59,
 #endif
-#endif
 };
-
 /* Interconnect descriptor parameters offsets in bytes*/
 enum interconnect_desc_param {
 	INTERCONNECT_DESC_PARAM_LEN		= 0x0,

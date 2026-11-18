@@ -4951,6 +4951,9 @@ static int ufshcd_slave_configure(struct scsi_device *sdev)
 		if (sdev->lun < UFS_UPIU_MAX_GENERAL_LUN)
 			hba->sdev_ufs_lu[sdev->lun] = sdev;
 #endif
+#if defined(CONFIG_UFSFEATURE)
+	ufsf_slave_configure(&hba->ufsf, sdev);
+#endif
 	return 0;
 }
 
@@ -9047,7 +9050,8 @@ static int ufshcd_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 
 #ifdef CONFIG_SCSI_SKHPB
 	if (hba->dev_info.wmanufacturerid == UFS_VENDOR_SKHYNIX)
-	    skhpb_resume(hba);
+		skhpb_resume(hba);
+#endif
 #if defined(CONFIG_UFSFEATURE)
 	ufsf_resume(&hba->ufsf);
 #endif
