@@ -258,7 +258,7 @@ step_zip() {
 	local krel kver date z=$WORK/zip zipfile
 	krel=$(kmake -s kernelrelease)
 	kver=$(kmake -s kernelversion)
-	date=$(date +%Y%m%d)
+	date=$(date +%Y%m%d-%H%M%S)
 	zipfile=$DIST/Suvkernel-$kver-redwood-$date.zip
 	log "Packing $zipfile"
 	cp "$OUT/arch/arm64/boot/Image" "$DIST/Image"
