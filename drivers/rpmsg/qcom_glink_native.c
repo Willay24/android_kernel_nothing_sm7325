@@ -31,24 +31,11 @@
 #include "qcom_glink_native.h"
 
 #define GLINK_LOG_PAGE_CNT 2
-#define GLINK_INFO(ctxt, x, ...)					  \
-	ipc_log_string(ctxt, "[%s]: "x, __func__, ##__VA_ARGS__)
+#define GLINK_INFO(ctxt, x, ...)
 
-#define CH_INFO(ch, x, ...)						     \
-do {									     \
-	if (ch->glink)							     \
-		ipc_log_string(ch->glink->ilc, "%s[%d:%d] %s: "x, ch->name,  \
-			       ch->lcid, ch->rcid, __func__, ##__VA_ARGS__); \
-} while (0)
+#define CH_INFO(ch, x, ...)
 
-#define CH_ERR(ch, x, ...)						     \
-do {									     \
-	if (ch->glink) {						     \
-		ipc_log_string(ch->glink->ilc, "%s[%d:%d] %s: "x, ch->name,  \
-			       ch->lcid, ch->rcid, __func__, ##__VA_ARGS__); \
-		dev_err_ratelimited(ch->glink->dev, "[%s]: "x, __func__, ##__VA_ARGS__); \
-	}								     \
-} while (0)
+#define CH_ERR(ch, x, ...)
 
 #define GLINK_NAME_SIZE		32
 #define GLINK_VERSION_1		1
@@ -1296,7 +1283,7 @@ static int qcom_glink_native_rx(struct qcom_glink *glink, int iterations)
 	int i;
 
 	if (should_wake && !glink->intentless) {
-		pr_info("%s: wakeup %s\n", __func__, glink->irqname);
+//		pr_info("%s: wakeup %s\n", __func__, glink->irqname);
 		glink_resume_pkt = true;
 		should_wake = false;
 		pm_system_wakeup();
