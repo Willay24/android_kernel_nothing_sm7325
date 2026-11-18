@@ -519,14 +519,15 @@ bool update_other_load_avgs(struct rq *rq)
 }
 
 /*
- * redwood: boot with the 8 ms PELT half-life (multiplier 4) that the yupik
- * bootargs ask for, so it holds without them too.
+ * redwood: boot with the 16 ms PELT half-life (multiplier 2). The yupik
+ * bootargs ask for 4, which costs more power for the same frame timing, so
+ * the write from the kernel command line is ignored below.
  */
-__read_mostly unsigned int sched_pelt_lshift = 2;
+__read_mostly unsigned int sched_pelt_lshift = 1;
 
 #ifdef CONFIG_SYSCTL
 #include <trace/hooks/sched.h>
-static unsigned int sysctl_sched_pelt_multiplier = 4;
+static unsigned int sysctl_sched_pelt_multiplier = 2;
 
 static int sched_pelt_multiplier(const struct ctl_table *table, int write, void *buffer,
 			  size_t *lenp, loff_t *ppos)
@@ -534,6 +535,9 @@ static int sched_pelt_multiplier(const struct ctl_table *table, int write, void 
 	static DEFINE_MUTEX(mutex);
 	unsigned int old;
 	int ret;
+
+	if (write && !current->mm)
+		return 0;
 
 	mutex_lock(&mutex);
 	old = sysctl_sched_pelt_multiplier;
