@@ -305,3 +305,4 @@ wsa883x_dlkm.ko
 wsa_macro_dlkm.ko
 xiaomi_fp.ko
 xiaomi_touch.ko
+sched-cass.ko

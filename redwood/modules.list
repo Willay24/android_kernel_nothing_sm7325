@@ -309,3 +309,4 @@ xiaomi_fp.ko
 xiaomi_touch.ko
 zram.ko
 zsmalloc.ko
+sched-cass.ko
