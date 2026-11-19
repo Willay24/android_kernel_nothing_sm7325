@@ -35,7 +35,7 @@
 #define CLASS_NAME           "nfc"
 
 //  NFC character device name, this will be in /dev/
-#define NFC_CHAR_DEV_NAME       "pn553"
+#define NFC_CHAR_DEV_NAME	 "pn553"
 
 // HDR length of NCI packet
 #define NCI_HDR_LEN				3

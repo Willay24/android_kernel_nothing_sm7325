@@ -136,7 +136,7 @@ void ufshid_get_dev_info(struct ufsf_feature *ufsf, u8 *desc_buf)
 
 	ufsf->hid_dev = NULL;
 
-	if (!(get_unaligned_be32(desc_buf + DEVICE_DESC_PARAM_EX_FEAT_SUP) &
+	if (!(get_unaligned_be32(desc_buf + DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP) &
 	      UFS_FEATURE_SUPPORT_HID_BIT)) {
 		INFO_MSG("bUFSExFeaturesSupport: HID not support");
 		goto err_out;

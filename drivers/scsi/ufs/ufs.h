@@ -294,18 +294,14 @@ enum device_desc_param {
 	DEVICE_DESC_PARAM_WB_PRESRV_USRSPC_EN	= 0x53,
 	DEVICE_DESC_PARAM_WB_TYPE		= 0x54,
 	DEVICE_DESC_PARAM_WB_SHARED_ALLOC_UNITS = 0x55,
-#if defined(CONFIG_UFSFEATURE)
-	DEVICE_DESC_PARAM_EX_FEAT_SUP		= 0x4F,
-#endif
-#if defined(CONFIG_UFSHID)
-	DEVICE_DESC_PARAM_HID_VER		= 0x59,
-#endif
 #ifdef CONFIG_SCSI_SKHPB
 	DEVICE_DESC_PARAM_HPB_VER               = 0x40,
 	DEVICE_DESC_PARAM_HPB_CONTROL           = 0x42,
 #endif
+#if defined(CONFIG_UFSHID)
+	DEVICE_DESC_PARAM_HID_VER		= 0x59,
+#endif
 };
-
 /* Interconnect descriptor parameters offsets in bytes*/
 enum interconnect_desc_param {
 	INTERCONNECT_DESC_PARAM_LEN		= 0x0,

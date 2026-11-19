@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
  * Copyright (c) 2012-2021, The Linux Foundation. All rights reserved.
- * Copyright (c) Qualcomm Technologies, Inc. and/or its subsidiaries.
+ * Copyright (c) 2022-2025 Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
 /* Uncomment this block to log an error on every VERIFY failure */
@@ -440,7 +440,6 @@ struct smq_invoke_ctx {
 	uint32_t sc_interrupted;
 	struct fastrpc_file *fl_interrupted;
 	uint32_t handle_interrupted;
-	struct timespec64 invoke_start_time;  /* submission timestamp for async perf */
 };
 
 struct fastrpc_ctx_lst {
@@ -655,7 +654,6 @@ struct fastrpc_file {
 	bool is_ramdump_pend;
 	/* Flag to indicate dynamic process creation status*/
 	enum fastrpc_process_create_state dsp_process_state;
-	struct completion shutdown;
 };
 
 static struct fastrpc_apps gfa;
@@ -1132,22 +1130,17 @@ static int fastrpc_mmap_find(struct fastrpc_file *fl, int fd,
 
 	if ((va + len) < va)
 		return -EFAULT;
-	if (mflags == ADSP_MMAP_HEAP_ADDR ||
-				 mflags == ADSP_MMAP_REMOTE_HEAP_ADDR) {
-		return -EFAULT;
-	} else {
-		hlist_for_each_entry_safe(map, n, &fl->maps, hn) {
-			if (va >= map->va &&
-				va + len <= map->va + map->len &&
-				map->fd == fd) {
-				if (refs) {
-					if (map->refs + 1 == INT_MAX)
-						return -ETOOMANYREFS;
-					map->refs++;
-				}
-				match = map;
-				break;
+	hlist_for_each_entry_safe(map, n, &fl->maps, hn) {
+		if (va >= map->va &&
+			va + len <= map->va + map->len &&
+			map->fd == fd) {
+			if (refs) {
+				if (map->refs + 1 == INT_MAX)
+					return -ETOOMANYREFS;
+				map->refs++;
 			}
+			match = map;
+			break;
 		}
 	}
 	if (match) {
@@ -1446,7 +1439,7 @@ static int fastrpc_mmap_create(struct fastrpc_file *fl, int fd,
 			if (err)
 				goto bail;
 		}
-	} else if (mflags == FASTRPC_DMAHANDLE_NOMAP) {
+	} else if (mflags & FASTRPC_DMAHANDLE_NOMAP) {
 		if (map->attr & FASTRPC_ATTR_KEEP_MAP) {
 			ADSPRPC_ERR("Invalid attribute 0x%x for fd %d\n",
 				map->attr, fd);
@@ -1903,20 +1896,6 @@ static int overlap_ptr_cmp(const void *a, const void *b)
 	return st == 0 ? ed : st;
 }
 
-/**
- * context_build_overlap - Detect and handle buffer overlaps in RPC args
- * @ctx: The invoke context containing buffer information
- *
- * This function detects overlapping memory regions in the RPC arguments and
- * adjusts the memory mapping accordingly. It handles ION and non-ION buffers
- * separately to prevent incorrect overlap detection between different buf types.
- * For each buffer type:
- * - If a buffer overlaps with a previous buffer of the same type, it adjusts
- *   the mapping to avoid the overlap
- * - If no overlap is detected, it uses the full buffer range
- *
- * Return: 0 on success, error code on failure
- */
 static int context_build_overlap(struct smq_invoke_ctx *ctx)
 {
 	int i, err = 0;
@@ -1924,9 +1903,7 @@ static int context_build_overlap(struct smq_invoke_ctx *ctx)
 	int inbufs = REMOTE_SCALARS_INBUFS(ctx->sc);
 	int outbufs = REMOTE_SCALARS_OUTBUFS(ctx->sc);
 	int nbufs = inbufs + outbufs;
-	struct overlap max_nonion;
-	struct overlap max_ion;
-	struct overlap *max;
+	struct overlap max;
 
 	for (i = 0; i < nbufs; ++i) {
 		ctx->overs[i].start = (uintptr_t)lpra[i].buf.pv;
@@ -1946,29 +1923,21 @@ static int context_build_overlap(struct smq_invoke_ctx *ctx)
 		ctx->overps[i] = &ctx->overs[i];
 	}
 	sort(ctx->overps, nbufs, sizeof(*ctx->overps), overlap_ptr_cmp, NULL);
-	max_nonion.start = 0;
-	max_nonion.end = 0;
-	max_ion.start = 0;
-	max_ion.end = 0;
-	max_nonion.raix = -1;
-	max_ion.raix = -1;
+	max.start = 0;
+	max.end = 0;
 	for (i = 0; i < nbufs; ++i) {
-		int raix = ctx->overps[i]->raix;
-		/* Separate ION and non-ION buffers; fd <= 0 indicates non-ION */
-		max = (ctx->fds && ctx->fds[raix] > 0) ? &max_ion : &max_nonion;
-		if (ctx->overps[i]->start < max->end) {
-			ctx->overps[i]->mstart = max->end;
+		if (ctx->overps[i]->start < max.end) {
+			ctx->overps[i]->mstart = max.end;
 			ctx->overps[i]->mend = ctx->overps[i]->end;
-			ctx->overps[i]->offset = max->end -
+			ctx->overps[i]->offset = max.end -
 				ctx->overps[i]->start;
-			if (ctx->overps[i]->end > max->end) {
-				max->end = ctx->overps[i]->end;
-				max->raix = raix;
+			if (ctx->overps[i]->end > max.end) {
+				max.end = ctx->overps[i]->end;
 			} else {
-				if ((max->raix < inbufs &&
+				if ((max.raix < inbufs &&
 					ctx->overps[i]->raix + 1 > inbufs) ||
 					(ctx->overps[i]->raix < inbufs &&
-					max->raix + 1 > inbufs))
+					max.raix + 1 > inbufs))
 					ctx->overps[i]->do_cmo = 1;
 				ctx->overps[i]->mend = 0;
 				ctx->overps[i]->mstart = 0;
@@ -1977,7 +1946,7 @@ static int context_build_overlap(struct smq_invoke_ctx *ctx)
 			ctx->overps[i]->mend = ctx->overps[i]->end;
 			ctx->overps[i]->mstart = ctx->overps[i]->start;
 			ctx->overps[i]->offset = 0;
-			*max = *ctx->overps[i];
+			max = *ctx->overps[i];
 		}
 	}
 bail:
@@ -2033,7 +2002,7 @@ static int context_alloc(struct fastrpc_file *fl, uint32_t kernel,
 		sizeof(*ctx->overs) * (bufs) +
 		sizeof(*ctx->overps) * (bufs);
 
-	VERIFY(err, NULL != (ctx = kvzalloc(sizeof(*ctx) + size, GFP_KERNEL)));
+	VERIFY(err, NULL != (ctx = kzalloc(sizeof(*ctx) + size, GFP_KERNEL)));
 	if (err) {
 		err = -ENOMEM;
 		goto bail;
@@ -2227,7 +2196,7 @@ static void context_free(struct smq_invoke_ctx *ctx)
 
 	trace_fastrpc_context_free((uint64_t)ctx,
 		ctx->msg.invoke.header.ctx, ctx->handle, ctx->sc);
-	kvfree(ctx);
+	kfree(ctx);
 }
 
 static void fastrpc_queue_completed_async_job(struct smq_invoke_ctx *ctx)
@@ -2679,22 +2648,6 @@ static int get_args(uint32_t kernel, struct smq_invoke_ctx *ctx)
 			}
 			pages[idx].addr = map->phys + offset;
 			pages[idx].size = num << PAGE_SHIFT;
-			/*
-			 * Check for page range overflow and validate page
-			 * range is not greater than map buffer range.
-			 * This prevents potential buffer overflow
-			 * and memory corruption that could be exploited.
-			 */
-			if (pages[idx].addr > (ULLONG_MAX - pages[idx].size) ||
-			   (pages[idx].addr + pages[idx].size) >
-					(map->phys + map->size)) {
-				err = -EFAULT;
-				ADSPRPC_ERR(
-					"bad addr 0x%llx len %zu IPA 0x%llx size %zu fd %d\n",
-					(uintptr_t)lpra[i].buf.pv, len,
-					map->phys, map->size, map->fd);
-				goto bail;
-			}
 		}
 		rpra[i].buf.pv = buf;
 	}
@@ -3408,15 +3361,6 @@ static int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 	inv_args(ctx);
 	PERF_END);
 
-	/*
-	 * Store submission timestamp in ctx before sending to DSP.
-	 * For async invokes, perf->invoke will be updated in the collector
-	 * thread (fastrpc_wait_on_async_queue) where ctx is still valid,
-	 * measuring full end-to-end latency consistent with the sync path.
-	 */
-	if (fl->profile && isasyncinvoke)
-		ctx->invoke_start_time = invoket;
-
 	PERF(fl->profile, GET_COUNTER(perf_counter, PERF_LINK),
 	VERIFY(err, 0 == (err = fastrpc_invoke_send(ctx,
 		kernel, invoke->handle)));
@@ -3478,6 +3422,9 @@ static int fastrpc_internal_invoke(struct fastrpc_file *fl, uint32_t mode,
 		err = -ECONNRESET;
 
 invoke_end:
+	if (fl->profile && !interrupted && isasyncinvoke)
+		fastrpc_update_invoke_count(invoke->handle, perf_counter,
+						&invoket);
 	return err;
 }
 
@@ -3547,15 +3494,6 @@ bail:
 		async_res->result = ierr;
 	if (ctx) {
 		if (fl->profile && ctx->perf && ctx->handle > FASTRPC_STATIC_HANDLE_MAX) {
-			/*
-			 * Update invoke/count perf counters here where ctx->perf is
-			 * guaranteed valid. This measures full end-to-end async latency
-			 * (submit → DSP → collect), consistent with the sync path.
-			 * invoke_start_time was stored in ctx before fastrpc_invoke_send
-			 * in fastrpc_internal_invoke.
-			 */
-			fastrpc_update_invoke_count(ctx->handle, perf_counter,
-				&ctx->invoke_start_time);
 			trace_fastrpc_perf_counters(ctx->handle, ctx->sc,
 			ctx->perf->count, ctx->perf->flush, ctx->perf->map,
 			ctx->perf->copy, ctx->perf->link, ctx->perf->getargs,
@@ -4442,7 +4380,7 @@ static int fastrpc_release_current_dsp_process(struct fastrpc_file *fl)
 	}
 	VERIFY(err, fl->apps->channel[cid].issubsystemup == 1);
 	if (err) {
-		wait_for_completion(&fl->shutdown);
+		err = -ECONNRESET;
 		goto bail;
 	}
 	tgid = fl->tgid;
@@ -5893,7 +5831,6 @@ static int fastrpc_device_open(struct inode *inode, struct file *filp)
 	spin_lock(&me->hlock);
 	hlist_add_head(&fl->hn, &me->drivers);
 	spin_unlock(&me->hlock);
-	init_completion(&fl->shutdown);
 	return 0;
 }
 
@@ -6512,8 +6449,6 @@ static int fastrpc_restart_notifier_cb(struct notifier_block *nb,
 {
 	struct fastrpc_apps *me = &gfa;
 	struct fastrpc_channel_ctx *ctx;
-	struct fastrpc_file *fl;
-	struct hlist_node *n;
 	struct notif_data *notifdata = (struct notif_data *)data;
 	int cid = -1;
 
@@ -6526,16 +6461,6 @@ static int fastrpc_restart_notifier_cb(struct notifier_block *nb,
 		ctx->ssrcount++;
 		ctx->issubsystemup = 0;
 		mutex_unlock(&me->channel[cid].smd_mutex);
-	} else if (code == SUBSYS_AFTER_SHUTDOWN) {
-		pr_info("adsprpc: %s: %s subsystem is down\n",
-			__func__, gcinfo[cid].subsys);
-		spin_lock(&me->hlock);
-		hlist_for_each_entry_safe(fl, n, &me->drivers, hn) {
-			if (fl->cid != cid)
-				continue;
-			complete(&fl->shutdown);
-		}
-		spin_unlock(&me->hlock);
 	} else if (code == SUBSYS_RAMDUMP_NOTIFICATION) {
 		if (cid == RH_CID) {
 			if (me->ramdump_handle)

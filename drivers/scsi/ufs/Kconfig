@@ -202,7 +202,6 @@ config SCSI_SKHPB
 	depends on (SCSI_UFSHCD || SCSI_UFSHCD_QTI)
 	help
 	  Activate or deactive SKHPB driver
-
 config UFSFEATURE
 	bool "UFS feature activate"
 	depends on SCSI_UFSHCD

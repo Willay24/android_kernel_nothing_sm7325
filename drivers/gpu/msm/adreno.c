@@ -354,7 +354,6 @@ static void adreno_pwr_on_work(struct work_struct *work)
 
 	mutex_lock(&device->mutex);
 	ops->touch_wakeup(adreno_dev);
-
 	mutex_unlock(&device->mutex);
 }
 

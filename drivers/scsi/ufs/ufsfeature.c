@@ -116,8 +116,8 @@ static int ufsf_read_dev_desc(struct ufsf_feature *ufsf, u8 selector)
 		  selector, desc_buf[DEVICE_DESC_PARAM_LEN],
 		  desc_buf[DEVICE_DESC_PARAM_LEN],
 		  desc_buf[DEVICE_DESC_PARAM_UFS_FEAT],
-		  desc_buf[DEVICE_DESC_PARAM_EX_FEAT_SUP+2],
-		  desc_buf[DEVICE_DESC_PARAM_EX_FEAT_SUP+3]);
+		  desc_buf[DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP+2],
+		  desc_buf[DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP+3]);
 
 	INFO_MSG("Driver Feature Version : (%.6X%s)", UFSFEATURE_DD_VER,
 		 UFSFEATURE_DD_VER_POST);

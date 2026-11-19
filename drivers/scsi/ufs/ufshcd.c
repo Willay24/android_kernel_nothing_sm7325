@@ -286,7 +286,6 @@ static struct ufs_dev_fix ufs_fixups[] = {
 	UFS_FIX(UFS_VENDOR_SKHYNIX, "H9HQ21AHDMM",
 		SKHPB_QUIRK_PURGE_HINT_INFO_WHEN_SLEEP),
 #endif
-
 	END_FIX
 };
 
@@ -4522,11 +4521,7 @@ EXPORT_SYMBOL_GPL(ufshcd_make_hba_operational);
  * @hba: per adapter instance
  * @can_sleep: perform sleep or just spin
  */
-#if defined(CONFIG_SCSI_UFSHCD_QTI)
-void ufshcd_hba_stop(struct ufs_hba *hba, bool can_sleep)
-#else
 static inline void ufshcd_hba_stop(struct ufs_hba *hba, bool can_sleep)
-#endif
 {
 	int err;
 
@@ -4955,6 +4950,9 @@ static int ufshcd_slave_configure(struct scsi_device *sdev)
 	if (hba->dev_info.wmanufacturerid == UFS_VENDOR_SKHYNIX)
 		if (sdev->lun < UFS_UPIU_MAX_GENERAL_LUN)
 			hba->sdev_ufs_lu[sdev->lun] = sdev;
+#endif
+#if defined(CONFIG_UFSFEATURE)
+	ufsf_slave_configure(&hba->ufsf, sdev);
 #endif
 	return 0;
 }
@@ -9050,12 +9048,12 @@ static int ufshcd_resume(struct ufs_hba *hba, enum ufs_pm_op pm_op)
 		cancel_delayed_work(&hba->rpm_dev_flush_recheck_work);
 	}
 
-#if defined(CONFIG_UFSFEATURE)
-	ufsf_resume(&hba->ufsf);
-#endif
 #ifdef CONFIG_SCSI_SKHPB
 	if (hba->dev_info.wmanufacturerid == UFS_VENDOR_SKHYNIX)
-	    skhpb_resume(hba);
+		skhpb_resume(hba);
+#endif
+#if defined(CONFIG_UFSFEATURE)
+	ufsf_resume(&hba->ufsf);
 #endif
 	/* Schedule clock gating in case of no access to UFS device yet */
 	ufshcd_release(hba);
@@ -9635,12 +9633,13 @@ int ufshcd_init(struct ufs_hba *hba, void __iomem *mmio_base, unsigned int irq)
 	 */
 	ufshcd_set_ufs_dev_active(hba);
 
-#if defined(CONFIG_UFSFEATURE)
-	ufsf_set_init_state(&hba->ufsf);
-#endif
 #ifdef CONFIG_SCSI_SKHPB
 	ufshcd_init_hpb(hba);
 #endif
+#if defined(CONFIG_UFSFEATURE)
+	ufsf_set_init_state(&hba->ufsf);
+#endif
+
 	async_schedule(ufshcd_async_scan, hba);
 	ufs_sysfs_add_nodes(hba->dev);
 

@@ -264,7 +264,8 @@ static ssize_t scan_stats_show(struct device *dev,
 	struct nfc_dev *nfc_dev = dev_get_drvdata(dev);
 	int value;
 	value = gpio_get_value(nfc_dev->gpio.clkreq);
-	return scnprintf(buf, PAGE_SIZE,"%d\n",value);
+
+	return scnprintf(buf, PAGE_SIZE,"%d\n", value);
 }
 
 static DEVICE_ATTR_RO(scan_stats);
@@ -394,7 +395,7 @@ int nfc_i2c_dev_probe(struct i2c_client *client, const struct i2c_device_id *id)
 
 	ret = sysfs_create_group(&client->dev.kobj, &nfc_i2c_attr_grp);
 	if (ret) {
-		pr_err("%s : sysfs_create_group failed\n", __func__);
+		pr_err("%s: sysfs_create_group failed\n", __func__);
 		goto err_nfcc_hw_check;
 	}
 
