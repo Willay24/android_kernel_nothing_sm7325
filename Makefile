@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0
 VERSION = 5
 PATCHLEVEL = 4
-SUBLEVEL = 304
+SUBLEVEL = 305
 EXTRAVERSION = -openela
 NAME = Kleptomaniac Octopus
 
@@ -496,8 +496,9 @@ KBUILD_AFLAGS   := -D__ASSEMBLY__ -fno-PIE
 KBUILD_CFLAGS   := -Wall -Wundef -Werror=strict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common -fshort-wchar -fno-PIE \
 		   -Werror=implicit-function-declaration -Werror=implicit-int \
-		   -Werror=return-type -Wno-format-security \
-		   -std=gnu11 -pipe
+		   -Werror=return-type -Wno-format-security -std=gnu11 -pipe -O2 \
+		   -march=armv8.2-a+crypto+crc+lse -mtune=cortex-a75 -falign-functions=32 \
+		   -funroll-loops -mllvm -inline-threshold=500 -fno-unwind-tables -fno-asynchronous-unwind-tables
 KBUILD_CPPFLAGS := -D__KERNEL__
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
@@ -508,6 +509,11 @@ export KBUILD_LDS_MODULE := $(srctree)/scripts/module-common.lds
 KBUILD_LDFLAGS :=
 GCC_PLUGINS_CFLAGS :=
 CLANG_FLAGS :=
+
+# Detect available host thread counts
+ifndef NPROC
+  NPROC = $(shell nproc)
+endif
 
 export ARCH SRCARCH CONFIG_SHELL BASH HOSTCC KBUILD_HOSTCFLAGS CROSS_COMPILE LD CC
 export CPP AR NM STRIP OBJCOPY OBJDUMP READELF PAHOLE RESOLVE_BTFIDS LEX YACC AWK INSTALLKERNEL
@@ -655,6 +661,10 @@ export CC_FLAGS_LTO LDFINAL
 else
 LDFINAL		:= $(LD)
 export LDFINAL
+endif
+
+ifdef CONFIG_LAZY_INITCALL
+KBUILD_CFLAGS_MODULE += -include $(srctree)/include/linux/lazy_initcall.h
 endif
 
 ifeq ($(KBUILD_EXTMOD),)
