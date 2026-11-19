@@ -173,10 +173,16 @@ int ion_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
 {
 	struct sg_table *table = buffer->sg_table;
 	unsigned long addr = vma->vm_start;
-	unsigned long offset = vma->vm_pgoff * PAGE_SIZE;
+	unsigned long offset;
 	struct scatterlist *sg;
 	int i;
 	int ret;
+
+	if (vma->vm_pgoff > (buffer->size >> PAGE_SHIFT) ||
+	    vma_pages(vma) > (buffer->size >> PAGE_SHIFT) - vma->vm_pgoff)
+		return -EINVAL;
+
+	offset = vma->vm_pgoff * PAGE_SIZE;
 
 	for_each_sg(table->sgl, sg, table->nents, i) {
 		struct page *page = sg_page(sg);
