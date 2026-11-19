@@ -1774,6 +1774,7 @@ _dest_overflow:
 	return 0;
 }
 
+#ifndef __KERNEL__
 static int LZ4HC_compress_optimal(LZ4HC_CCtx_internal *ctx,
 				  const char *const source, char *dst,
 				  int *srcSizePtr, int dstCapacity,
@@ -1782,6 +1783,7 @@ static int LZ4HC_compress_optimal(LZ4HC_CCtx_internal *ctx,
 				  int const fullUpdate,
 				  const dictCtx_directive dict,
 				  const HCfavor_e favorDecSpeed);
+#endif
 
 LZ4_FORCE_INLINE int LZ4HC_compress_generic_internal(
 	LZ4HC_CCtx_internal *const ctx, const char *const src, char *const dst,
@@ -1811,7 +1813,23 @@ LZ4_FORCE_INLINE int LZ4HC_compress_generic_internal(
 			result = LZ4HC_compress_hashChain(
 				ctx, src, dst, srcSizePtr, dstCapacity,
 				cParam.nbSearches, limit, dict);
-		} else {
+		}
+#ifdef __KERNEL__
+		/*
+		 * The kernel only supplies a base workspace, which has no room for
+		 * the optimal parser's scratch area (~64 KB). Use the level 9
+		 * hash-chain search budget instead of putting it on the stack.
+		 */
+		else {
+			assert(cParam.strat == lz4opt);
+			result = LZ4HC_compress_hashChain(
+				ctx, src, dst, srcSizePtr, dstCapacity,
+				LZ4HC_getCLevelParams(LZ4HC_CLEVEL_OPT_MIN - 1)
+					.nbSearches,
+				limit, dict);
+		}
+#else
+		else {
 			assert(cParam.strat == lz4opt);
 			result = LZ4HC_compress_optimal(
 				ctx, src, dst, srcSizePtr, dstCapacity,
@@ -1819,6 +1837,7 @@ LZ4_FORCE_INLINE int LZ4HC_compress_generic_internal(
 				cLevel >= LZ4HC_CLEVEL_MAX, /* ultra mode */
 				dict, favor);
 		}
+#endif
 		if (result <= 0)
 			ctx->dirty = 1;
 		return result;
@@ -2312,6 +2331,7 @@ LZ4_FORCE_INLINE LZ4HC_match_t LZ4HC_FindLongerMatch(
 	return md;
 }
 
+#ifndef __KERNEL__
 static int LZ4HC_compress_optimal(LZ4HC_CCtx_internal *ctx,
 				  const char *const source, char *dst,
 				  int *srcSizePtr, int dstCapacity,
@@ -2742,6 +2762,7 @@ _return_label:
 #endif
 	return retval;
 }
+#endif /* !__KERNEL__ */
 
 /* state is presumed correctly sized, aka >= sizeof(LZ4_streamHC_t)
  * @return : 0 on success, !=0 if error */
