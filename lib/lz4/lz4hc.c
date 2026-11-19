@@ -1933,6 +1933,7 @@ int LZ4_compress_HC_extStateHC_fastReset(void *state, const char *src,
 					      dstCapacity, compressionLevel,
 					      notLimited);
 }
+EXPORT_SYMBOL(LZ4_compress_HC_extStateHC_fastReset);
 
 int LZ4_compress_HC_extStateHC(void *state, const char *src, char *dst,
 			       int srcSize, int dstCapacity,
@@ -2013,6 +2014,7 @@ LZ4_streamHC_t *LZ4_initStreamHC(void *buffer, size_t size)
 	LZ4_setCompressionLevel(LZ4_streamHCPtr, LZ4HC_CLEVEL_DEFAULT);
 	return LZ4_streamHCPtr;
 }
+EXPORT_SYMBOL(LZ4_initStreamHC);
 
 /* just a stub */
 void LZ4_resetStreamHC(LZ4_streamHC_t *LZ4_streamHCPtr, int compressionLevel)
@@ -2051,6 +2053,7 @@ void LZ4_setCompressionLevel(LZ4_streamHC_t *LZ4_streamHCPtr,
 	LZ4_streamHCPtr->internal_donotuse.compressionLevel =
 		(short)compressionLevel;
 }
+EXPORT_SYMBOL(LZ4_setCompressionLevel);
 
 void LZ4_favorDecompressionSpeed(LZ4_streamHC_t *LZ4_streamHCPtr, int favor)
 {
@@ -2090,6 +2093,7 @@ int LZ4_loadDictHC(LZ4_streamHC_t *LZ4_streamHCPtr, const char *dictionary,
 	}
 	return dictSize;
 }
+EXPORT_SYMBOL(LZ4_loadDictHC);
 
 void LZ4_attach_HC_dictionary(LZ4_streamHC_t *working_stream,
 			      const LZ4_streamHC_t *dictionary_stream)
@@ -2198,6 +2202,7 @@ int LZ4_compress_HC_continue(LZ4_streamHC_t *LZ4_streamHCPtr, const char *src,
 						       dst, &srcSize,
 						       dstCapacity, notLimited);
 }
+EXPORT_SYMBOL(LZ4_compress_HC_continue);
 
 int LZ4_compress_HC_continue_destSize(LZ4_streamHC_t *LZ4_streamHCPtr,
 				      const char *src, char *dst,
