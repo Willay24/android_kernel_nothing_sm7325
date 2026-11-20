@@ -18,6 +18,9 @@
 #include <asm/switch_to.h>
 #include <asm/tlb.h>
 
+#ifdef CONFIG_IO_WQ
+#include "../../io_uring/io-wq.h"
+#endif
 #include "../workqueue_internal.h"
 #include "../smpboot.h"
 
@@ -6308,6 +6311,10 @@ static inline void sched_submit_work(struct task_struct *tsk)
 	 */
 	if (task_flags & PF_WQ_WORKER)
 		wq_worker_sleeping(tsk);
+#ifdef CONFIG_IO_WQ
+	else if (task_flags & PF_IO_WORKER)
+		io_wq_worker_sleeping(tsk);
+#endif
 
 	/*
 	 * spinlock and rwlock must not flush block requests.  This will
@@ -6328,6 +6335,10 @@ static void sched_update_worker(struct task_struct *tsk)
 {
 	if (tsk->flags & PF_WQ_WORKER)
 		wq_worker_running(tsk);
+#ifdef CONFIG_IO_WQ
+	if (tsk->flags & PF_IO_WORKER)
+		io_wq_worker_running(tsk);
+#endif
 }
 
 asmlinkage __visible void __sched schedule(void)
