@@ -1547,6 +1547,75 @@ static int sde_cp_crtc_checkfeature(struct sde_cp_node *prop_node,
 	return ret;
 }
 
+#ifdef CONFIG_NOTHING
+/* PCC with a non-zero constant (colour inversion) breaks FOD: skip it
+ * while the FOD dim layer is shown and restore it afterwards.
+ */
+static struct drm_msm_pcc save_pcc;
+static bool pcc_skippable;
+static bool skip_pcc;
+
+static bool sde_is_fod_pressed(struct drm_crtc *crtc)
+{
+	if (!crtc || !crtc->state)
+		return false;
+
+	return to_sde_crtc_state(crtc->state)->fod_pressed;
+}
+
+static bool sde_cp_crtc_update_pcc(struct drm_crtc *crtc)
+{
+	struct sde_hw_cp_cfg hw_cfg;
+	struct sde_hw_dspp *hw_dspp;
+	struct sde_hw_mixer *hw_lm;
+	struct sde_crtc *sde_crtc = to_sde_crtc(crtc);
+	struct sde_mdss_cfg *catalog;
+	u32 num_mixers = sde_crtc->num_mixers;
+	bool want_skip;
+	int i;
+
+	want_skip = pcc_skippable && sde_is_fod_pressed(crtc);
+	if (want_skip == skip_pcc)
+		return false;
+
+	skip_pcc = want_skip;
+	memset(&hw_cfg, 0, sizeof(hw_cfg));
+
+	if (!want_skip) {
+		hw_cfg.payload = &save_pcc;
+		hw_cfg.len = sizeof(save_pcc);
+	}
+
+	hw_cfg.num_of_mixers = sde_crtc->num_mixers;
+	hw_cfg.last_feature = 0;
+
+	for (i = 0; i < num_mixers; i++) {
+		hw_dspp = sde_crtc->mixers[i].hw_dspp;
+		if (!hw_dspp || i >= DSPP_MAX)
+			continue;
+		hw_cfg.dspp[i] = hw_dspp;
+	}
+
+	catalog = get_kms(&sde_crtc->base)->catalog;
+	hw_cfg.broadcast_disabled = catalog->dma_cfg.broadcast_disabled;
+
+	for (i = 0; i < num_mixers; i++) {
+		hw_lm = sde_crtc->mixers[i].hw_lm;
+		hw_dspp = sde_crtc->mixers[i].hw_dspp;
+		if (!hw_lm || !hw_dspp || !hw_dspp->ops.setup_pcc)
+			continue;
+
+		hw_cfg.ctl = sde_crtc->mixers[i].hw_ctl;
+		hw_cfg.mixer_info = hw_lm;
+		hw_cfg.displayh = num_mixers * hw_lm->cfg.out_width;
+		hw_cfg.displayv = hw_lm->cfg.out_height;
+		hw_dspp->ops.setup_pcc(hw_dspp, &hw_cfg);
+	}
+
+	return true;
+}
+#endif
+
 static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 				   struct sde_crtc *sde_crtc)
 {
@@ -1570,8 +1639,29 @@ static void sde_cp_crtc_setfeature(struct sde_cp_node *prop_node,
 		hw_cfg.dspp[i] = hw_dspp;
 	}
 
-	if (prop_node->feature == SDE_CP_CRTC_DSPP_PCC)
-		return;
+#ifdef CONFIG_NOTHING
+	if (prop_node->feature == SDE_CP_CRTC_DSPP_PCC) {
+		struct drm_msm_pcc *pcc_cfg = hw_cfg.payload;
+
+		if (feature_enabled && pcc_cfg &&
+			hw_cfg.len == sizeof(save_pcc)) {
+			memcpy(&save_pcc, pcc_cfg, sizeof(save_pcc));
+			pcc_skippable = !(pcc_cfg->r.c == 0 &&
+					  pcc_cfg->g.c == 0 &&
+					  pcc_cfg->b.c == 0);
+		} else {
+			pcc_skippable = false;
+		}
+
+		if (pcc_skippable && sde_is_fod_pressed(&sde_crtc->base)) {
+			hw_cfg.payload = NULL;
+			hw_cfg.len = 0;
+			skip_pcc = true;
+		} else {
+			skip_pcc = false;
+		}
+	}
+#endif
 
 	if ((prop_node->feature >= SDE_CP_CRTC_MAX_FEATURES) ||
 			set_crtc_feature_wrappers[prop_node->feature] == NULL) {
@@ -2031,9 +2121,17 @@ void sde_cp_crtc_apply_properties(struct drm_crtc *crtc)
 	}
 
 	mutex_lock(&sde_crtc->crtc_cp_lock);
+
 	_sde_clear_ltm_merge_mode(sde_crtc);
 
-	if (list_empty(&sde_crtc->dirty_list) &&
+#ifdef CONFIG_NOTHING
+	/* FOD pressed/released: re-apply or skip PCC even if nothing is dirty */
+	if (sde_cp_crtc_update_pcc(crtc))
+		set_dspp_flush = true;
+#endif
+
+	if (!set_dspp_flush &&
+		list_empty(&sde_crtc->dirty_list) &&
 			list_empty(&sde_crtc->ad_dirty) &&
 			list_empty(&sde_crtc->ad_active) &&
 			list_empty(&sde_crtc->active_list)) {
@@ -4512,25 +4610,4 @@ void sde_cp_crtc_disable(struct drm_crtc *drm_crtc)
 			CRTC_PROP_DSPP_INFO);
 	mutex_unlock(&crtc->crtc_cp_lock);
 	vfree(info);
-}
-
-const struct drm_msm_pcc *sde_cp_crtc_get_pcc_cfg(struct drm_crtc *drm_crtc)
-{
-	struct drm_property_blob *blob = NULL;
-	struct sde_cp_node *prop_node = NULL;
-	struct sde_crtc *crtc;
-
-	crtc = to_sde_crtc(drm_crtc);
-
-	mutex_lock(&crtc->crtc_cp_lock);
-	list_for_each_entry(prop_node, &crtc->feature_list, feature_list) {
-		if (prop_node->feature == SDE_CP_CRTC_DSPP_PCC) {
-			blob = prop_node->blob_ptr;
-			break;
-		}
-	}
-
-	mutex_unlock(&crtc->crtc_cp_lock);
-
-	return blob ? blob->data : NULL;
 }

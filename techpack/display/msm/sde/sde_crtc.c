@@ -44,7 +44,7 @@
 #include "sde_vm.h"
 #include "dsi_display.h"
 
-#ifdef CONFIG_DRM_SDE_EXPO
+#if defined(CONFIG_DRM_SDE_EXPO) || defined(CONFIG_NOTHING)
 #include "dsi_display.h"
 #include "dsi_panel.h"
 #endif
@@ -1612,6 +1612,13 @@ static void _sde_crtc_blend_setup_mixer(struct drm_crtc *crtc,
 			for (i = 0; i < cstate->num_dim_layers; i++)
 				_sde_crtc_setup_dim_layer_cfg(crtc, sde_crtc,
 						mixer, &cstate->dim_layer[i]);
+
+#ifdef CONFIG_NOTHING
+			/* clear_dim_layer() wiped it, so always re-program when dirty */
+			if (cstate->fod_pressed)
+				_sde_crtc_setup_dim_layer_cfg(crtc, sde_crtc,
+						mixer, &cstate->fod_dim_layer);
+#endif
 			clear_bit(SDE_CRTC_DIRTY_DIM_LAYERS, cstate->dirty);
 		}
 #ifdef CONFIG_DRM_SDE_EXPO
@@ -4988,41 +4995,84 @@ static int _sde_crtc_check_zpos(struct drm_crtc_state *state,
 	return rc;
 }
 
-bool sde_crtc_is_fod_enabled(struct drm_crtc_state *state)
+#ifdef CONFIG_NOTHING
+/**
+ * sde_crtc_fod_atomic_check - build the FOD dim layer for this state.
+ * The layer lives in cstate by value and is recomputed on every check.
+ * It takes the stage of the FOD plane, which (and everything above it)
+ * moves up one stage. Any change marks the dim layers dirty so the mixer
+ * clears and re-programs them.
+ */
+static void sde_crtc_fod_atomic_check(struct drm_crtc *crtc,
+		struct sde_crtc_state *cstate, struct plane_state *pstates, int cnt)
 {
-	struct sde_crtc_state *cstate = to_sde_crtc_state(state);
+	struct drm_display_mode *mode = &cstate->base.adjusted_mode;
+	struct sde_hw_dim_layer layer;
+	struct dsi_display *display;
+	struct sde_kms *kms;
+	int i, stage, off, top;
+	int fod_idx = -1, max_stage = -1;
+	bool active = false;
+	u32 alpha;
 
-	return cstate->fod_dim_alpha != 0;
-}
+	memset(&layer, 0, sizeof(layer));
 
-static void
-sde_crtc_fod_atomic_check(struct sde_crtc_state *cstate,
-			  struct plane_state *pstates, int cnt)
-{
-	unsigned int fod_plane_idx, plane_idx;
-	u8 alpha = 0;
+	kms = _sde_crtc_get_kms(crtc);
+	display = get_main_display();
+	if (!kms || !kms->catalog || !display || !display->panel)
+		goto done;
 
-	for (plane_idx = 0; plane_idx < cnt; plane_idx++)
-		if (sde_plane_is_fod_layer(pstates[plane_idx].drm_pstate))
-			break;
-
-	fod_plane_idx = plane_idx;
-
-	if (fod_plane_idx != cnt) {
-		struct dsi_display *display = get_main_display();
-		alpha = dsi_panel_get_fod_dim_alpha(display->panel);
+	for (i = 0; i < cnt; i++) {
+		if (pstates[i].stage > max_stage)
+			max_stage = pstates[i].stage;
+		if (fod_idx < 0 &&
+			sde_plane_is_fod_layer(pstates[i].drm_pstate))
+			fod_idx = i;
 	}
 
-	cstate->fod_dim_alpha = alpha;
+	if (fod_idx < 0 && !dsi_panel_get_force_fod_ui(display->panel))
+		goto done;
 
-	for (plane_idx = 0; plane_idx < cnt; plane_idx++) {
-		if (plane_idx == fod_plane_idx)
-			continue;
+	if (display->panel->power_mode != SDE_MODE_DPMS_ON)
+		goto done;
 
-		sde_plane_set_fod_dim_alpha(pstates[plane_idx].sde_pstate,
-					    alpha);
+	alpha = dsi_panel_get_fod_dim_alpha(display->panel);
+	if (!alpha)
+		goto done;
+
+	off = kms->catalog->has_base_layer ? 0 : SDE_STAGE_0;
+	top = max_stage + 1 + off;
+	if (top > kms->catalog->mixer[0].sblk->maxblendstages) {
+		SDE_DEBUG("no free blend stage for fod dim layer\n");
+		goto done;
 	}
+
+	/* FOD plane: take its slot. force_fod_ui: sit above everything. */
+	stage = fod_idx >= 0 ? pstates[fod_idx].stage : max_stage + 1;
+
+	layer.flags = SDE_DRM_DIM_LAYER_INCLUSIVE;
+	layer.stage = stage + off;
+	layer.rect.x = 0;
+	layer.rect.y = 0;
+	layer.rect.w = mode->hdisplay;
+	layer.rect.h = mode->vdisplay;
+	layer.color_fill.color_3 = alpha;
+	active = true;
+
+	if (fod_idx >= 0)
+		for (i = 0; i < cnt; i++)
+			if (pstates[i].stage >= stage)
+				pstates[i].stage++;
+
+done:
+	if (active != cstate->fod_pressed ||
+		memcmp(&layer, &cstate->fod_dim_layer, sizeof(layer)))
+		set_bit(SDE_CRTC_DIRTY_DIM_LAYERS, cstate->dirty);
+
+	cstate->fod_pressed = active;
+	cstate->fod_dim_layer = layer;
 }
+#endif
 
 static int _sde_crtc_atomic_check_pstates(struct drm_crtc *crtc,
 		struct drm_crtc_state *state,
@@ -5053,7 +5103,9 @@ static int _sde_crtc_atomic_check_pstates(struct drm_crtc *crtc,
 	if (rc)
 		return rc;
 
-	sde_crtc_fod_atomic_check(cstate, pstates, cnt);
+#ifdef CONFIG_NOTHING
+	sde_crtc_fod_atomic_check(crtc, cstate, pstates, cnt);
+#endif
 
 #ifdef CONFIG_DRM_SDE_EXPO
 	rc = sde_crtc_exposure_atomic_check(cstate, pstates, cnt);

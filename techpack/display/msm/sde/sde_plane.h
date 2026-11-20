@@ -135,7 +135,6 @@ struct sde_plane_state {
 	uint32_t static_cache_state;
 
 	struct sde_hw_pipe_cdp_cfg cdp_cfg;
-	u8 fod_dim_alpha;
 };
 
 /**
@@ -352,8 +351,22 @@ bool sde_plane_is_cache_required(struct drm_plane *plane,
 void sde_plane_static_img_control(struct drm_plane *plane,
 		enum sde_crtc_cache_state state);
 
-int sde_plane_is_fod_layer(const struct drm_plane_state *drm_state);
+#ifdef CONFIG_NOTHING
+/**
+ * sde_plane_is_fod_layer - check whether the plane is flagged as FOD layer
+ * @drm_state: pointer to the drm plane state
+ */
+static inline int sde_plane_is_fod_layer(const struct drm_plane_state *drm_state)
+{
+	struct sde_plane_state *pstate;
 
-void sde_plane_set_fod_dim_alpha(struct sde_plane_state *pstatem, u8 alpha);
+	if (!drm_state)
+		return 0;
+
+	pstate = to_sde_plane_state(drm_state);
+
+	return !!sde_plane_get_property(pstate, PLANE_PROP_FOD);
+}
+#endif
 
 #endif /* _SDE_PLANE_H_ */
