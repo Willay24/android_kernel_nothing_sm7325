@@ -27,12 +27,13 @@
 #define BL_NODE_NAME_SIZE 32
 #define HDR10_PLUS_VSIF_TYPE_CODE      0x81
 #define MAX_BRIGHTNESS_LEVEL 255
-int finger_hbm_flag = 0;
-int hbm_mode_flag = 0;
-bool update_hbm_brightness = false;
 
 /* Autorefresh will occur after FRAME_CNT frames. Large values are unlikely */
 #define AUTOREFRESH_MAX_FRAME_CNT 6
+#ifdef CONFIG_NOTHING
+int finger_hbm_flag;
+int hbm_mode_flag;
+#endif
 
 #define SDE_DEBUG_CONN(c, fmt, ...) SDE_DEBUG("conn%d " fmt,\
 		(c) ? (c)->base.base.id : -1, ##__VA_ARGS__)
@@ -100,7 +101,7 @@ static inline struct sde_kms *_sde_connector_get_kms(struct drm_connector *conn)
 static int sde_backlight_device_update_status(struct backlight_device *bd)
 {
 	int brightness;
-	struct dsi_display *dsi_display;
+	struct dsi_display *dsi_display = NULL;
 	struct dp_panel *dp_panel;
 	struct sde_connector *c_conn = bl_get_data(bd);
 	int bl_lvl;
@@ -118,10 +119,6 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 		return -EINVAL;
 	}
 
-	if (!update_hbm_brightness) {
-		schedule_work(&c_conn->set_brightness_work);
-		return 0;
-	}
 	brightness = bd->props.brightness;
 
 	if ((bd->props.power != FB_BLANK_UNBLANK) ||
@@ -156,13 +153,17 @@ static int sde_backlight_device_update_status(struct backlight_device *bd)
 	/* map UI brightness into driver backlight level with rounding */
 	bl_lvl = mult_frac(brightness, bl_max_level, brightness_max_level);
 
-	dsi_display->panel->bl_config.real_bl_level = bl_lvl;
+#ifdef CONFIG_NOTHING
+	if (c_conn->connector_type == DRM_MODE_CONNECTOR_DSI) {
+		dsi_display->panel->bl_config.real_bl_level = bl_lvl;
 
-	/*if enable hbm_mode, set brightness to HBM brightness*/
-	if (finger_hbm_flag || hbm_mode_flag) {
-		SDE_ERROR("update hbm brightness\n");
-		bl_lvl = dsi_display->panel->bl_config.bl_hbm_level;
+		/* FOD HBM or manual HBM overrides the level */
+		if (brightness && (finger_hbm_flag || hbm_mode_flag)) {
+			SDE_DEBUG("update hbm brightness\n");
+			bl_lvl = dsi_display->panel->bl_config.bl_hbm_level;
+		}
 	}
+#endif
 
 	if (!bl_lvl && brightness)
 		bl_lvl = 1;
@@ -838,6 +839,102 @@ static int _sde_connector_update_hdr_metadata(struct sde_connector *c_conn,
 	return rc;
 }
 
+#ifdef CONFIG_NOTHING
+static bool sde_connector_fod_dim_layer_status(struct sde_connector *c_conn)
+{
+	if (!c_conn->encoder || !c_conn->encoder->crtc ||
+		!c_conn->encoder->crtc->state)
+		return false;
+
+	return to_sde_crtc_state(c_conn->encoder->crtc->state)->fod_pressed;
+}
+
+static int _sde_connector_update_finger_hbm_status(
+				struct drm_connector *connector)
+{
+	struct sde_connector *c_conn;
+	struct dsi_display *display;
+	struct dsi_backlight_config *bl;
+	bool is_aosp, status = false, want;
+
+	if (!connector) {
+		SDE_ERROR("invalid argument\n");
+		return -EINVAL;
+	}
+
+	c_conn = to_sde_connector(connector);
+	display = (struct dsi_display *)c_conn->display;
+	if (!display || !display->panel) {
+		SDE_ERROR("invalid display %pK\n", display);
+		return -EINVAL;
+	}
+	bl = &display->panel->bl_config;
+
+	if (display->panel->power_mode == SDE_MODE_DPMS_OFF) {
+		finger_hbm_flag = 0;
+		return 0;
+	}
+
+	/*
+	 * HBM follows a single "wanted" state, requested by either:
+	 *  - finger_flag: connector property set by the Nothing HAL, or
+	 *  - fod_pressed: the FOD dim layer is active (AOSP-style HAL).
+	 * Either one turns FOD HBM on; both must be clear to turn it off.
+	 */
+	is_aosp = (!c_conn->fingerlayer_dirty && !c_conn->finger_flag);
+	if (is_aosp) {
+		status = sde_connector_fod_dim_layer_status(c_conn);
+		if (status == dsi_panel_get_fod_ui(display->panel))
+			return 0;
+		want = status;
+	} else {
+		if (!c_conn->fingerlayer_dirty &&
+			finger_hbm_flag == c_conn->finger_flag)
+			return 0;
+		want = !!c_conn->finger_flag;
+	}
+
+	/* don't enter FOD HBM if userspace brightness is already higher */
+	if (want && bl->real_bl_level >= bl->bl_hbm_level) {
+		c_conn->fingerlayer_dirty = false;
+		return 0;
+	}
+
+	finger_hbm_flag = is_aosp ? status : c_conn->finger_flag;
+
+	if (finger_hbm_flag) {
+		SDE_DEBUG("open hbm\n");
+		if ((c_conn->lp_mode == SDE_MODE_DPMS_LP1) ||
+			(c_conn->lp_mode == SDE_MODE_DPMS_LP2)) {
+			mutex_lock(&c_conn->lock);
+			c_conn->ops.set_power(connector, SDE_MODE_DPMS_ON, display);
+			mutex_unlock(&c_conn->lock);
+			c_conn->last_panel_power_mode = SDE_MODE_DPMS_ON;
+		}
+		if (c_conn->bl_device)
+			sde_backlight_device_update_status(c_conn->bl_device);
+	} else {
+		SDE_DEBUG("close hbm\n");
+		if (c_conn->bl_device)
+			sde_backlight_device_update_status(c_conn->bl_device);
+		if ((c_conn->lp_mode == SDE_MODE_DPMS_LP1) ||
+			(c_conn->lp_mode == SDE_MODE_DPMS_LP2)) {
+			mutex_lock(&c_conn->lock);
+			c_conn->ops.set_power(connector, c_conn->lp_mode, display);
+			mutex_unlock(&c_conn->lock);
+			c_conn->last_panel_power_mode = c_conn->lp_mode;
+		}
+	}
+
+	if (is_aosp)
+		dsi_panel_set_fod_ui(display->panel, finger_hbm_flag);
+	else
+		c_conn->fingerlayer_dirty = false;
+
+	return 0;
+}
+#endif
+
 static int _sde_connector_update_dirty_properties(
 				struct drm_connector *connector)
 {
@@ -889,164 +986,14 @@ static int _sde_connector_update_dirty_properties(
 		c_conn->bl_scale_dirty = false;
 	}
 
+
+#ifdef CONFIG_NOTHING
+	/* toggle FOD HBM if needed (runs on every commit) */
+	if (c_conn->connector_type == DRM_MODE_CONNECTOR_DSI)
+		_sde_connector_update_finger_hbm_status(connector);
+#endif
+
 	return 0;
-}
-
-static int _sde_connector_update_finger_hbm_status(
-				struct drm_connector *connector)
-{
-	bool status;
-	struct sde_connector *c_conn;
-	struct sde_connector_state *c_state;
-	struct dsi_display * display;
-
-	if (!connector) {
-		SDE_ERROR("invalid argument\n");
-		return -EINVAL;
-	}
-
-	c_conn = to_sde_connector(connector);
-	c_state = to_sde_connector_state(connector->state);
-
-	display = (struct dsi_display *) c_conn->display;
-	if (!display || !display->panel) {
-		SDE_ERROR("Invalid params(s) dsi_display %pK, panel %pK\n",
-					display, ((display) ? display->panel : NULL));
-		return -EINVAL;
-	}
-
-	status = sde_crtc_is_fod_enabled(connector->state->crtc->state);
-	if (status == dsi_panel_get_fod_ui(display->panel)) {
-		return 0;
-	}
-
-	if (status && display->panel->cur_mode->timing.refresh_rate >= 120) {
-		sde_encoder_wait_for_event(c_conn->encoder, MSM_ENC_VBLANK);
-	}
-
-	if (display->panel->power_mode == SDE_MODE_DPMS_OFF) {
-		SDE_ERROR("panel in power off\n");
-		return 0;
-	}
-
-	SDE_ATRACE_BEGIN("_sde_connector_update_finger_hbm_statuss");
-	finger_hbm_flag = status;
-	if (finger_hbm_flag) {
-		SDE_ERROR("open hbm");
-		if ((c_conn->lp_mode == SDE_MODE_DPMS_LP1) ||
-			(c_conn->lp_mode == SDE_MODE_DPMS_LP2)) {
-			mutex_lock(&c_conn->lock);
-			c_conn->ops.set_power(connector, SDE_MODE_DPMS_ON, display);
-			mutex_unlock(&c_conn->lock);
-			c_conn->last_panel_power_mode = SDE_MODE_DPMS_ON;
-		}
-		update_hbm_brightness = true;
-		sde_backlight_device_update_status(c_conn->bl_device);
-		update_hbm_brightness = false;
-		/*wait for VBLANK */
-		sde_encoder_wait_for_event(c_conn->encoder, MSM_ENC_VBLANK);
-	} else {
-		SDE_ERROR("close hbm");
-		update_hbm_brightness = true;
-		sde_backlight_device_update_status(c_conn->bl_device);
-		update_hbm_brightness = false;
-		/*wait for VBLANK */
-		sde_encoder_wait_for_event(c_conn->encoder, MSM_ENC_VBLANK);
-		if ((c_conn->lp_mode == SDE_MODE_DPMS_LP1) ||
-			(c_conn->lp_mode == SDE_MODE_DPMS_LP2)) {
-			mutex_lock(&c_conn->lock);
-			c_conn->ops.set_power(connector, c_conn->lp_mode, display);
-			mutex_unlock(&c_conn->lock);
-			c_conn->last_panel_power_mode = c_conn->lp_mode;
-		}
-	}
-
-	dsi_panel_set_fod_ui(display->panel, finger_hbm_flag);
-	SDE_ATRACE_END("_sde_connector_update_finger_hbm_statuss");
-	return 0;
-}
-
-static void _sde_connector_set_brightness_work(struct work_struct *work)
-{
-	struct sde_connector *c_conn;
-	struct backlight_device *bd;
-	int brightness;
-	struct dsi_display *display;
-	int bl_lvl;
-	struct drm_event event;
-	int rc = 0;
-	struct sde_kms *sde_kms;
-	struct sde_vm_ops *vm_ops;
-
-	c_conn = container_of(work, struct sde_connector, set_brightness_work);
-	if (!c_conn) {
-		SDE_ERROR("not able to get connector object\n");
-		return;
-	}
-	bd = c_conn->bl_device;
-
-	//SDE_ATRACE_BEGIN("_sde_connector_set_brightness_work");
-	sde_kms = _sde_connector_get_kms(&c_conn->base);
-	if (!sde_kms) {
-		SDE_ERROR("invalid kms\n");
-		return;
-	}
-
-	brightness = bd->props.brightness;
-
-	if ((bd->props.power != FB_BLANK_UNBLANK) ||
-			(bd->props.state & BL_CORE_FBBLANK) ||
-			(bd->props.state & BL_CORE_SUSPENDED))
-		brightness = 0;
-
-	display = (struct dsi_display *) c_conn->display;
-	if (brightness > display->panel->bl_config.bl_max_level)
-		brightness = display->panel->bl_config.bl_max_level;
-	if (brightness > c_conn->thermal_max_brightness)
-		brightness = c_conn->thermal_max_brightness;
-
-	/* map UI brightness into driver backlight level with rounding */
-	bl_lvl = mult_frac(brightness, display->panel->bl_config.bl_max_level,
-			display->panel->bl_config.brightness_max_level);
-
-	/*if enable hbm_mode, set brightness to HBM brightness*/
-	if (finger_hbm_flag || hbm_mode_flag) {
-		SDE_ERROR("update hbm brightness\n");
-		bl_lvl = display->panel->bl_config.bl_hbm_level;
-	}
-
-	if (!bl_lvl && brightness)
-		bl_lvl = 1;
-
-	if (!c_conn->allow_bl_update) {
-		c_conn->unset_bl_level = bl_lvl;
-		return;
-	}
-
-	sde_vm_lock(sde_kms);
-
-	vm_ops = sde_vm_get_ops(sde_kms);
-	if (vm_ops && vm_ops->vm_owns_hw && !vm_ops->vm_owns_hw(sde_kms)) {
-		SDE_DEBUG("skipping bl update due to HW unavailablity\n");
-		goto done;
-	}
-
-	if (c_conn->ops.set_backlight) {
-		/* skip notifying user space if bl is 0 */
-		if (brightness != 0) {
-			event.type = DRM_EVENT_SYS_BACKLIGHT;
-			event.length = sizeof(u32);
-			msm_mode_object_event_notify(&c_conn->base.base,
-				c_conn->base.dev, &event, (u8 *)&brightness);
-		}
-		rc = c_conn->ops.set_backlight(&c_conn->base,
-				c_conn->display, bl_lvl);
-		c_conn->unset_bl_level = 0;
-	}
-
-done:
-	sde_vm_unlock(sde_kms);
-	//SDE_ATRACE_END("_sde_connector_set_brightness_work");
 }
 
 struct sde_connector_dyn_hdr_metadata *sde_connector_get_dyn_hdr_meta(
@@ -1096,14 +1043,6 @@ int sde_connector_pre_kickoff(struct drm_connector *connector)
 	if (rc) {
 		SDE_EVT32(connector->base.id, SDE_EVTLOG_ERROR);
 		goto end;
-	}
-
-	if (c_conn->connector_type == DRM_MODE_CONNECTOR_DSI) {
-		//only dsi panel need open hbm
-		rc = _sde_connector_update_finger_hbm_status(connector);
-		if (rc) {
-			SDE_ERROR("update hbm status failed\n");
-		}
 	}
 
 	if (!c_conn->ops.pre_kickoff)
@@ -1790,6 +1729,16 @@ static int sde_connector_atomic_set_property(struct drm_connector *connector,
 		msm_property_set_dirty(&c_conn->property_info,
 				&c_state->property_state, idx);
 		break;
+
+#ifdef CONFIG_NOTHING
+	case CONNECTOR_PROP_FINGER_FLAG:
+		SDE_DEBUG_CONN(c_conn, "set finger flag: %llu\n", val);
+		if (c_conn->finger_flag != val) {
+			c_conn->finger_flag = val;
+			c_conn->fingerlayer_dirty = true;
+		}
+		break;
+#endif
 	default:
 		break;
 	}
@@ -3071,6 +3020,13 @@ static int _sde_connector_install_properties(struct drm_device *dev,
 	c_conn->bl_scale = MAX_BL_SCALE_LEVEL;
 	c_conn->bl_scale_sv = MAX_SV_BL_SCALE_LEVEL;
 
+#ifdef CONFIG_NOTHING
+	msm_property_install_range(&c_conn->property_info, "finger_flag",
+		0x0, 0, 255, 0, CONNECTOR_PROP_FINGER_FLAG);
+	c_conn->fingerlayer_dirty = false;
+	c_conn->finger_flag = 0;
+#endif
+
 	if (connector_type == DRM_MODE_CONNECTOR_DisplayPort)
 		msm_property_install_range(&c_conn->property_info,
 			"supported_colorspaces",
@@ -3143,35 +3099,31 @@ static ssize_t twm_enable_show(struct device *device,
 	return scnprintf(buf, PAGE_SIZE, "%d\n", sde_conn->twm_en);
 }
 
+#ifdef CONFIG_NOTHING
 static ssize_t hbm_mode_store(struct device *device,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
-	int rc = 0;
-	unsigned long hbm_mode;
 	struct drm_connector *conn;
 	struct sde_connector *sde_conn;
+	unsigned long hbm_mode;
+	int rc;
 
 	conn = dev_get_drvdata(device);
-	if (!conn) {
-		SDE_ERROR("invalid argument\n");
-		return count;
-	}
+	if (!conn)
+		return -EINVAL;
+
 	sde_conn = to_sde_connector(conn);
-	if(sde_conn->connector_type != DRM_MODE_CONNECTOR_DSI) {
-		SDE_ERROR("invalid argument\n");
-		return count;
-	}
+	if (sde_conn->connector_type != DRM_MODE_CONNECTOR_DSI)
+		return -EINVAL;
 
 	rc = kstrtoul(buf, 0, &hbm_mode);
 	if (rc)
 		return rc;
 
-	if (hbm_mode)
-		hbm_mode_flag = 1;
-	else
-		hbm_mode_flag = 0;
+	hbm_mode_flag = hbm_mode ? 1 : 0;
 
-	sde_backlight_device_update_status(sde_conn->bl_device);
+	if (sde_conn->bl_device)
+		sde_backlight_device_update_status(sde_conn->bl_device);
 
 	return count;
 }
@@ -3179,25 +3131,25 @@ static ssize_t hbm_mode_store(struct device *device,
 static ssize_t hbm_mode_show(struct device *device,
 	struct device_attribute *attr, char *buf)
 {
-	return sprintf(buf, "%d\n", hbm_mode_flag);
+	return scnprintf(buf, PAGE_SIZE, "%d\n", hbm_mode_flag);
 }
 
-static ssize_t tx_cmd_store(struct device *device,
-	struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t _sde_connector_tx_cmd(struct device *device,
+		const char *buf, size_t count)
 {
 	struct drm_connector *connector;
-	struct sde_connector *c_conn = NULL;
+	struct sde_connector *c_conn;
 	struct sde_vm_ops *vm_ops;
 	struct sde_kms *sde_kms;
-	char *input, *token, *input_copy, *input_dup = NULL;
-	const char *delim = " ";
+	char *input, *input_copy, *input_dup, *token;
 	char buffer[MAX_CMD_PAYLOAD_SIZE] = {0};
+	const char *delim = " ";
 	int rc = 0, strtoint = 0;
 	u32 buf_size = 0;
 
 	connector = dev_get_drvdata(device);
 	if (!connector) {
-		SDE_ERROR("invalid argument(s), conn %d\n", connector != NULL);
+		SDE_ERROR("invalid argument, connector is NULL\n");
 		return -EINVAL;
 	}
 	c_conn = to_sde_connector(connector);
@@ -3217,24 +3169,14 @@ static ssize_t tx_cmd_store(struct device *device,
 	input = kzalloc(count + 1, GFP_KERNEL);
 	if (!input)
 		return -ENOMEM;
+	memcpy(input, buf, count);
 
-	vm_ops = sde_vm_get_ops(sde_kms);
-	sde_vm_lock(sde_kms);
-	if (vm_ops && vm_ops->vm_owns_hw && !vm_ops->vm_owns_hw(sde_kms)) {
-		SDE_ERROR("op not supported due to HW unavailablity\n");
-		rc = -EOPNOTSUPP;
-		goto end;
-	}
-
-	strncpy(input, buf, count);
-	input[count] = '\0';
-
-	SDE_ERROR("Command requested for transfer to panel: %s\n", input);
+	SDE_DEBUG("Command requested for transfer to panel: %s\n", input);
 
 	input_copy = kstrdup(input, GFP_KERNEL);
 	if (!input_copy) {
-		rc = -ENOMEM;
-		goto end;
+		kfree(input);
+		return -ENOMEM;
 	}
 
 	input_dup = input_copy;
@@ -3243,7 +3185,7 @@ static ssize_t tx_cmd_store(struct device *device,
 		rc = kstrtoint(token, 0, &strtoint);
 		if (rc) {
 			SDE_ERROR("input buffer conversion failed\n");
-			goto end1;
+			goto end;
 		}
 
 		buffer[buf_size++] = (strtoint & 0xff);
@@ -3251,14 +3193,24 @@ static ssize_t tx_cmd_store(struct device *device,
 			SDE_ERROR("buffer size exceeding the limit %d\n",
 					MAX_CMD_PAYLOAD_SIZE);
 			rc = -EFAULT;
-			goto end1;
+			goto end;
 		}
 		token = strsep(&input_copy, delim);
 	}
-	SDE_ERROR("command packet size in bytes: %u\n", buf_size);
+
+	SDE_DEBUG("command packet size in bytes: %u\n", buf_size);
 	if (!buf_size) {
 		rc = -EFAULT;
-		goto end1;
+		goto end;
+	}
+
+	vm_ops = sde_vm_get_ops(sde_kms);
+	sde_vm_lock(sde_kms);
+	if (vm_ops && vm_ops->vm_owns_hw && !vm_ops->vm_owns_hw(sde_kms)) {
+		SDE_ERROR("op not supported due to HW unavailability\n");
+		sde_vm_unlock(sde_kms);
+		rc = -EOPNOTSUPP;
+		goto end;
 	}
 
 	mutex_lock(&c_conn->lock);
@@ -3266,59 +3218,63 @@ static ssize_t tx_cmd_store(struct device *device,
 			buf_size);
 	c_conn->last_cmd_tx_sts = !rc ? true : false;
 	mutex_unlock(&c_conn->lock);
-
-	rc = count;
-end1:
-	kfree(input_dup);
-end:
 	sde_vm_unlock(sde_kms);
-	kfree(input);
-	return rc;
 
+	if (!rc)
+		rc = count;
+end:
+	kfree(input_dup);
+	kfree(input);
+
+	return rc;
+}
+
+static ssize_t tx_cmd_store(struct device *device,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	return _sde_connector_tx_cmd(device, buf, count);
 }
 
 static ssize_t tx_cmd_show(struct device *device,
 	struct device_attribute *attr, char *buf)
 {
 	struct drm_connector *connector;
-	struct sde_connector *c_conn = NULL;
-	int rc = 0;
+	struct sde_connector *c_conn;
+	ssize_t rc;
 
 	connector = dev_get_drvdata(device);
 	if (!connector) {
-		SDE_ERROR("invalid argument, conn is NULL\n");
+		SDE_ERROR("invalid argument, connector is NULL\n");
 		return -EINVAL;
 	}
-
 	c_conn = to_sde_connector(connector);
 
 	mutex_lock(&c_conn->lock);
-	rc = sprintf(buf, "last_cmd_tx_sts:0x%x\n", c_conn->last_cmd_tx_sts);
+	rc = scnprintf(buf, PAGE_SIZE, "last_cmd_tx_sts:%d\n",
+			c_conn->last_cmd_tx_sts);
 	mutex_unlock(&c_conn->lock);
-
-	SDE_ERROR("output: %s\n", c_conn->last_cmd_tx_sts);
 
 	return rc;
 }
 
-static ssize_t rx_cmd_store(struct device *device,
-	struct device_attribute *attr, const char *buf, size_t count)
+static ssize_t _sde_connector_rx_cmd(struct device *device,
+		const char *buf, size_t count)
 {
 	struct drm_connector *connector;
-	struct sde_connector *c_conn = NULL;
-	char *input, *token, *input_copy, *input_dup = NULL;
-	const char *delim = " ";
+	struct sde_connector *c_conn;
+	char *input, *input_copy, *input_dup, *token;
 	unsigned char buffer[MAX_CMD_PAYLOAD_SIZE] = {0};
+	const char *delim = " ";
 	int rc = 0, strtoint = 0;
 	u32 buf_size = 0;
 
 	connector = dev_get_drvdata(device);
 	if (!connector) {
-		SDE_ERROR("invalid argument(s), conn %d\n", connector != NULL);
+		SDE_ERROR("invalid argument, connector is NULL\n");
 		return -EINVAL;
 	}
-
 	c_conn = to_sde_connector(connector);
+
 	if (!c_conn->ops.cmd_receive) {
 		SDE_ERROR("no cmd receive support for connector name %s\n",
 				c_conn->name);
@@ -3331,17 +3287,14 @@ static ssize_t rx_cmd_store(struct device *device,
 	input = kzalloc(count + 1, GFP_KERNEL);
 	if (!input)
 		return -ENOMEM;
+	memcpy(input, buf, count);
 
-	strncpy(input, buf, count);
-
-	input[count] = '\0';
-
-	SDE_ERROR("Command requested for rx from panel: %s\n", input);
+	SDE_DEBUG("Command requested for rx from panel: %s\n", input);
 
 	input_copy = kstrdup(input, GFP_KERNEL);
 	if (!input_copy) {
-		rc = -ENOMEM;
-		goto end;
+		kfree(input);
+		return -ENOMEM;
 	}
 
 	input_dup = input_copy;
@@ -3350,7 +3303,7 @@ static ssize_t rx_cmd_store(struct device *device,
 		rc = kstrtoint(token, 0, &strtoint);
 		if (rc) {
 			SDE_ERROR("input buffer conversion failed\n");
-			goto end1;
+			goto end;
 		}
 
 		buffer[buf_size++] = (strtoint & 0xff);
@@ -3358,7 +3311,7 @@ static ssize_t rx_cmd_store(struct device *device,
 			SDE_ERROR("buffer size = %d exceeding the limit %d\n",
 					buf_size, MAX_CMD_PAYLOAD_SIZE);
 			rc = -EFAULT;
-			goto end1;
+			goto end;
 		}
 		token = strsep(&input_copy, delim);
 	}
@@ -3366,119 +3319,118 @@ static ssize_t rx_cmd_store(struct device *device,
 	if (!buffer[0] || buffer[0] > MAX_CMD_RECEIVE_SIZE) {
 		SDE_ERROR("invalid rx length\n");
 		rc = -EFAULT;
-		goto end1;
+		goto end;
 	}
 
-	SDE_ERROR("command packet size in bytes: %u, rx len: %u\n",
-			buf_size, buffer[0]);
-	if (!buf_size) {
+	if (buf_size < 2) {
 		rc = -EFAULT;
-		goto end1;
+		goto end;
 	}
+
+	SDE_DEBUG("command packet size in bytes: %u, rx len: %u\n",
+			buf_size, buffer[0]);
 
 	mutex_lock(&c_conn->lock);
-	c_conn->rx_len = c_conn->ops.cmd_receive(c_conn->display, buffer + 1,
-			buf_size - 1, c_conn->cmd_rx_buf, buffer[0]);
+	c_conn->rx_len = c_conn->ops.cmd_receive(c_conn->display,
+			(const char *)(buffer + 1), buf_size - 1,
+			c_conn->cmd_rx_buf, buffer[0]);
 	mutex_unlock(&c_conn->lock);
 
-	if (c_conn->rx_len <= 0)
-		rc = -EINVAL;
-	else
-		rc = count;
-end1:
-	kfree(input_dup);
+	rc = (c_conn->rx_len <= 0) ? -EINVAL : count;
 end:
+	kfree(input_dup);
 	kfree(input);
+
 	return rc;
+}
 
-
+static ssize_t rx_cmd_store(struct device *device,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+	return _sde_connector_rx_cmd(device, buf, count);
 }
 
 static ssize_t rx_cmd_show(struct device *device,
 	struct device_attribute *attr, char *buf)
 {
 	struct drm_connector *connector;
-	struct sde_connector *c_conn = NULL;
-	char *strs = NULL;
-	char *strs_temp = NULL;
-	int i = 0, n = 0, left_size = 0;
+	struct sde_connector *c_conn;
+	ssize_t len = 0;
+	int i;
 
 	connector = dev_get_drvdata(device);
 	if (!connector) {
-		SDE_ERROR("invalid argument, conn is NULL\n");
+		SDE_ERROR("invalid argument, connector is NULL\n");
 		return -EINVAL;
 	}
-
 	c_conn = to_sde_connector(connector);
+
 	if (c_conn->rx_len <= 0 || c_conn->rx_len > MAX_CMD_RECEIVE_SIZE) {
-		SDE_ERROR("no valid data from panel\n");
+		SDE_DEBUG("no valid data from panel\n");
 		return -EINVAL;
 	}
-
-	/*
-	 * Rx data was stored as HEX value in rx buffer,
-	 * convert 1 HEX value to strings for display, need 5 bytes.
-	 * for example: HEX value 0xFF, converted to strings, should be '0',
-	 * 'x','F','F' and 1 space.
-	 */
-	left_size = c_conn->rx_len * 5 + 1;
-	strs = kzalloc(left_size, GFP_KERNEL);
-	if (!strs)
-		return -ENOMEM;
-	strs_temp = strs;
 
 	mutex_lock(&c_conn->lock);
-	for (i = 0; i < c_conn->rx_len; i++) {
-		n = scnprintf(strs_temp, left_size, "0x%.2x ",
-			     c_conn->cmd_rx_buf[i]);
-		strs_temp += n;
-		left_size -= n;
-	}
+	for (i = 0; i < c_conn->rx_len && len < PAGE_SIZE - 6; i++)
+		len += scnprintf(buf + len, PAGE_SIZE - len, "0x%.2x ",
+				c_conn->cmd_rx_buf[i]);
+	len += scnprintf(buf + len, PAGE_SIZE - len, "\n");
 	mutex_unlock(&c_conn->lock);
 
-	return sprintf(buf, "%s\n", strs);
+	return len;
 }
 
 static ssize_t panel_id_show(struct device *device,
 	struct device_attribute *attr, char *buf)
 {
-	const char *change_page_cmd = "0x15 0x01 0x00 0x01 0x00 0x00 0x02 0xFE 0x00";
-	const char *read_id_cmd = "0x01 0x06 0x01 0x00 0x01 0x00 0x00 0x01 0xDC";
+	const char *change_page_cmd =
+		"0x15 0x01 0x00 0x01 0x00 0x00 0x02 0xFE 0x00";
+	const char *read_id_cmd =
+		"0x01 0x06 0x01 0x00 0x01 0x00 0x00 0x01 0xDC";
 	struct drm_connector *connector;
-	struct sde_connector *c_conn = NULL;
-	int code_len = 44;
+	struct sde_connector *c_conn;
+	ssize_t rc;
 
 	connector = dev_get_drvdata(device);
 	if (!connector) {
-		SDE_ERROR("invalid argument, conn is NULL\n");
+		SDE_ERROR("invalid argument, connector is NULL\n");
 		return -EINVAL;
 	}
-
 	c_conn = to_sde_connector(connector);
 
-	tx_cmd_store(device, NULL, change_page_cmd, code_len);
+	rc = _sde_connector_tx_cmd(device, change_page_cmd,
+			strlen(change_page_cmd));
+	if (rc < 0)
+		return rc;
 
-	rx_cmd_store(device, NULL, read_id_cmd, code_len);
+	rc = _sde_connector_rx_cmd(device, read_id_cmd, strlen(read_id_cmd));
+	if (rc < 0)
+		return rc;
 
-	SDE_ERROR("ccc rx_cmd_show before c_conn->cmd_rx_buf[0] = 0x%.2x\n", c_conn->cmd_rx_buf[0]);
-
-	return sprintf(buf, "%d\n", c_conn->cmd_rx_buf[0]);
+	return scnprintf(buf, PAGE_SIZE, "%u\n", c_conn->cmd_rx_buf[0]);
 }
+#endif
 
 static DEVICE_ATTR_RO(panel_power_state);
 static DEVICE_ATTR_RW(twm_enable);
+
+#ifdef CONFIG_NOTHING
 static DEVICE_ATTR_RW(hbm_mode);
 static DEVICE_ATTR_RW(tx_cmd);
 static DEVICE_ATTR_RW(rx_cmd);
 static DEVICE_ATTR_RO(panel_id);
+#endif
 
 static struct attribute *sde_connector_dev_attrs[] = {
 	&dev_attr_panel_power_state.attr,
 	&dev_attr_twm_enable.attr,
+
+#ifdef CONFIG_NOTHING
 	&dev_attr_hbm_mode.attr,
 	&dev_attr_tx_cmd.attr,
 	&dev_attr_rx_cmd.attr,
 	&dev_attr_panel_id.attr,
+#endif
 	NULL
 };
 
@@ -3680,7 +3632,6 @@ struct drm_connector *sde_connector_init(struct drm_device *dev,
 
 	INIT_DELAYED_WORK(&c_conn->status_work,
 			sde_connector_check_status_work);
-	INIT_WORK(&c_conn->set_brightness_work, _sde_connector_set_brightness_work);
 
 	return &c_conn->base;
 

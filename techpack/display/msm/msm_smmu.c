@@ -396,8 +396,14 @@ static struct device *msm_smmu_device_add(struct device *dev,
 
 	smmu->client = msm_smmu_get_smmu(compat);
 	if (IS_ERR_OR_NULL(smmu->client)) {
-		DRM_ERROR("unable to find domain %d compat: %s\n", domain,
-				compat);
+		/* NRT/rotator domains are not present on yupik, so skip quietly */
+		if (domain == MSM_SMMU_DOMAIN_NRT_UNSECURE ||
+		    domain == MSM_SMMU_DOMAIN_NRT_SECURE)
+			DRM_DEBUG("no NRT domain %d compat: %s\n", domain,
+					compat);
+		else
+			DRM_ERROR("unable to find domain %d compat: %s\n",
+					domain, compat);
 		return ERR_PTR(-ENODEV);
 	}
 
@@ -576,6 +582,7 @@ static struct platform_driver msm_smmu_driver = {
 		.name = "msmdrm_smmu",
 		.of_match_table = msm_smmu_dt_match,
 		.suppress_bind_attrs = true,
+		.probe_type = PROBE_FORCE_SYNCHRONOUS,
 	},
 };
 

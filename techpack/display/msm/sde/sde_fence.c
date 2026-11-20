@@ -79,7 +79,6 @@ uint32_t sde_sync_get_name_prefix(void *fence)
 /**
  * struct sde_fence - release/retire fence structure
  * @fence: base fence structure
- * @name: name of each fence- it is fence timeline + commit_count
  * @fence_list: list to associated this fence on timeline/context
  * @fd: fd attached to this fence - debugging purpose.
  */
