@@ -563,9 +563,14 @@ static int alloc_fd(unsigned start, unsigned flags)
 	return __alloc_fd(current->files, start, rlimit(RLIMIT_NOFILE), flags);
 }
 
+int __get_unused_fd_flags(unsigned int flags, unsigned long nofile)
+{
+	return __alloc_fd(current->files, 0, nofile, flags);
+}
+
 int get_unused_fd_flags(unsigned flags)
 {
-	return __alloc_fd(current->files, 0, rlimit(RLIMIT_NOFILE), flags);
+	return __get_unused_fd_flags(flags, rlimit(RLIMIT_NOFILE));
 }
 EXPORT_SYMBOL(get_unused_fd_flags);
 
@@ -802,6 +807,33 @@ SYSCALL_DEFINE3(close_range, unsigned int, fd, unsigned int, max_fd,
 }
 
 /*
+ * See close_fd_get_file() below, this variant assumes current->files->file_lock
+ * is held.
+ */
+int __close_fd_get_file(unsigned int fd, struct file **res)
+{
+	struct files_struct *files = current->files;
+	struct file *file;
+	struct fdtable *fdt;
+
+	fdt = files_fdtable(files);
+	if (fd >= fdt->max_fds)
+		goto out_err;
+	fd = array_index_nospec(fd, fdt->max_fds);
+	file = fdt->fd[fd];
+	if (!file)
+		goto out_err;
+	rcu_assign_pointer(fdt->fd[fd], NULL);
+	__put_unused_fd(files, fd);
+	get_file(file);
+	*res = file;
+	return 0;
+out_err:
+	*res = NULL;
+	return -ENOENT;
+}
+
+/*
  * variant of __close_fd that gets a ref on the file for later fput.
  * The caller must ensure that filp_close() called on the file, and then
  * an fput().
@@ -809,28 +841,13 @@ SYSCALL_DEFINE3(close_range, unsigned int, fd, unsigned int, max_fd,
 int close_fd_get_file(unsigned int fd, struct file **res)
 {
 	struct files_struct *files = current->files;
-	struct file *file;
-	struct fdtable *fdt;
+	int ret;
 
 	spin_lock(&files->file_lock);
-	fdt = files_fdtable(files);
-	if (fd >= fdt->max_fds)
-		goto out_unlock;
-	fd = array_index_nospec(fd, fdt->max_fds);
-	file = fdt->fd[fd];
-	if (!file)
-		goto out_unlock;
-	rcu_assign_pointer(fdt->fd[fd], NULL);
-	__put_unused_fd(files, fd);
+	ret = __close_fd_get_file(fd, res);
 	spin_unlock(&files->file_lock);
-	get_file(file);
-	*res = file;
-	return 0;
 
-out_unlock:
-	spin_unlock(&files->file_lock);
-	*res = NULL;
-	return -ENOENT;
+	return ret;
 }
 
 void do_close_on_exec(struct files_struct *files)
