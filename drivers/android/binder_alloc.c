@@ -308,26 +308,6 @@ static int binder_page_insert(struct binder_alloc *alloc,
 	return ret;
 }
 
-static struct page *binder_page_lookup(struct binder_alloc *alloc,
-				       unsigned long addr)
-{
-	struct mm_struct *mm = alloc->mm;
-	struct page *page;
-	long npages = 0;
-
-	/*
-	 * Find an existing page in the remote mm. If missing,
-	 * don't attempt to fault-in just propagate an error.
-	 */
-	mmap_read_lock(mm);
-	if (binder_alloc_is_mapped(alloc))
-		npages = get_user_pages_remote(current, mm, addr, 1, FOLL_NOFAULT,
-					       &page, NULL, NULL);
-	mmap_read_unlock(mm);
-
-	return npages > 0 ? page : NULL;
-}
-
 static int binder_install_single_page(struct binder_alloc *alloc,
 				      unsigned long index,
 				      unsigned long addr)
@@ -1073,7 +1053,7 @@ void binder_alloc_print_allocated(struct seq_file *m,
 	spin_lock(&alloc->lock);
 	for (n = rb_first(&alloc->allocated_buffers); n; n = rb_next(n)) {
 		buffer = rb_entry(n, struct binder_buffer, rb_node);
-		seq_printf(m, "  buffer %d: %tx size %zd:%zd:%zd %s\n",
+		seq_printf(m, "  buffer %d: %lx size %zd:%zd:%zd %s\n",
 			   buffer->debug_id,
 			   buffer->user_data - alloc->vm_start,
 			   buffer->data_size, buffer->offsets_size,
