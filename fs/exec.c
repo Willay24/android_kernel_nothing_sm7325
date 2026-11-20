@@ -24,6 +24,7 @@
  */
 
 #include <linux/kernel_read_file.h>
+#include <linux/io_uring.h>
 #include <linux/slab.h>
 #include <linux/file.h>
 #include <linux/fdtable.h>
@@ -1698,6 +1699,7 @@ static int do_execveat_common(int fd, struct filename *filename,
 	 * further execve() calls fail. */
 	current->flags &= ~PF_NPROC_EXCEEDED;
 
+	io_uring_task_cancel();
 	retval = unshare_files(&displaced);
 	if (retval)
 		goto out_ret;
