@@ -94,8 +94,6 @@ static const char * const iommu_ports[] = {
 #define SDE_KMS_MODESET_LOCK_TIMEOUT_US 500
 #define SDE_KMS_MODESET_LOCK_MAX_TRIALS 20
 
-struct drm_device *kcal_drm_dev = NULL;
-
 /**
  * sdecustom - enable certain driver customizations for sde clients
  *	Enabling this modifies the standard DRM behavior slightly and assumes
@@ -1234,12 +1232,14 @@ static void _sde_kms_release_splash_resource(struct sde_kms *sde_kms,
 {
 	struct msm_drm_private *priv;
 	struct sde_splash_display *splash_display;
+	struct sde_power_handle *phandle;
 	int i;
 
 	if (!sde_kms || !crtc)
 		return;
 
 	priv = sde_kms->dev->dev_private;
+	phandle = &priv->phandle;
 
 	if (!crtc->state->active || !sde_kms->splash_data.num_splash_displays)
 		return;
@@ -1266,9 +1266,9 @@ static void _sde_kms_release_splash_resource(struct sde_kms *sde_kms,
 	/* remove the votes if all displays are done with splash */
 	if (!sde_kms->splash_data.num_splash_displays) {
 		for (i = 0; i < SDE_POWER_HANDLE_DBUS_ID_MAX; i++)
-			sde_power_data_bus_set_quota(&priv->phandle, i,
+			sde_power_data_bus_set_quota(phandle, i,
 				SDE_POWER_HANDLE_ENABLE_BUS_AB_QUOTA,
-				SDE_POWER_HANDLE_ENABLE_BUS_IB_QUOTA);
+				phandle->ib_quota[i]);
 
 		pm_runtime_put_sync(sde_kms->dev->dev);
 	}
@@ -4076,7 +4076,6 @@ retry:
 			continue;
 
 		lp = sde_connector_get_lp(conn);
-#ifndef CONFIG_MACH_XIAOMI_REDWOOD
 		if (lp == SDE_MODE_DPMS_LP1) {
 			/* transition LP1->LP2 on pm suspend */
 			ret = sde_connector_set_property_for_commit(conn, state,
@@ -4088,7 +4087,6 @@ retry:
 				goto unlock;
 			}
 		}
-#endif
 
 		if (lp != SDE_MODE_DPMS_LP2) {
 			/* force CRTC to be inactive */
@@ -4890,7 +4888,6 @@ static int sde_kms_hw_init(struct msm_kms *kms)
 
 	sde_kms = to_sde_kms(kms);
 	dev = sde_kms->dev;
-	kcal_drm_dev = dev;
 	if (!dev || !dev->dev) {
 		SDE_ERROR("invalid device\n");
 		goto end;
