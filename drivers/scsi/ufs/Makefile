@@ -7,9 +7,14 @@ obj-$(CONFIG_SCSI_UFS_QCOM) += ufs-qcom.o
 obj-$(CONFIG_SCSI_UFSHCD) += ufshcd-core.o
 ufshcd-core-y				+= ufshcd.o ufs-sysfs.o
 ufshcd-core-$(CONFIG_SCSI_UFS_BSG)	+= ufs_bsg.o
-obj-$(CONFIG_SCSI_SKHPB) += ufshpb_skh.o
-ufshcd-core-$(CONFIG_UFSFEATURE) 	+= ufsfeature.o
-ufshcd-core-$(CONFIG_UFSHID) 		+= ufshid.o
+# All vendor feature objects are linked INTO ufshcd-core (NothingOS layout).
+# Do NOT also list them as obj-$(...) - that would link them twice.
+ufshcd-core-$(CONFIG_UFSFEATURE)	+= ufsfeature.o
+ufshcd-core-$(CONFIG_UFSHPB)		+= ufshpb.o
+ufshcd-core-$(CONFIG_UFSTW)		+= ufstw.o
+ufshcd-core-$(CONFIG_UFSHID)		+= ufshid.o
+ufshcd-core-$(CONFIG_SCSI_SKHPB)	+= ufshpb_skh.o
+ufshcd-core-$(CONFIG_OPLUS_FEATURE_PADL_STATISTICS) += ufs_signal_quality.o
 obj-$(CONFIG_SCSI_UFSHCD_PCI) += ufshcd-pci.o
 obj-$(CONFIG_SCSI_UFSHCD_PLATFORM) += ufshcd-pltfrm.o
 obj-$(CONFIG_SCSI_UFS_HISI) += ufs-hisi.o

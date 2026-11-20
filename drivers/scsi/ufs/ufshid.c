@@ -35,8 +35,19 @@
  * license terms, and distributes only under these terms.
  */
 
+#include <linux/proc_fs.h>
+#include <linux/uaccess.h>
+
 #include "ufshcd.h"
 #include "ufshid.h"
+
+/*
+ * OPLUS hybrid: /proc/ufsplus_ctrl/hidfn_enable gate.
+ * Writing 0 prevents the HID trigger from being turned ON via sysfs.
+ */
+bool hid_trigger_enable = true;
+static int create_hidfn_enable_proc(void);
+static void remove_hidfn_enable_proc(void);
 
 static int ufshid_create_sysfs(struct ufshid_dev *hid);
 
@@ -136,7 +147,7 @@ void ufshid_get_dev_info(struct ufsf_feature *ufsf, u8 *desc_buf)
 
 	ufsf->hid_dev = NULL;
 
-	if (!(get_unaligned_be32(desc_buf + DEVICE_DESC_PARAM_EXT_UFS_FEATURE_SUP) &
+	if (!(get_unaligned_be32(desc_buf + DEVICE_DESC_PARAM_EX_FEAT_SUP) &
 	      UFS_FEATURE_SUPPORT_HID_BIT)) {
 		INFO_MSG("bUFSExFeaturesSupport: HID not support");
 		goto err_out;
@@ -504,11 +515,15 @@ void ufshid_init(struct ufsf_feature *ufsf)
 	if (ret) {
 		ERR_MSG("sysfs init fail. so hid driver disabled");
 		kfree(hid);
+		ufsf->hid_dev = NULL;
 		ufshid_set_state(ufsf, HID_FAILED);
 		return;
 	}
 
 	INFO_MSG("UFS HID create sysfs finished");
+
+	/* OPLUS: /proc/ufsplus_ctrl/hidfn_enable (non-fatal if it fails) */
+	create_hidfn_enable_proc();
 
 	ufshid_set_state(ufsf, HID_PRESENT);
 }
@@ -574,6 +589,8 @@ void ufshid_remove(struct ufsf_feature *ufsf)
 	mutex_unlock(&hid->sysfs_lock);
 
 	cancel_delayed_work_sync(&hid->hid_trigger_work);
+
+	remove_hidfn_enable_proc();
 
 	kfree(hid);
 
@@ -659,6 +676,12 @@ static ssize_t ufshid_sysfs_store_trigger(struct ufshid_dev *hid,
 
 	if (val != 0 && val != 1)
 		return -EINVAL;
+
+	/* OPLUS hybrid: allow turning OFF always, block turning ON if gated */
+	if (val && !hid_trigger_enable) {
+		INFO_MSG("HID_trigger close!");
+		return -EINVAL;
+	}
 
 	INFO_MSG("HID_trigger %u", val);
 
@@ -999,4 +1022,59 @@ kobj_del:
 	INFO_MSG("kobject removed (%d)", err);
 	kobject_del(&hid->kobj);
 	return -EINVAL;
+}
+
+/*
+ * OPLUS: /proc/ufsplus_ctrl/hidfn_enable
+ *   echo 0 > hidfn_enable  -> HID trigger can no longer be turned ON
+ *   echo 1 > hidfn_enable  -> HID trigger allowed again
+ */
+static ssize_t hidfn_enable_write(struct file *filp, const char __user *ubuf,
+				  size_t cnt, loff_t *ppos)
+{
+	char buf[16] = { 0 };
+	unsigned long val;
+
+	if (!ufsf_para.ufsf)
+		return -EFAULT;
+	if (cnt >= sizeof(buf))
+		return -EINVAL;
+	if (copy_from_user(buf, ubuf, cnt))
+		return -EFAULT;
+	buf[cnt] = 0;
+
+	if (kstrtoul(buf, 0, &val))
+		return -EINVAL;
+	if (val > 1)
+		return -EINVAL;
+
+	hid_trigger_enable = val ? true : false;
+	INFO_MSG("hidfn_enable %d", hid_trigger_enable);
+
+	return cnt;
+}
+
+static const struct proc_ops hidfn_enable_ops = {
+	.proc_write = hidfn_enable_write,
+};
+
+static int create_hidfn_enable_proc(void)
+{
+	struct proc_dir_entry *d_entry;
+
+	if (!ufsf_para.ctrl_dir)
+		return -EFAULT;
+
+	d_entry = proc_create("hidfn_enable", S_IWUGO, ufsf_para.ctrl_dir,
+			      &hidfn_enable_ops);
+	if (!d_entry)
+		return -ENOMEM;
+
+	return 0;
+}
+
+static void remove_hidfn_enable_proc(void)
+{
+	if (ufsf_para.ctrl_dir)
+		remove_proc_entry("hidfn_enable", ufsf_para.ctrl_dir);
 }
