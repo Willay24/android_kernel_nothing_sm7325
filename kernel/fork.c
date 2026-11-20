@@ -26,6 +26,7 @@
 #include <linux/sched/rt.h>
 #include <linux/seq_file.h>
 #include <linux/rtmutex.h>
+#include <linux/io_uring.h>
 #include <linux/init.h>
 #include <linux/unistd.h>
 #include <linux/module.h>
@@ -751,6 +752,7 @@ void __put_task_struct(struct task_struct *tsk)
 	security_task_free(tsk);
 	exit_creds(tsk);
 	delayacct_tsk_free(tsk);
+	io_uring_free(tsk);
 	put_signal_struct(tsk->signal);
 	sched_core_free(tsk);
 
@@ -2008,7 +2010,11 @@ static __latent_entropy struct task_struct *copy_process(
 		goto bad_fork_cleanup_count;
 
 	delayacct_tsk_init(p);	/* Must remain after dup_task_struct() */
-	p->flags &= ~(PF_SUPERPRIV | PF_WQ_WORKER | PF_IDLE | PF_NO_SETAFFINITY);
+	p->flags &= ~(PF_SUPERPRIV | PF_WQ_WORKER | PF_IDLE | PF_NO_SETAFFINITY | PF_IO_WORKER);
+	if (args->io_thread) {
+		p->flags |= PF_IO_WORKER;
+		siginitsetinv(&p->blocked, sigmask(SIGKILL) | sigmask(SIGSTOP));
+	}
 	p->flags |= PF_FORKNOEXEC;
 	INIT_LIST_HEAD(&p->children);
 	INIT_LIST_HEAD(&p->sibling);
@@ -2205,6 +2211,10 @@ static __latent_entropy struct task_struct *copy_process(
 
 	p->pdeath_signal = 0;
 	INIT_LIST_HEAD(&p->thread_group);
+#ifdef CONFIG_IO_URING
+	p->io_uring = NULL;
+	p->pf_io_worker = NULL;
+#endif
 	p->task_works = NULL;
 
 	cgroup_threadgroup_change_begin(current);
@@ -2551,6 +2561,31 @@ long do_fork(unsigned long clone_flags,
 
 	return _do_fork(&args);
 }
+#endif
+
+#ifdef CONFIG_IO_WQ
+/*
+ * This is like kernel_clone(), but shaved down and tailored to just
+ * creating io_uring workers. It returns a created task, or an error pointer.
+ * The returned task is inactive, and the caller must fire it up through
+ * wake_up_new_task(p). All signals are blocked in the created task.
+ */
+struct task_struct *create_io_thread(int (*fn)(void *), void *arg, int node)
+{
+	unsigned long flags = CLONE_FS|CLONE_FILES|CLONE_SIGHAND|CLONE_THREAD|
+				CLONE_IO;
+	struct kernel_clone_args args = {
+		.flags		= ((lower_32_bits(flags) | CLONE_VM |
+				    CLONE_UNTRACED) & ~CSIGNAL),
+		.exit_signal	= (lower_32_bits(flags) & CSIGNAL),
+		.stack		= (unsigned long)fn,
+		.stack_size	= (unsigned long)arg,
+		.io_thread	= 1,
+	};
+
+	return copy_process(NULL, 0, node, &args);
+}
+
 #endif
 
 /*
