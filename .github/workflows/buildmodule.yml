@@ -67,7 +67,15 @@ jobs:
       - name: Install Build Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison flex libssl-dev libelf-dev libncurses-dev build-essential ccache zip unzip curl git
+          sudo apt-get install -y \
+            bc bison build-essential zstd flex gnupg gperf ccache \
+            lz4 libsdl1.2-dev libxml2-dev libxml2-utils pngcrush \
+            schedtool squashfs-tools xsltproc zlib1g-dev libncurses5-dev libelf-dev \
+            bzip2 git gcc g++ libssl-dev openssl python3-pip \
+            cpio binutils zip unzip curl device-tree-compiler e2fsprogs \
+            default-jre openjdk-21-jdk
+          dtc --version
+          command -v mke2fs keytool jarsigner
 
       - name: Setup KernelSU (if enabled)
         if: ${{ github.event.inputs.enable_kernelsu_next == 'yes' }}
