@@ -186,6 +186,15 @@ dtc_cpp_flags  = -Wp,-MMD,$(depfile).pre.tmp -nostdinc                    \
 		 $(addprefix -I,$(DTC_INCLUDE))                          \
 		 -undef -D__DTS__
 
+# Nothing Phone: expose Kconfig options to the DT preprocessor
+ifeq ($(CONFIG_NOTHING),y)
+dtc_cpp_flags += -DCONFIG_NOTHING
+endif
+
+ifeq ($(CONFIG_NOTHING_SPACEWAR),y)
+dtc_cpp_flags += -DCONFIG_NOTHING_SPACEWAR
+endif
+
 # Useful for describing the dependency of composite objects
 # Usage:
 #   $(call multi_depend, multi_used_targets, suffix_to_remove, suffix_to_add)
