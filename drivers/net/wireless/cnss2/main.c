@@ -70,6 +70,17 @@ struct cnss_driver_event {
 	void *data;
 };
 
+#ifdef CONFIG_NOTHING
+/* Wifi switch monitor */
+#define CNSS_PROBE_SUCCESS		1
+#define CNSS_PROBE_FAIL			2
+#define CNSS_LOAD_REGDB_SUCCESS		0
+#define CNSS_LOAD_BDF_SUCCESS		0
+static unsigned int cnssprobestate;
+static unsigned long cnss_load_regdb_state;
+static unsigned long cnss_load_bdf_state;
+#endif /* CONFIG_NOTHING */
+
 static void cnss_set_plat_priv(struct platform_device *plat_dev,
 			       struct cnss_plat_data *plat_priv)
 {
@@ -468,13 +479,26 @@ static int cnss_fw_mem_ready_hdlr(struct cnss_plat_data *plat_priv)
 
 	if (plat_priv->hds_enabled)
 		cnss_wlfw_bdf_dnld_send_sync(plat_priv, CNSS_BDF_HDS);
+#ifdef CONFIG_NOTHING
+	if (cnss_wlfw_bdf_dnld_send_sync(plat_priv, CNSS_BDF_REGDB))
+		clear_bit(CNSS_LOAD_REGDB_SUCCESS, &cnss_load_regdb_state);
+	else
+		set_bit(CNSS_LOAD_REGDB_SUCCESS, &cnss_load_regdb_state);
+#else
 	cnss_wlfw_bdf_dnld_send_sync(plat_priv, CNSS_BDF_REGDB);
+#endif /* CONFIG_NOTHING */
 
 	if (plat_priv->device_id == QCN7605_DEVICE_ID)
 		plat_priv->ctrl_params.bdf_type = CNSS_BDF_BIN;
 
 	ret = cnss_wlfw_bdf_dnld_send_sync(plat_priv,
 					   plat_priv->ctrl_params.bdf_type);
+#ifdef CONFIG_NOTHING
+	if (ret)
+		clear_bit(CNSS_LOAD_BDF_SUCCESS, &cnss_load_bdf_state);
+	else
+		set_bit(CNSS_LOAD_BDF_SUCCESS, &cnss_load_bdf_state);
+#endif /* CONFIG_NOTHING */
 	if (ret)
 		goto out;
 
@@ -3121,6 +3145,43 @@ static const struct of_device_id cnss_of_match_table[] = {
 };
 MODULE_DEVICE_TABLE(of, cnss_of_match_table);
 
+#ifdef CONFIG_NOTHING
+/* Wifi switch monitor */
+static ssize_t icnss_show_fw_ready(struct device_driver *driver, char *buf)
+{
+	bool firmware_ready = false;
+	bool bdfloadsuccess = false;
+	bool regdbloadsuccess = false;
+	bool cnssprobesuccess = false;
+
+	if (!plat_env) {
+		cnss_pr_err("icnss_show_fw_ready plat_env is NULL!\n");
+	} else {
+		firmware_ready = test_bit(CNSS_FW_READY,
+					  &plat_env->driver_state);
+		regdbloadsuccess = test_bit(CNSS_LOAD_REGDB_SUCCESS,
+					    &cnss_load_regdb_state);
+		bdfloadsuccess = test_bit(CNSS_LOAD_BDF_SUCCESS,
+					  &cnss_load_bdf_state);
+	}
+	cnssprobesuccess = (cnssprobestate == CNSS_PROBE_SUCCESS);
+
+	return sprintf(buf, "%s:%s:%s:%s",
+		       (firmware_ready ? "fwstatus_ready" : "fwstatus_not_ready"),
+		       (regdbloadsuccess ? "regdb_loadsuccess" : "regdb_loadfail"),
+		       (bdfloadsuccess ? "bdf_loadsuccess" : "bdf_loadfail"),
+		       (cnssprobesuccess ? "cnssprobe_success" : "cnssprobe_fail"));
+}
+
+static struct driver_attribute fw_ready_attr = {
+	.attr = {
+		.name = "firmware_ready",
+		.mode = 0444,
+	},
+	.show = icnss_show_fw_ready,
+};
+#endif /* CONFIG_NOTHING */
+
 static inline bool
 cnss_use_nv_mac(struct cnss_plat_data *plat_priv)
 {
@@ -3269,6 +3330,10 @@ retry:
 	if (ret < 0)
 		cnss_pr_err("CNSS genl init failed %d\n", ret);
 
+#ifdef CONFIG_NOTHING
+	cnssprobestate = CNSS_PROBE_SUCCESS;
+#endif /* CONFIG_NOTHING */
+
 	cnss_pr_info("Platform driver probed successfully.\n");
 
 	return 0;
@@ -3299,6 +3364,9 @@ reset_ctx:
 	platform_set_drvdata(plat_dev, NULL);
 	cnss_set_plat_priv(plat_dev, NULL);
 out:
+#ifdef CONFIG_NOTHING
+	cnssprobestate = CNSS_PROBE_FAIL;
+#endif /* CONFIG_NOTHING */
 	return ret;
 }
 
@@ -3343,14 +3411,24 @@ static int __init cnss_initialize(void)
 
 	cnss_debug_init();
 	ret = platform_driver_register(&cnss_platform_driver);
-	if (ret)
+	if (ret) {
 		cnss_debug_deinit();
+		return ret;
+	}
+#ifdef CONFIG_NOTHING
+	ret = driver_create_file(&cnss_platform_driver.driver, &fw_ready_attr);
+	if (ret)
+		cnss_pr_err("Failed to create firmware_ready, err = %d\n", ret);
+#endif /* CONFIG_NOTHING */
 
-	return ret;
+	return 0;
 }
 
 static void __exit cnss_exit(void)
 {
+#ifdef CONFIG_NOTHING
+	driver_remove_file(&cnss_platform_driver.driver, &fw_ready_attr);
+#endif /* CONFIG_NOTHING */
 	platform_driver_unregister(&cnss_platform_driver);
 	cnss_debug_deinit();
 }
