@@ -6,6 +6,7 @@
  * Copyright (C) 2002  Christoph Hellwig
  */
 
+#include <linux/mm_inline.h>
 #include <linux/mman.h>
 #include <linux/pagemap.h>
 #include <linux/syscalls.h>
@@ -318,6 +319,23 @@ static inline bool can_do_file_pageout(struct vm_area_struct *vma)
 		inode_permission(file_inode(vma->vm_file), MAY_WRITE) == 0;
 }
 
+static void madvise_cold_prep_page(struct page *page)
+{
+	test_and_clear_page_young(page);
+	if (!lru_gen_enabled()) {
+		ClearPageReferenced(page);
+		if (PageActive(page))
+			SetPageWorkingset(page);
+	}
+}
+
+static void madvise_pageout_prep_page(struct page *page)
+{
+	if (lru_gen_enabled())
+		__page_set_lru_refs(page, lru_refs_is_workingset(page_lru_refs(page)) ?
+				    LRU_REFS_WORKINGSET : 0);
+}
+
 static int madvise_cold_or_pageout_pte_range(pmd_t *pmd,
 				unsigned long addr, unsigned long end,
 				struct mm_walk *walk)
@@ -391,10 +409,10 @@ static int madvise_cold_or_pageout_pte_range(pmd_t *pmd,
 			tlb_remove_pmd_tlb_entry(tlb, pmd, addr);
 		}
 
-		ClearPageReferenced(page);
-		test_and_clear_page_young(page);
+		madvise_cold_prep_page(page);
 		if (pageout) {
 			if (!isolate_lru_page(page)) {
+				madvise_pageout_prep_page(page);
 				if (PageUnevictable(page))
 					putback_lru_page(page);
 				else
@@ -496,10 +514,10 @@ restart:
 		 * As a side effect, it makes confuse idle-page tracking
 		 * because they will miss recent referenced history.
 		 */
-		ClearPageReferenced(page);
-		test_and_clear_page_young(page);
+		madvise_cold_prep_page(page);
 		if (pageout) {
 			if (!isolate_lru_page(page)) {
+				madvise_pageout_prep_page(page);
 				if (PageUnevictable(page))
 					putback_lru_page(page);
 				else
