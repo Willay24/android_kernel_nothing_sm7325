@@ -462,18 +462,18 @@ SYSCALL_DEFINE3(finit_module, int, fd, const char __user *, uargs, int, flags)
 {
 	struct load_info info = { };
 	void *hdr = NULL;
-	loff_t size;
 	int err;
 
 	err = may_init_module();
 	if (err)
 		return err;
 
-	err = kernel_read_file_from_fd(fd, &hdr, &size, INT_MAX, READING_MODULE);
-	if (err)
+	err = kernel_read_file_from_fd(fd, 0, &hdr, INT_MAX, NULL,
+				       READING_MODULE);
+	if (err < 0)
 		return err;
 	info.hdr = hdr;
-	info.len = size;
+	info.len = err;
 
 	return load_module(&info, uargs, flags);
 }
