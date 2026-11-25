@@ -2,8 +2,14 @@
 #define __KSU_H_SEPOLICY
 
 #include "ss/policydb.h"
+#include <linux/version.h>
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+/* 5.10-style SELinux: selinux_state.policy is an RCU pointer to struct selinux_policy */
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0) || defined(SELINUX_HASHTAB_KEY_PARAMS)
+#define KSU_SELINUX_POLICY_RCU 1
+#endif
+
+#ifdef KSU_SELINUX_POLICY_RCU
 struct selinux_policy *ksu_dup_sepolicy(struct selinux_policy *old_pol);
 
 void ksu_destroy_sepolicy(struct selinux_policy *orig);

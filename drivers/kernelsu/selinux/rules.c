@@ -1,4 +1,4 @@
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+#ifdef KSU_SELINUX_POLICY_RCU
 #define SELINUX_POLICY_INSTEAD_SELINUX_SS
 #endif
 
@@ -28,7 +28,7 @@ static void reset_avc_cache(u32 seqno)
 #endif // #ifdef CONFIG_KSU_SUSFS
 }
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0)
+#ifndef KSU_SELINUX_POLICY_RCU
 
 #if defined(KSU_COMPAT_USE_SELINUX_STATE)
 static struct policydb *get_policydb(void) { return &selinux_state.ss->policydb; }
@@ -185,7 +185,7 @@ void apply_kernelsu_rules()
 		pr_info("SELinux permissive or disabled, apply rules!\n");
 	}
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+#ifdef KSU_SELINUX_POLICY_RCU
 	struct selinux_policy *pol, *old_pol;
 	mutex_lock(&selinux_state.policy_mutex);
 	old_pol = rcu_dereference_protected(selinux_state.policy, lockdep_is_held(&selinux_state.policy_mutex));
@@ -507,7 +507,7 @@ static int apply_one_sepolicy_cmd(struct policydb *db, const struct sepol_data *
 	}
 }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
+#ifdef KSU_SELINUX_POLICY_RCU
 int handle_sepolicy(void __user *user_data, u64 data_len)
 {
 	struct selinux_policy *pol, *old_pol;
