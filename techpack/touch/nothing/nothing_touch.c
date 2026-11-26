@@ -70,6 +70,8 @@ static long nothing_touch_dev_ioctl(struct file *file, unsigned int cmd,
 				    unsigned long arg)
 {
 	int ret = 0;
+	int result = 0;
+	bool has_result = false;
 	int buf[MAX_BUF_SIZE] = { 0, };
 	void __user *argp = (void __user *)arg;
 	struct nothing_touch_pdata *pdata;
@@ -110,19 +112,25 @@ static long nothing_touch_dev_ioctl(struct file *file, unsigned int cmd,
 
 	switch (user_cmd) {
 	case SET_CUR_VALUE:
-		if (touch_data->setModeValue)
-			buf[0] = touch_data->setModeValue(buf[1], buf[2]);
+		if (touch_data->setModeValue) {
+			result = touch_data->setModeValue(buf[1], buf[2]);
+			has_result = true;
+		}
 		break;
 	case GET_CUR_VALUE:
 	case GET_DEF_VALUE:
 	case GET_MIN_VALUE:
 	case GET_MAX_VALUE:
-		if (touch_data->getModeValue)
-			buf[0] = touch_data->getModeValue(buf[1], user_cmd);
+		if (touch_data->getModeValue) {
+			result = touch_data->getModeValue(buf[1], user_cmd);
+			has_result = true;
+		}
 		break;
 	case RESET_MODE:
-		if (touch_data->resetMode)
-			buf[0] = touch_data->resetMode(buf[1]);
+		if (touch_data->resetMode) {
+			result = touch_data->resetMode(buf[1]);
+			has_result = true;
+		}
 		break;
 	case GET_MODE_VALUE:
 		if (touch_data->getModeAll)
@@ -139,10 +147,19 @@ static long nothing_touch_dev_ioctl(struct file *file, unsigned int cmd,
 		break;
 	}
 
-	if (ret >= 0)
-		nothing_touch_notify_cmd(touch_data, user_cmd, buf);
-	else
+	/*
+	 * buf[0] still holds the touch id here, so the THP command mirror is
+	 * filled with the real request. The return value goes back to
+	 * userspace in buf[0] only afterwards.
+	 */
+	if (ret < 0)
 		pr_err("%s can't get data from touch driver\n", __func__);
+	else if (!(has_result && result < 0 &&
+		   (user_cmd == SET_CUR_VALUE || user_cmd == RESET_MODE)))
+		nothing_touch_notify_cmd(touch_data, user_cmd, buf);
+
+	if (has_result)
+		buf[0] = result;
 
 	mutex_unlock(&nothing_touch_dev.mutex);
 
@@ -384,9 +401,15 @@ void nothing_touch_record_event(u32 slot, bool down)
 	       (LAST_TOUCH_EVENTS_MAX - 1);
 
 	event = &events->touch_event_buf[head];
+
+	/* Invalidate first so a concurrent /proc reader never prints a
+	 * half-updated entry, then publish with release semantics.
+	 */
+	WRITE_ONCE(event->state, EVENT_INIT);
+	smp_wmb();
 	event->slot = slot;
 	event->touch_ns = ktime_get_real_ns();
-	WRITE_ONCE(event->state, down ? EVENT_DOWN : EVENT_UP);
+	smp_store_release(&event->state, down ? EVENT_DOWN : EVENT_UP);
 }
 EXPORT_SYMBOL_GPL(nothing_touch_record_event);
 
@@ -836,7 +859,7 @@ static int event_show(struct seq_file *m, void *v)
 	struct touch_event *event_info = v;
 	struct timespec64 ts;
 	struct rtc_time tm;
-	enum touch_state state = READ_ONCE(event_info->state);
+	enum touch_state state = smp_load_acquire(&event_info->state);
 
 	if (state == EVENT_INIT)
 		return 0;
