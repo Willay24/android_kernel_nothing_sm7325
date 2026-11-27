@@ -189,7 +189,7 @@ static int DATARMNET54418f934d(struct file *DATARMNET3cc114dce0,
 			       struct vm_area_struct *vma)
 {
 	vma->vm_ops = &DATARMNETfa4e968e7d;
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
+	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
 	vma->vm_private_data = DATARMNET3cc114dce0->private_data;
 	return (0xd2d + 202 - 0xdf7);
 }
@@ -197,7 +197,7 @@ static int DATARMNETc55748448d(struct file *DATARMNET3cc114dce0,
 			       struct vm_area_struct *vma)
 {
 	vma->vm_ops = &DATARMNETe9c0626068;
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
+	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
 	vma->vm_private_data = DATARMNET3cc114dce0->private_data;
 	return (0xd2d + 202 - 0xdf7);
 }
@@ -205,7 +205,7 @@ static int DATARMNET43c6d751a2(struct file *DATARMNET3cc114dce0,
 			       struct vm_area_struct *vma)
 {
 	vma->vm_ops = &DATARMNET9a89317a86;
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
+	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
 	vma->vm_private_data = DATARMNET3cc114dce0->private_data;
 	return (0xd2d + 202 - 0xdf7);
 }
@@ -213,7 +213,7 @@ static int DATARMNET7cc042bdf3(struct file *DATARMNET3cc114dce0,
 			       struct vm_area_struct *vma)
 {
 	vma->vm_ops = &DATARMNET5462c2ce60;
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
+	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
 	vma->vm_private_data = DATARMNET3cc114dce0->private_data;
 	return (0xd2d + 202 - 0xdf7);
 }
@@ -221,7 +221,7 @@ static int DATARMNET444e2eb654(struct file *DATARMNET3cc114dce0,
 			       struct vm_area_struct *vma)
 {
 	vma->vm_ops = &DATARMNET41944cc550;
-	vma->vm_flags |= VM_DONTEXPAND | VM_DONTDUMP;
+	vm_flags_set(vma, VM_DONTEXPAND | VM_DONTDUMP);
 	vma->vm_private_data = DATARMNET3cc114dce0->private_data;
 	return (0xd2d + 202 - 0xdf7);
 }
