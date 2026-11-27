@@ -1500,7 +1500,6 @@ EXPORT_SYMBOL(up_read);
 void up_write(struct rw_semaphore *sem)
 {
 	rwsem_release(&sem->dep_map, _RET_IP_);
-	trace_android_vh_rwsem_write_finished(sem);
 	__up_write(sem);
 }
 EXPORT_SYMBOL(up_write);
