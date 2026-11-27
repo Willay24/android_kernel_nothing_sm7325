@@ -570,7 +570,7 @@ static ssize_t dwc3_testmode_write(struct file *file,
 	struct dwc3		*dwc = s->private;
 	unsigned long		flags;
 	u32			testmode = 0;
-	char			buf[32];
+	char			buf[32] = {};
 	int			ret;
 
 	if (atomic_read(&dwc->in_lpm)) {
@@ -1395,9 +1395,8 @@ void dwc3_debugfs_init(struct dwc3 *dwc)
 
 	if (IS_ENABLED(CONFIG_USB_DWC3_DUAL_ROLE)) {
 		debugfs_create_file("mode", 0644, root, dwc,
-				     &dwc3_mode_fops);
-	}
-
+				    &dwc3_mode_fops);
+}
 	if (IS_ENABLED(CONFIG_USB_DWC3_DUAL_ROLE) ||
 			IS_ENABLED(CONFIG_USB_DWC3_GADGET)) {
 		debugfs_create_file("testmode", 0644, root, dwc,
